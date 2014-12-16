@@ -1,0 +1,4 @@
+#ignore load files
+*.o
+test/*
+tmp*
