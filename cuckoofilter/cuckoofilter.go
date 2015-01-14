@@ -1,10 +1,25 @@
 package cuckoofilter
 
+// #include<stdint.h>
+/*
+uint16_t CompareAndSwapUint16(uint16_t *addr, uint16_t old, uint16_t new)
+{
+    return __sync_val_compare_and_swap(addr, old, new);
+}*/
+import "C"
+
 import (
+	"bufio"
 	"crypto/sha1"
 	"fmt"
+	"io"
+	"log"
+	"os"
 	//"log"
 	//"sync/atomic"
+	//"strings"
+	"encoding/gob"
+	// "syscall"
 	"unsafe"
 )
 
@@ -18,9 +33,9 @@ const (
 
 const BucketSize = 4
 const MaxLoad = 0.95
-const KMaxCount = 500
+const KMaxCount = 512
 
-func CompareAndSwapUint16(addr *uint16, old uint16, new uint16) (swapped bool)
+//func CompareAndSwapUint16(addr *uint16, old uint16, new uint16) (swapped bool)
 
 type CFItem uint16
 
@@ -55,7 +70,7 @@ func upperpower2(x uint64) uint64 {
 }
 
 func MakeCuckooFilter(maxNumKeys uint64, kmerLen int) (cf CuckooFilter) {
-	numBuckets := upperpower2(maxNumKeys)
+	numBuckets := upperpower2(maxNumKeys) / BucketSize
 	frac := float64(maxNumKeys / numBuckets / BucketSize)
 	if frac > MaxLoad {
 		numBuckets <<= 1
@@ -127,10 +142,9 @@ func (cfi *CFItem) AddCount() (int, uint64, bool) {
 		oc := *cfi
 		count := oc.GetCount()
 		if count < MAX_C {
-			count++
 			nc := oc
-			nc.setCount(count)
-			if CompareAndSwapUint16((*uint16)(cfi), uint16(oc), uint16(nc)) {
+			nc.setCount(count + 1)
+			if C.CompareAndSwapUint16((*C.uint16_t)(cfi), C.uint16_t(oc), C.uint16_t(nc)) == C.uint16_t(oc) {
 				return int(count), 0, true
 			}
 		} else {
@@ -153,11 +167,13 @@ func (b Bucket) Contain(fingerprint uint16) bool {
 func (b *Bucket) AddBucket(fp uint64, kickout bool) (int, uint64, bool) {
 	cfi := combineCFItem(fp, 1)
 	for i := 0; i < BucketSize; i++ {
-		//fmt.Printf("cfi: %d, before: %d\n", cfi, b.bucket[i])
+		//fmt.Printf("i: %d\n", i)
 		for {
 			oi := b.bucket[i]
 			if oi.GetCount() == 0 {
-				if CompareAndSwapUint16((*uint16)(&b.bucket[i]), uint16(oi), uint16(cfi)) {
+				addr := (*C.uint16_t)(&b.bucket[i])
+				if C.CompareAndSwapUint16(addr, C.uint16_t(oi), C.uint16_t(cfi)) == C.uint16_t(oi) {
+					//fmt.Printf("[AddBucket]cfi.finger: %v, i: %d, finger: %v\n", cfi.GetFinger(), i, b.bucket[i].GetFinger())
 					countItems++
 					return 0, 0, true
 				}
@@ -175,6 +191,7 @@ func (b *Bucket) AddBucket(fp uint64, kickout bool) (int, uint64, bool) {
 		//}
 	}
 
+	//fmt.Printf("kikcout: %t", kickout)
 	if kickout {
 		ci := fp & CMASK
 		oldfinger := b.bucket[ci].GetFinger()
@@ -192,7 +209,7 @@ func (cf CuckooFilter) Add(index uint64, fingerprint uint64) (int, bool) {
 	cfinger := fingerprint
 	for count := 0; count < KMaxCount; count++ {
 		kickout := count > 0
-		b := cf.hash[ci]
+		b := &cf.hash[ci]
 		tc, oldfinger, added := b.AddBucket(cfinger, kickout)
 		if added == true {
 			if oldcount == -1 {
@@ -206,6 +223,7 @@ func (cf CuckooFilter) Add(index uint64, fingerprint uint64) (int, bool) {
 			}
 			cfinger = oldfinger
 		}
+		//fmt.Printf("cycle : %d\n", count)
 
 		ci = cf.AltIndex(ci, cfinger)
 	}
@@ -231,15 +249,17 @@ func hk2uint64(hk [sha1.Size]byte) (v uint64) {
 func (cf CuckooFilter) Insert(kb []byte) (int, bool) {
 	hk := sha1.Sum(kb)
 	v := hk2uint64(hk)
+	//fmt.Printf("%v\t", v)
 	index := cf.IndexHash(v)
 	fingerprint := FingerHash(v)
+	//fmt.Printf("[cf.Insert]%v\t%v\n", index, fingerprint)
 	//fmt.Printf(" sizeof cuckoofilter.hash[0] : %d\n", unsafe.Sizeof(cf.hash[0]))
 
 	return cf.Add(index, fingerprint)
 }
 
-func (cf CuckooFilter) Lookup(ks string) bool {
-	hk := sha1.Sum([]byte(ks))
+func (cf CuckooFilter) Lookup(kb []byte) bool {
+	hk := sha1.Sum(kb)
 	v := hk2uint64(hk)
 	index := cf.IndexHash(v)
 	fingerprint := FingerHash(v)
@@ -252,12 +272,13 @@ func (cf CuckooFilter) Lookup(ks string) bool {
 	}
 }
 
-func (cf CuckooFilter) GetCount(ks string) uint16 {
-	hk := sha1.Sum([]byte(ks))
+func (cf CuckooFilter) GetCount(kb []byte) uint16 {
+	hk := sha1.Sum(kb)
 	v := hk2uint64(hk)
 	index := cf.IndexHash(v)
 	fingerprint := FingerHash(v)
 	for _, item := range cf.hash[index].bucket {
+		fmt.Printf("index: %v, finger: %v\n", index, item.GetFinger())
 		if item.GetFinger() == uint16(fingerprint) {
 			return item.GetCount()
 		}
@@ -265,6 +286,7 @@ func (cf CuckooFilter) GetCount(ks string) uint16 {
 	// if not return , find another position
 	index = cf.AltIndex(index, fingerprint)
 	for _, item := range cf.hash[index].bucket {
+		fmt.Printf("index: %v, finger: %v\n", index, item.GetFinger())
 		if item.GetFinger() == uint16(fingerprint) {
 			return item.GetCount()
 		}
@@ -275,5 +297,117 @@ func (cf CuckooFilter) GetCount(ks string) uint16 {
 }
 
 func (cf CuckooFilter) GetStat() {
+	var ca [4]int
+	for _, b := range cf.hash {
+		for _, e := range b.bucket {
+			count := e.GetCount()
+			ca[count]++
+		}
+	}
+	fmt.Printf("count statisticas : %v\n", ca)
 	fmt.Printf("cuckoofilter numItems : %d, countItems: %d, load: %f\n", cf.numItems, countItems, float64(countItems)/float64(cf.numItems))
+}
+
+func (cf CuckooFilter) MmapWriter(cfmmapfn string) error {
+	cfmmapfp, err := os.Create(cfmmapfn)
+	if err != nil {
+		return err
+	}
+	defer cfmmapfp.Close()
+
+	// write cuckoofilter to the memory map file
+	enc := gob.NewEncoder(cfmmapfp)
+	err = enc.Encode(cf)
+	if err != nil {
+		return err
+	}
+	/*n, err := cfmmapfp.Write([]byte(cf.hash[0].bucket[0]))
+	if err != nil {
+		return err
+	}
+	if n != cf.numItems*unsafe.Sizeof(Bucket) {
+		log.Fatal("write byte number is not equal cf size")
+	}*/
+
+	return nil
+}
+
+func (cf CuckooFilter) WriteCuckooFilterInfo(cfinfofn string) error {
+	cfinfofp, err := os.Create(cfinfofn)
+	if err != nil {
+		return err
+	}
+	defer cfinfofp.Close()
+
+	_, err = cfinfofp.WriteString(fmt.Sprintf("numItems\t%d\n", cf.numItems))
+	if err != nil {
+		return err
+	}
+	_, err = cfinfofp.WriteString(fmt.Sprintf("Kmerlen\t%d\n", cf.Kmerlen))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func RecoverCuckooFilterInfo(cfinfofn string) (cf CuckooFilter, err error) {
+	var cfinfofp *os.File
+	cfinfofp, err = os.Open(cfinfofn)
+	if err != nil {
+		return cf, err
+	}
+	defer cfinfofp.Close()
+	cfinfobuf := bufio.NewReader(cfinfofp)
+	var line string
+	// eof := false
+	line, err = cfinfobuf.ReadString('\n')
+	if err != nil {
+		if err == io.EOF {
+			// eof = true
+			err = nil
+		} else {
+			return cf, err
+		}
+	}
+	// var num int
+	_, err = fmt.Sscanf(line, "numItems\t%d\n", cf.numItems)
+	if err != nil {
+		return cf, err
+	}
+	line, err = cfinfobuf.ReadString('\n')
+	_, err = fmt.Sscanf(line, "Kmerlen\t%d\n", cf.Kmerlen)
+	if err != io.EOF {
+		return cf, err
+	} else {
+		err = nil
+	}
+
+	return
+}
+
+func (cf CuckooFilter) MmapReader(cfmmapfn string) error {
+	if cf.numItems <= 0 {
+		log.Fatal("CuckooFilter number is <=0, please check")
+	}
+	cfmmapfp, err := os.Open(cfmmapfn)
+	if err != nil {
+		return err
+	}
+	defer cfmmapfp.Close()
+	fmt.Println(cf)
+	dec := gob.NewDecoder(cfmmapfp)
+	err = dec.Decode(&cf)
+	fmt.Println(cf)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// mmap, err := syscall.Mmap(cfmmapfp.Fd(), 0, cf.numItems*unsafe.Sizeof(cf.hash[0].bucket[0]), syscall.PROT_READ, syscall.MAP_SHARED)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// cf.hash = []Bucket(mmap)
+
+	return nil
 }

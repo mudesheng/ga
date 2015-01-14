@@ -4,113 +4,139 @@
 !_TAG_PROGRAM_NAME	gotags
 !_TAG_PROGRAM_URL	https://github.com/jstemmer/gotags
 !_TAG_PROGRAM_VERSION	1.3.0
-Add	cuckoofilter/cuckoofilter.go	189;"	m	access:public	ctype:CuckooFilter	line:189	signature:(index uint64, fingerprint uint64)	type:int, bool
-AddBucket	cuckoofilter/cuckoofilter.go	153;"	m	access:public	ctype:Bucket	line:153	signature:(fp uint64, kickout bool)	type:int, uint64, bool
-AddCount	cuckoofilter/cuckoofilter.go	125;"	m	access:public	ctype:CFItem	line:125	signature:()	type:int, uint64, bool
+Add	cuckoofilter/cuckoofilter.go	206;"	m	access:public	ctype:CuckooFilter	line:206	signature:(index uint64, fingerprint uint64)	type:int, bool
+AddBucket	cuckoofilter/cuckoofilter.go	167;"	m	access:public	ctype:Bucket	line:167	signature:(fp uint64, kickout bool)	type:int, uint64, bool
+AddCount	cuckoofilter/cuckoofilter.go	140;"	m	access:public	ctype:CFItem	line:140	signature:()	type:int, uint64, bool
 AllState	constructcf/constructcf.go	20;"	c	access:public	line:20
-AltIndex	cuckoofilter/cuckoofilter.go	83;"	m	access:public	ctype:CuckooFilter	line:83	signature:(index uint64, finger uint64)	type:uint64
+AltIndex	cuckoofilter/cuckoofilter.go	98;"	m	access:public	ctype:CuckooFilter	line:98	signature:(index uint64, finger uint64)	type:uint64
 Base2Bnt	bnt/bnt.go	9;"	v	access:public	line:9
 BaseMask	bnt/bnt.go	6;"	c	access:public	line:6
-BiggerThan	constructcf/constructcf.go	65;"	m	access:public	ctype:ReadBnt	line:65	signature:(s2 ReadBnt)	type:bool
+BiggerThan	constructcf/constructcf.go	66;"	m	access:public	ctype:ReadBnt	line:66	signature:(s2 ReadBnt)	type:bool
 BitNtCharLow	bnt/bnt.go	27;"	v	access:public	line:27
 BitNtCharUp	bnt/bnt.go	28;"	v	access:public	line:28
-Bucket	cuckoofilter/cuckoofilter.go	32;"	t	access:public	line:32	type:struct
-BucketSize	cuckoofilter/cuckoofilter.go	19;"	c	access:public	line:19
-CCF	constructcf/constructcf.go	290;"	f	access:public	line:290	signature:(c cli.Command)
-CFItem	cuckoofilter/cuckoofilter.go	25;"	t	access:public	line:25	type:uint16
-CMASK	cuckoofilter/cuckoofilter.go	15;"	c	access:public	line:15
+Bucket	cuckoofilter/cuckoofilter.go	47;"	t	access:public	line:47	type:struct
+BucketSize	cuckoofilter/cuckoofilter.go	34;"	c	access:public	line:34
+C	cuckoofilter/cuckoofilter.go	9;"	i	line:9
+CCF	constructcf/constructcf.go	297;"	f	access:public	line:297	signature:(c cli.Command)
+CDBG	constructdbg/constructdbg.go	117;"	f	access:public	line:117	signature:(c cli.Command)
+CFItem	cuckoofilter/cuckoofilter.go	40;"	t	access:public	line:40	type:uint16
+CMASK	cuckoofilter/cuckoofilter.go	30;"	c	access:public	line:30
 CfgInfo	constructcf/constructcf.go	43;"	t	access:public	line:43	type:struct
-CompareAndSwapUint16	cuckoofilter/cuckoofilter.go	23;"	f	access:public	line:23	signature:(addr *uint16, old uint16, new uint16)	type:bool
-Contain	cuckoofilter/cuckoofilter.go	142;"	m	access:public	ctype:Bucket	line:142	signature:(fingerprint uint16)	type:bool
-CuckooFilter	cuckoofilter/cuckoofilter.go	36;"	t	access:public	line:36	type:struct
+Contain	cuckoofilter/cuckoofilter.go	156;"	m	access:public	ctype:Bucket	line:156	signature:(fingerprint uint16)	type:bool
+CuckooFilter	cuckoofilter/cuckoofilter.go	51;"	t	access:public	line:51	type:struct
 EndString	constructcf/constructcf.go	23;"	c	access:public	line:23
-EqualFP	cuckoofilter/cuckoofilter.go	116;"	m	access:public	ctype:CFItem	line:116	signature:(rcfi CFItem)	type:bool
-ExtendReadBnt2Byte	constructcf/constructcf.go	160;"	f	access:public	ctype:ReadBnt	line:160	signature:(rb ReadBnt)	type:ReadBnt
-FPMASK	cuckoofilter/cuckoofilter.go	14;"	c	access:public	line:14
-FingerHash	cuckoofilter/cuckoofilter.go	78;"	f	access:public	line:78	signature:(v uint64)	type:uint64
-GA/bnt	constructcf/constructcf.go	4;"	i	line:4
-GA/constructcf	ga.go	5;"	i	line:5
-GA/cuckoofilter	constructcf/constructcf.go	5;"	i	line:5
-GAArgs	ga.go	10;"	t	access:public	line:10	type:struct
+EqualFP	cuckoofilter/cuckoofilter.go	131;"	m	access:public	ctype:CFItem	line:131	signature:(rcfi CFItem)	type:bool
+ExtendReadBnt2Byte	constructcf/constructcf.go	161;"	f	access:public	ctype:ReadBnt	line:161	signature:(rb ReadBnt)	type:ReadBnt
+FPMASK	cuckoofilter/cuckoofilter.go	29;"	c	access:public	line:29
+FingerHash	cuckoofilter/cuckoofilter.go	93;"	f	access:public	line:93	signature:(v uint64)	type:uint64
+GAArgs	ga.go	11;"	t	access:public	line:11	type:struct
 GapState	constructcf/constructcf.go	22;"	c	access:public	line:22
-GetCount	cuckoofilter/cuckoofilter.go	100;"	m	access:public	ctype:CFItem	line:100	signature:()	type:uint16
-GetCount	cuckoofilter/cuckoofilter.go	255;"	m	access:public	ctype:CuckooFilter	line:255	signature:(ks string)	type:uint16
-GetFinger	cuckoofilter/cuckoofilter.go	112;"	m	access:public	ctype:CFItem	line:112	signature:()	type:uint16
-GetReadBntKmer	constructcf/constructcf.go	177;"	f	access:public	ctype:ReadBnt	line:177	signature:(extRBnt ReadBnt, startPos int, kmerlen int)	type:ReadBnt
-GetStat	cuckoofilter/cuckoofilter.go	277;"	m	access:public	ctype:CuckooFilter	line:277	signature:()
-IndexHash	cuckoofilter/cuckoofilter.go	72;"	m	access:public	ctype:CuckooFilter	line:72	signature:(v uint64)	type:uint64
-Insert	cuckoofilter/cuckoofilter.go	231;"	m	access:public	ctype:CuckooFilter	line:231	signature:(ks string)	type:int, bool
-KMaxCount	cuckoofilter/cuckoofilter.go	21;"	c	access:public	line:21
-Kmerlen	cuckoofilter/cuckoofilter.go	39;"	w	access:public	ctype:CuckooFilter	line:39	type:int
+GetCount	cuckoofilter/cuckoofilter.go	115;"	m	access:public	ctype:CFItem	line:115	signature:()	type:uint16
+GetCount	cuckoofilter/cuckoofilter.go	275;"	m	access:public	ctype:CuckooFilter	line:275	signature:(kb []byte)	type:uint16
+GetFinger	cuckoofilter/cuckoofilter.go	127;"	m	access:public	ctype:CFItem	line:127	signature:()	type:uint16
+GetReadBntKmer	constructcf/constructcf.go	178;"	f	access:public	ctype:ReadBnt	line:178	signature:(extRBnt ReadBnt, startPos int, kmerlen int)	type:ReadBnt
+GetStat	cuckoofilter/cuckoofilter.go	299;"	m	access:public	ctype:CuckooFilter	line:299	signature:()
+IndexHash	cuckoofilter/cuckoofilter.go	87;"	m	access:public	ctype:CuckooFilter	line:87	signature:(v uint64)	type:uint64
+Insert	cuckoofilter/cuckoofilter.go	249;"	m	access:public	ctype:CuckooFilter	line:249	signature:(kb []byte)	type:int, bool
+KMaxCount	cuckoofilter/cuckoofilter.go	36;"	c	access:public	line:36
+Kmerlen	cuckoofilter/cuckoofilter.go	54;"	w	access:public	ctype:CuckooFilter	line:54	type:int
 LibInfo	constructcf/constructcf.go	27;"	t	access:public	line:27	type:struct
-Lookup	cuckoofilter/cuckoofilter.go	241;"	m	access:public	ctype:CuckooFilter	line:241	signature:(ks string)	type:bool
-MAX_C	cuckoofilter/cuckoofilter.go	16;"	c	access:public	line:16
-MakeCuckooFilter	cuckoofilter/cuckoofilter.go	57;"	f	access:public	ctype:CuckooFilter	line:57	signature:(maxNumKeys uint64, kmerLen int)	type:CuckooFilter
-MaxLoad	cuckoofilter/cuckoofilter.go	20;"	c	access:public	line:20
-NUM_C_BITS	cuckoofilter/cuckoofilter.go	13;"	c	access:public	line:13
-NUM_FP_BITS	cuckoofilter/cuckoofilter.go	12;"	c	access:public	line:12
+Lookup	cuckoofilter/cuckoofilter.go	261;"	m	access:public	ctype:CuckooFilter	line:261	signature:(kb []byte)	type:bool
+MAX_C	cuckoofilter/cuckoofilter.go	31;"	c	access:public	line:31
+MakeCuckooFilter	cuckoofilter/cuckoofilter.go	72;"	f	access:public	ctype:CuckooFilter	line:72	signature:(maxNumKeys uint64, kmerLen int)	type:CuckooFilter
+MaxLoad	cuckoofilter/cuckoofilter.go	35;"	c	access:public	line:35
+MmapReader	cuckoofilter/cuckoofilter.go	389;"	m	access:public	ctype:CuckooFilter	line:389	signature:(cfmmapfn string)	type:error
+MmapWriter	cuckoofilter/cuckoofilter.go	311;"	m	access:public	ctype:CuckooFilter	line:311	signature:(cfmmapfn string)	type:error
+NUM_C_BITS	cuckoofilter/cuckoofilter.go	28;"	c	access:public	line:28
+NUM_FP_BITS	cuckoofilter/cuckoofilter.go	27;"	c	access:public	line:27
 NumBaseInByte	bnt/bnt.go	4;"	c	access:public	line:4
 NumBitsInBase	bnt/bnt.go	5;"	c	access:public	line:5
 ReadBnt	constructcf/constructcf.go	50;"	t	access:public	line:50	type:struct
 ReadSeqBucket	constructcf/constructcf.go	55;"	t	access:public	line:55	type:struct
 ReadSeqSize	constructcf/constructcf.go	24;"	c	access:public	line:24
-ReverseComplet	constructcf/constructcf.go	189;"	f	access:public	ctype:ReadBnt	line:189	signature:(ks ReadBnt)	type:ReadBnt
+RecoverCuckooFilterInfo	cuckoofilter/cuckoofilter.go	354;"	f	access:public	ctype:CuckooFilter	line:354	signature:(cfinfofn string)	type:CuckooFilter, error
+ReverseComplet	constructcf/constructcf.go	190;"	f	access:public	ctype:ReadBnt	line:190	signature:(ks ReadBnt)	type:ReadBnt
 ScaffState	constructcf/constructcf.go	21;"	c	access:public	line:21
-Trans2Byte	constructcf/constructcf.go	274;"	f	access:public	ctype:ReadBnt	line:274	signature:(s string)	type:ReadBnt
-app	ga.go	18;"	v	access:private	line:18
+Trans2Byte	constructcf/constructcf.go	281;"	f	access:public	ctype:ReadBnt	line:281	signature:(s string)	type:ReadBnt
+WriteCuckooFilterInfo	cuckoofilter/cuckoofilter.go	335;"	m	access:public	ctype:CuckooFilter	line:335	signature:(cfinfofn string)	type:error
+app	ga.go	19;"	v	access:private	line:19
 asmFlag	constructcf/constructcf.go	32;"	w	access:private	ctype:LibInfo	line:32	type:uint8
 bnt	bnt/bnt.go	1;"	p	line:1
-bucket	cuckoofilter/cuckoofilter.go	33;"	w	access:private	ctype:Bucket	line:33	type:[]CFItem
-bufio	constructcf/constructcf.go	6;"	i	line:6
-cfSize	ga.go	15;"	w	access:private	ctype:GAArgs	line:15	type:int64
-cfg	ga.go	11;"	w	access:private	ctype:GAArgs	line:11	type:string
-combineCFItem	cuckoofilter/cuckoofilter.go	89;"	f	access:private	line:89	signature:(fp uint64, count uint64)	type:CFItem
-compress/gzip	constructcf/constructcf.go	7;"	i	line:7
+bucket	cuckoofilter/cuckoofilter.go	48;"	w	access:private	ctype:Bucket	line:48	type:[]CFItem
+bufio	constructcf/constructcf.go	4;"	i	line:4
+bufio	constructdbg/constructdbg.go	4;"	i	line:4
+bufio	cuckoofilter/cuckoofilter.go	12;"	i	line:12
+cfSize	ga.go	16;"	w	access:private	ctype:GAArgs	line:16	type:int64
+cfg	ga.go	12;"	w	access:private	ctype:GAArgs	line:12	type:string
+combineCFItem	cuckoofilter/cuckoofilter.go	104;"	f	access:private	line:104	signature:(fp uint64, count uint64)	type:CFItem
+compress/gzip	constructcf/constructcf.go	5;"	i	line:5
+compress/gzip	constructdbg/constructdbg.go	5;"	i	line:5
+constructDBG	constructdbg/constructdbg.go	1;"	p	line:1
 constructcf	constructcf/constructcf.go	1;"	p	line:1
-countItems	cuckoofilter/cuckoofilter.go	42;"	v	access:private	line:42	type:uint64
-crypto/sha1	cuckoofilter/cuckoofilter.go	4;"	i	line:4
+count	constructcf/constructcf.go	58;"	w	access:private	ctype:ReadSeqBucket	line:58	type:int
+countItems	cuckoofilter/cuckoofilter.go	57;"	v	access:private	line:57	type:uint64
+crypto/sha1	cuckoofilter/cuckoofilter.go	13;"	i	line:13
 cuckoofilter	cuckoofilter/cuckoofilter.go	1;"	p	line:1
 diverse	constructcf/constructcf.go	30;"	w	access:private	ctype:LibInfo	line:30	type:uint8
+encoding/gob	cuckoofilter/cuckoofilter.go	21;"	i	line:21
 end	constructcf/constructcf.go	56;"	w	access:private	ctype:ReadSeqBucket	line:56	type:bool
-fmt	constructcf/constructcf.go	8;"	i	line:8
-fmt	cuckoofilter/cuckoofilter.go	5;"	i	line:5
+fmt	constructcf/constructcf.go	6;"	i	line:6
+fmt	constructdbg/constructdbg.go	6;"	i	line:6
+fmt	cuckoofilter/cuckoofilter.go	14;"	i	line:14
 fnName	constructcf/constructcf.go	40;"	w	access:private	ctype:LibInfo	line:40	type:[]string
+ga/bnt	constructcf/constructcf.go	7;"	i	line:7
+ga/bnt	constructdbg/constructdbg.go	7;"	i	line:7
+ga/constructcf	constructdbg/constructdbg.go	8;"	i	line:8
+ga/constructcf	ga.go	5;"	i	line:5
+ga/constructdbg	ga.go	6;"	i	line:6
+ga/cuckoofilter	constructcf/constructcf.go	8;"	i	line:8
+ga/cuckoofilter	constructdbg/constructdbg.go	9;"	i	line:9
 github.com/jwaldrip/odin/cli	constructcf/constructcf.go	9;"	i	line:9
-github.com/jwaldrip/odin/cli	ga.go	7;"	i	line:7
-hash	cuckoofilter/cuckoofilter.go	37;"	w	access:private	ctype:CuckooFilter	line:37	type:[]Bucket
-hk2uint64	cuckoofilter/cuckoofilter.go	215;"	f	access:private	line:215	signature:(hk []byte)	type:uint64
-init	ga.go	22;"	f	access:private	line:22	signature:()
+github.com/jwaldrip/odin/cli	constructdbg/constructdbg.go	10;"	i	line:10
+github.com/jwaldrip/odin/cli	ga.go	8;"	i	line:8
+hash	cuckoofilter/cuckoofilter.go	52;"	w	access:private	ctype:CuckooFilter	line:52	type:[]Bucket
+hk2uint64	cuckoofilter/cuckoofilter.go	233;"	f	access:private	line:233	signature:(hk []byte)	type:uint64
+init	ga.go	23;"	f	access:private	line:23	signature:()
 insertSD	constructcf/constructcf.go	38;"	w	access:private	ctype:LibInfo	line:38	type:int
 insertSize	constructcf/constructcf.go	37;"	w	access:private	ctype:LibInfo	line:37	type:int
 io	constructcf/constructcf.go	10;"	i	line:10
-kmer	ga.go	12;"	w	access:private	ctype:GAArgs	line:12	type:int
+io	cuckoofilter/cuckoofilter.go	15;"	i	line:15
+kmer	ga.go	13;"	w	access:private	ctype:GAArgs	line:13	type:int
 length	constructcf/constructcf.go	52;"	w	access:private	ctype:ReadBnt	line:52	type:int
 libs	constructcf/constructcf.go	47;"	w	access:private	ctype:CfgInfo	line:47	type:[]LibInfo
 log	constructcf/constructcf.go	11;"	i	line:11
+log	constructdbg/constructdbg.go	11;"	i	line:11
+log	cuckoofilter/cuckoofilter.go	16;"	i	line:16
 main	ga.go	1;"	p	line:1
-main	ga.go	35;"	f	access:private	line:35	signature:()
+main	ga.go	37;"	f	access:private	line:37	signature:()
 maxRdLen	constructcf/constructcf.go	44;"	w	access:private	ctype:CfgInfo	line:44	type:int
 minRdLen	constructcf/constructcf.go	45;"	w	access:private	ctype:CfgInfo	line:45	type:int
 name	constructcf/constructcf.go	28;"	w	access:private	ctype:LibInfo	line:28	type:string
-numCPU	ga.go	14;"	w	access:private	ctype:GAArgs	line:14	type:int
-numItems	cuckoofilter/cuckoofilter.go	38;"	w	access:private	ctype:CuckooFilter	line:38	type:uint64
+numCPU	ga.go	15;"	w	access:private	ctype:GAArgs	line:15	type:int
+numItems	cuckoofilter/cuckoofilter.go	53;"	w	access:private	ctype:CuckooFilter	line:53	type:uint64
 numberReads	constructcf/constructcf.go	29;"	w	access:private	ctype:LibInfo	line:29	type:int64
 os	constructcf/constructcf.go	12;"	i	line:12
+os	constructdbg/constructdbg.go	12;"	i	line:12
+os	cuckoofilter/cuckoofilter.go	17;"	i	line:17
 paired	constructcf/constructcf.go	31;"	w	access:private	ctype:LibInfo	line:31	type:uint8
-paraConstructCF	constructcf/constructcf.go	204;"	f	access:private	line:204	signature:(cf cuckoofilter.CuckooFilter, cs chan ReadSeqBucket, wc chan ReadSeqBucket)
-parseCfg	constructcf/constructcf.go	83;"	f	access:private	ctype:CfgInfo	line:83	signature:(fn string)	type:CfgInfo, error
-prefix	ga.go	13;"	w	access:private	ctype:GAArgs	line:13	type:string
+paraConstructCF	constructcf/constructcf.go	205;"	f	access:private	line:205	signature:(cf cuckoofilter.CuckooFilter, cs chan ReadSeqBucket, wc chan ReadSeqBucket)
+paraLookupComplexNode	constructdbg/constructdbg.go	63;"	f	access:private	line:63	signature:(cs chan ReadSeqBucket, wc chan ReadSeqBucket, cf CuckooFilter)
+parseCfg	constructcf/constructcf.go	84;"	f	access:private	ctype:CfgInfo	line:84	signature:(fn string)	type:CfgInfo, error
+prefix	ga.go	14;"	w	access:private	ctype:GAArgs	line:14	type:string
 qualBenchmark	constructcf/constructcf.go	34;"	w	access:private	ctype:LibInfo	line:34	type:uint8
 readBuf	constructcf/constructcf.go	57;"	w	access:private	ctype:ReadSeqBucket	line:57	type:[]ReadBnt
 readLen	constructcf/constructcf.go	36;"	w	access:private	ctype:LibInfo	line:36	type:int
+readUniqKmer	constructdbg/constructdbg.go	17;"	f	access:private	line:17	signature:(uniqkmerfn string, cs chan bnt.ReadSeqBucket, kmerlen int)
 runtime	constructcf/constructcf.go	13;"	i	line:13
+runtime	constructdbg/constructdbg.go	13;"	i	line:13
 seq	constructcf/constructcf.go	51;"	w	access:private	ctype:ReadBnt	line:51	type:[]byte
 seqProfile	constructcf/constructcf.go	33;"	w	access:private	ctype:LibInfo	line:33	type:uint8
-setCount	cuckoofilter/cuckoofilter.go	104;"	m	access:private	ctype:CFItem	line:104	signature:(count uint16)
+setCount	cuckoofilter/cuckoofilter.go	119;"	m	access:private	ctype:CFItem	line:119	signature:(count uint16)
 strconv	constructcf/constructcf.go	14;"	i	line:14
 strings	constructcf/constructcf.go	15;"	i	line:15
 time	constructcf/constructcf.go	16;"	i	line:16
+time	constructdbg/constructdbg.go	14;"	i	line:14
 totalBasesNum	constructcf/constructcf.go	35;"	w	access:private	ctype:LibInfo	line:35	type:int64
-unsafe	cuckoofilter/cuckoofilter.go	8;"	i	line:8
-upperpower2	cuckoofilter/cuckoofilter.go	44;"	f	access:private	line:44	signature:(x uint64)	type:uint64
-writeKmer	constructcf/constructcf.go	243;"	f	access:private	line:243	signature:(wrfn string, cs chan ReadSeqBucket, wc chan ReadSeqBucket, numCPU int)
+unsafe	cuckoofilter/cuckoofilter.go	23;"	i	line:23
+upperpower2	cuckoofilter/cuckoofilter.go	59;"	f	access:private	line:59	signature:(x uint64)	type:uint64
+writeKmer	constructcf/constructcf.go	249;"	f	access:private	line:249	signature:(wrfn string, we chan int, wc chan ReadSeqBucket, numCPU int)

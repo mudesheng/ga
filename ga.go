@@ -2,10 +2,13 @@ package main
 
 import (
 	//	"GA/cuckoofilter"
-	"GA/constructcf"
+	"ga/constructcf"
+	"ga/constructdbg"
 	//	"fmt"
 	"github.com/jwaldrip/odin/cli"
 )
+
+const Kmerdef = 57
 
 type GAArgs struct {
 	cfg    string
@@ -21,13 +24,17 @@ var app = cli.New("1.0.0", "Graph Assembler for complex genome", func(c cli.Comm
 
 func init() {
 	app.DefineStringFlag("C", "ga.cfg", "configure file")
-	app.DefineIntFlag("K", 57, "kmer length")
+	app.DefineIntFlag("K", Kmerdef, "kmer length")
 	app.DefineStringFlag("p", "ga", "prefix of the output file")
 	app.DefineIntFlag("t", 4, "number of CPU used")
 	ccf := app.DefineSubCommand("ccf", "construct cukcoofilter", constructcf.CCF)
 	{
 		ccf.DefineInt64Flag("S", 0, "the number of item cuckoofilter set")
 
+	}
+	cdbg := app.DefineSubCommand("cdbg", "construct De bruijn Graph", constructdbg.CDBG)
+	{
+		cdbg.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
 
 }
