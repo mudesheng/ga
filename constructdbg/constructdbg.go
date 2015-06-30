@@ -16,20 +16,20 @@ import (
 	"github.com/jwaldrip/odin/cli"
 )
 
-func readUniqKmer(uniqkmerfn string, cs chan constructcf.ReadSeqBucket, kmerlen int, numCPU int) {
-	uniqkmerfp, err := os.Open(uniqkmerfn)
+func readUniqKmer(uniqkmergzfn string, cs chan constructcf.ReadBnt, kmerlen, numCPU int) {
+	uniqkmergzfp, err := os.Open(uniqkmergzfn)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer uniqkmerfp.Close()
-	ukgzfp, err := gzip.NewReader(uniqkmerfp)
+	defer uniqkmergzfp.Close()
+	ukgzfp, err := gzip.NewReader(uniqkmergzfp)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer ukgzfp.Close()
 	ukbuffp := bufio.NewReader(ukgzfp)
 	var processNumKmer int
-	var rsb constructcf.ReadSeqBucket
+	// var rsb constructcf.ReadSeqBucket
 	eof := false
 	for !eof {
 		//var kmer []byte
@@ -42,26 +42,24 @@ func readUniqKmer(uniqkmerfn string, cs chan constructcf.ReadSeqBucket, kmerlen 
 				log.Fatal(err)
 			}
 		}
-		if rsb.Count >= constructcf.ReadSeqSize {
-			cs <- rsb
-			var nsb constructcf.ReadSeqBucket
-			rsb = nsb
+		var rb constructcf.ReadBnt
+		rb.Seq = line[:len(line)-1]
+		if len(rb.Seq) != kmerlen {
+			log.Fatalf("[readUniqKmer] len(rb.Seq) != kmerlen\n")
+		} else {
+			rb.Length = kmerlen
 		}
-		rsb.ReadBuf[rsb.Count].Seq = line[:len(line)-1]
-		rsb.ReadBuf[rsb.Count].Length = kmerlen
-		rsb.Count++
-		processNumKmer++
+		cs <- rb
 	}
-	cs <- rsb
 	// send read finish signal
 	for i := 0; i < numCPU; i++ {
-		var nrsb constructcf.ReadSeqBucket
-		nrsb.End = true
-		cs <- nrsb
+		var rb constructcf.ReadBnt
+		rb.Length = 0
+		cs <- rb
 	}
 }
 
-func paraLookupComplexNode(cs chan constructcf.ReadSeqBucket, wc chan constructcf.ReadSeqBucket, cf cuckoofilter.CuckooFilter) {
+func paraLookupComplexNode(cs chan constructcf.ReadBnt, wc chan constructcf.ReadBnt, cf cuckoofilter.CuckooFilter) {
 	var wrsb constructcf.ReadSeqBucket
 	for {
 		rsb := <-cs
@@ -138,15 +136,17 @@ func CDBG(c cli.Command) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	bufsize := 50
-	cs := make(chan constructcf.ReadSeqBucket, bufsize)
-	wc := make(chan constructcf.ReadSeqBucket, bufsize)
-	uniqkmerfn := prefix + ".uniqkmerseq.gz"
+	bufsize := 100
+	cs := make(chan constructcf.ReadBnt, bufsize)
+	defer cs.Close()
+	wc := make(chan constructcf.ReadBnt, bufsize)
+	defer wc.Close()
+	uniqkmergzfn := prefix + ".uniqkmerseq.gz"
 	// read uniq kmers form file
-	go readUniqKmer(uniqkmerfn, cs, cf.Kmerlen, numCPU)
+	go readUniqKmer(uniqkmergzfn, cs, cf.Kmerlen, numCPU-1)
 
 	// identify complex Nodes
-	for i := 0; i < numCPU; i++ {
+	for i := 0; i < numCPU-1; i++ {
 		go paraLookupComplexNode(cs, wc, cf)
 	}
 
@@ -163,20 +163,19 @@ func CDBG(c cli.Command) {
 	defer ckgzfp.Close()
 	endFlagCount := 0
 
+	// write complex node to the file
 	for {
-		rsb := <-wc
-		if rsb.End == true {
+		rb := <-wc
+		if rb.Length == 0 {
 			endFlagCount++
-			if endFlagCount == numCPU {
+			if endFlagCount == numCPU-1 {
 				break
 			} else {
 				continue
 			}
 		}
 
-		for i := 0; i < rsb.Count; i++ {
-			ckgzfp.Write(rsb.ReadBuf[i].Seq)
-		}
+		ckgzfp.Write(rb.Seq)
 	}
 
 }

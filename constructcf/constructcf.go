@@ -52,11 +52,11 @@ type ReadBnt struct {
 	Length int // length of sequence
 }
 
-type ReadSeqBucket struct {
+/* type ReadSeqBucket struct {
 	End     bool
 	ReadBuf [ReadSeqSize]ReadBnt
 	Count   int
-}
+} */
 
 /*type ChanStruct struct {
 	readseq chan []string
