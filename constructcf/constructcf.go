@@ -361,6 +361,7 @@ func CCF(c cli.Command) {
 						if err == io.EOF {
 							err = nil
 							eof = true
+							continue
 						} else {
 							log.Fatal(err)
 						}

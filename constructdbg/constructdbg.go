@@ -120,6 +120,7 @@ func paraLookupComplexNode(cs chan constructcf.ReadSeqBucket, wc chan constructc
 func CDBG(c cli.Command) {
 	fmt.Println(c.Flags(), c.Parent().Flags())
 
+	// get set arguments
 	// t0 := time.Now()
 	numCPU, err := strconv.Atoi(c.Parent().Flag("t").String())
 	if err != nil {
@@ -137,12 +138,14 @@ func CDBG(c cli.Command) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	bufsize := 10
+	bufsize := 50
 	cs := make(chan constructcf.ReadSeqBucket, bufsize)
 	wc := make(chan constructcf.ReadSeqBucket, bufsize)
 	uniqkmerfn := prefix + ".uniqkmerseq.gz"
+	// read uniq kmers form file
 	go readUniqKmer(uniqkmerfn, cs, cf.Kmerlen, numCPU)
 
+	// identify complex Nodes
 	for i := 0; i < numCPU; i++ {
 		go paraLookupComplexNode(cs, wc, cf)
 	}
