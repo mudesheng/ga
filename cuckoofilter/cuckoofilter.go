@@ -296,6 +296,32 @@ func (cf CuckooFilter) GetCount(kb []byte) uint16 {
 	panic("not found in the CuckooFilter")
 }
 
+/* allow function return zero version if kb not found in the CuckooFilter */
+func (cf CuckooFilter) GetCountAllowZero(kb []byte) uint16 {
+	hk := sha1.Sum(kb)
+	v := hk2uint64(hk)
+	index := cf.IndexHash(v)
+	fingerprint := FingerHash(v)
+	for _, item := range cf.hash[index].bucket {
+		fmt.Printf("index: %v, finger: %v\n", index, item.GetFinger())
+		if item.GetFinger() == uint16(fingerprint) {
+			return item.GetCount()
+		}
+	}
+	// if not return , find another position
+	index = cf.AltIndex(index, fingerprint)
+	for _, item := range cf.hash[index].bucket {
+		fmt.Printf("index: %v, finger: %v\n", index, item.GetFinger())
+		if item.GetFinger() == uint16(fingerprint) {
+			return item.GetCount()
+		}
+	}
+
+	// not found in the CuckooFilter, return zero
+	// panic("not found in the CuckooFilter")
+	return 0
+}
+
 func (cf CuckooFilter) GetStat() {
 	var ca [4]int
 	for _, b := range cf.hash {

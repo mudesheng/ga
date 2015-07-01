@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"compress/gzip"
 	"fmt"
+	"ga/bnt"
 	"ga/constructcf"
 	"ga/cuckoofilter"
 	"io"
@@ -15,6 +16,16 @@ import (
 
 	"github.com/jwaldrip/odin/cli"
 )
+
+type DBG_MAX_INT uint32
+
+type DBGNode struct {
+	ID              DBG_MAX_INT
+	EdgeIDIncoming  [bnt.BaseTypeNum]DBG_MAX_INT
+	EdgeIDOutcoming [bnt.BaseTypeNum]DBG_MAX_INT
+	Seq             []byte
+	SubGID          uint8
+}
 
 func readUniqKmer(uniqkmergzfn string, cs chan constructcf.ReadBnt, kmerlen, numCPU int) {
 	uniqkmergzfp, err := os.Open(uniqkmergzfn)
@@ -50,6 +61,7 @@ func readUniqKmer(uniqkmergzfn string, cs chan constructcf.ReadBnt, kmerlen, num
 			rb.Length = kmerlen
 		}
 		cs <- rb
+		processNumKmer += 1
 	}
 	// send read finish signal
 	for i := 0; i < numCPU; i++ {
@@ -60,56 +72,50 @@ func readUniqKmer(uniqkmergzfn string, cs chan constructcf.ReadBnt, kmerlen, num
 }
 
 func paraLookupComplexNode(cs chan constructcf.ReadBnt, wc chan constructcf.ReadBnt, cf cuckoofilter.CuckooFilter) {
-	var wrsb constructcf.ReadSeqBucket
+	// var wrsb constructcf.ReadSeqBucket
 	for {
-		rsb := <-cs
-
-		if rsb.End == true {
-			wc <- wrsb
-			wc <- rsb
+		rb := <-cs
+		if rb.Length == 0 {
+			wc <- rb
 			break
 		} else {
-			if rsb.Count < constructcf.ReadSeqSize {
-				fmt.Printf("rsb.ReadBuf length is : %d\n", len(rsb.ReadBuf))
-			}
+			// if rsb.Count < constructcf.ReadSeqSize {
+			// 	fmt.Printf("rsb.ReadBuf length is : %d\n", len(rsb.ReadBuf))
+			// }
+			// if found kmer count is 1 , this kmer will be ignore, and skip this branch
+			min_count := uint16(2)
 			leftcount := 0
 			rightcount := 0
-			for i := 0; i < rsb.Count; i++ {
-				extRBnt := constructcf.ExtendReadBnt2Byte(rsb.ReadBuf[i])
-				var nBnt constructcf.ReadBnt
-				nBnt.Seq = make([]byte, cf.Kmerlen+1)
-				copy(nBnt.Seq, extRBnt.Seq)
-				for j := 0; j < 4; j++ {
-					bj := byte(j)
-					if bj != extRBnt.Seq[0] {
-						nBnt.Seq[0] = bj
-						ks := constructcf.GetReadBntKmer(nBnt, 0, cf.Kmerlen)
-						rs := constructcf.ReverseComplet(ks)
-						if ks.BiggerThan(rs) {
-							ks, rs = rs, ks
-						}
-						if cf.Lookup(ks.Seq) {
-							leftcount++
-						}
-					}
-					nBnt.Seq[cf.Kmerlen] = bj
-					ks := constructcf.GetReadBntKmer(nBnt, 1, cf.Kmerlen)
-					rs := constructcf.ReverseComplet(ks)
-					if ks.BiggerThan(rs) {
-						ks, rs = rs, ks
-					}
-					if cf.Lookup(ks.Seq) {
-						rightcount++
-					}
+			extRBnt := constructcf.ExtendReadBnt2Byte(rb)
+			var nBnt constructcf.ReadBnt
+			nBnt.Seq = make([]byte, cf.Kmerlen+1)
+			copy(nBnt.Seq, extRBnt.Seq)
+			for j := 0; j < 4; j++ {
+				bj := byte(j)
+				nBnt.Seq[0] = bj
+				ks := constructcf.GetReadBntKmer(nBnt, 0, cf.Kmerlen)
+				rs := constructcf.ReverseComplet(ks)
+				if ks.BiggerThan(rs) {
+					ks, rs = rs, ks
 				}
-				if leftcount > 0 || rightcount > 1 || (leftcount == 0 && rightcount == 0) {
-					node := constructcf.GetReadBntKmer(extRBnt, 1, cf.Kmerlen-1)
-					if wrsb.Count >= constructcf.ReadSeqSize {
-						wc <- wrsb
-						wrsb.Count = 0
-					}
-					wrsb.ReadBuf[wrsb.Count] = node
+				if cf.GetCountAllowZero(ks.Seq) >= min_count {
+					leftcount++
 				}
+				nBnt.Seq[cf.Kmerlen] = bj
+				ks = constructcf.GetReadBntKmer(nBnt, 1, cf.Kmerlen)
+				rs = constructcf.ReverseComplet(ks)
+				if ks.BiggerThan(rs) {
+					ks, rs = rs, ks
+				}
+				if cf.GetCountAllowZero(ks.Seq) >= min_count {
+					rightcount++
+				}
+			}
+			// if leftcount > 0 || rightcount > 1 || (leftcount == 0 && rightcount == 0) {
+			if leftcount > 1 || rightcount > 1 || (leftcount == 0 && rightcount == 1) ||
+				(leftcount == 1 && rightcount == 0) {
+				node := constructcf.GetReadBntKmer(extRBnt, 1, cf.Kmerlen-1)
+				wc <- node
 			}
 		}
 	}
@@ -138,9 +144,7 @@ func CDBG(c cli.Command) {
 	}
 	bufsize := 100
 	cs := make(chan constructcf.ReadBnt, bufsize)
-	defer cs.Close()
 	wc := make(chan constructcf.ReadBnt, bufsize)
-	defer wc.Close()
 	uniqkmergzfn := prefix + ".uniqkmerseq.gz"
 	// read uniq kmers form file
 	go readUniqKmer(uniqkmergzfn, cs, cf.Kmerlen, numCPU-1)
@@ -164,6 +168,7 @@ func CDBG(c cli.Command) {
 	endFlagCount := 0
 
 	// write complex node to the file
+	complexNodeNum := 0
 	for {
 		rb := <-wc
 		if rb.Length == 0 {
@@ -176,6 +181,7 @@ func CDBG(c cli.Command) {
 		}
 
 		ckgzfp.Write(rb.Seq)
+		ckgzfp.Write([]byte("\n"))
+		complexNodeNum += 1
 	}
-
 }

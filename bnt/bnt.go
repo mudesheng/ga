@@ -3,6 +3,7 @@ package bnt
 const (
 	NumBaseInByte = 4
 	NumBitsInBase = 2
+	BaseTypeNum   = 4
 	BaseMask      = ((1 << NumBitsInBase) - 1) // 0x3
 )
 
