@@ -29,12 +29,16 @@ func init() {
 	app.DefineIntFlag("t", 4, "number of CPU used")
 	ccf := app.DefineSubCommand("ccf", "construct cukcoofilter", constructcf.CCF)
 	{
-		ccf.DefineInt64Flag("S", 0, "the number of item cuckoofilter set")
-
+		ccf.DefineInt64Flag("S", 0, "the Size number of items cuckoofilter set")
 	}
 	cdbg := app.DefineSubCommand("cdbg", "construct De bruijn Graph", constructdbg.CDBG)
 	{
 		cdbg.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
+	}
+
+	smfy := app.DefineSubCommand("cdbg", "construct De bruijn Graph", constructdbg.Smfy)
+	{
+		smfy.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
 
 }

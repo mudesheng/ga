@@ -3,6 +3,7 @@ package constructcf
 import (
 	"bufio"
 	"compress/gzip"
+	"encoding/binary"
 	"fmt"
 	"ga/bnt"
 	"ga/cuckoofilter"
@@ -79,6 +80,20 @@ func (s1 ReadBnt) BiggerThan(s2 ReadBnt) bool {
 	}
 
 	return false
+}
+
+func (s1 ReadBnt) Equal(s2 ReadBnt) bool {
+	if s1.Length != s2.Length {
+		return false
+	} else {
+		for i := 0; i < len(s1.Seq); i++ {
+			if s1.Seq[i] != s2.Seq[i] {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 func parseCfg(fn string) (cfgInfo CfgInfo, e error) {
@@ -165,6 +180,7 @@ func ExtendReadBnt2Byte(rb ReadBnt) (extRB ReadBnt) {
 	crb.Length = rb.Length
 	crb.Seq = make([]byte, len(rb.Seq))
 	copy(crb.Seq, rb.Seq)
+	// fmt.Printf("[ExtendReadBnt2Byte] rb: %v, crb: %v\n", rb, crb)
 
 	for i := crb.Length - 1; i >= 0; i-- {
 		base := crb.Seq[i/bnt.NumBaseInByte] & bnt.BaseMask
@@ -246,7 +262,7 @@ func paraConstructCF(cf cuckoofilter.CuckooFilter, cs chan ReadSeqBucket, wc cha
 	}
 }
 
-func writeKmer(wrfn string, we chan int, wc chan ReadSeqBucket, numCPU int) {
+func writeKmer(wrfn string, we chan int, wc chan ReadSeqBucket, Kmerlen, numCPU int) {
 	outfp, err := os.Create(wrfn)
 	if err != nil {
 		log.Fatal(err)
@@ -257,8 +273,11 @@ func writeKmer(wrfn string, we chan int, wc chan ReadSeqBucket, numCPU int) {
 		log.Fatal(err)
 	}
 	defer gzwriter.Close()
+	// bufwriter := bufio.NewWriter(gzwriter)
 
+	// KBntByteNum := (Kmerlen + bnt.NumBaseInByte - 1) / bnt.NumBaseInByte
 	endFlagCount := 0
+	writeKmerCount := 0
 	for {
 		rsb := <-wc
 		if rsb.End == true {
@@ -272,10 +291,20 @@ func writeKmer(wrfn string, we chan int, wc chan ReadSeqBucket, numCPU int) {
 		}
 		//fmt.Printf("[writeKmer] rsb.count: %d\n", rsb.count)
 		for i := 0; i < rsb.Count; i++ {
-			gzwriter.Write(rsb.ReadBuf[i].Seq)
-			gzwriter.Write([]byte("\n"))
+			err := binary.Write(gzwriter, binary.LittleEndian, rsb.ReadBuf[i].Seq)
+			if err != nil {
+				log.Fatalf("[writeKmer] write kmer seq err: %v\n", err)
+			}
+			// if n != KBntByteNum {
+			// 	log.Fatalf("[writeKmer] n(%d) != KBntByteNum(%d)\n", n, KBntByteNum)
+			// }
+			writeKmerCount++
+			// gzwriter.Write([]byte("\n"))
 		}
 	}
+	// bufwriter.Flush()
+	fmt.Printf("[writeKmer] total write kmer number is : %d\n", writeKmerCount)
+
 }
 
 func Trans2Byte(s string) (rb ReadBnt) {
@@ -284,7 +313,7 @@ func Trans2Byte(s string) (rb ReadBnt) {
 	for i := 0; i < rb.Length; i++ {
 		b := bnt.Base2Bnt[s[i]]
 		if b > 3 {
-			fmt.Printf("found input sequence base '%c' not belong 'ACTG/actg', please check\n", s[i])
+			fmt.Printf("[Trans2Byte]found input sequence base '%c' not belong 'ACTG/actg', please check\n", s[i])
 			log.Fatal("error found")
 		}
 		rb.Seq[i/bnt.NumBaseInByte] <<= bnt.NumBitsInBase
@@ -329,7 +358,7 @@ func CCF(c cli.Command) {
 	}
 	// write goroutinue
 	wrfn := c.Parent().Flag("p").String() + ".uniqkmerseq.gz"
-	go writeKmer(wrfn, we, wc, numCPU)
+	go writeKmer(wrfn, we, wc, kmerlen, numCPU)
 
 	var processNumReads int
 	var rsb ReadSeqBucket
@@ -398,10 +427,10 @@ func CCF(c cli.Command) {
 
 	<-we // end signal from wirte goroutinue
 	prefix := c.Parent().Flag("p").String()
-	cfinfofn := prefix + ".cfInfo"
-	if err := cf.WriteCuckooFilterInfo(cfinfofn); err != nil {
-		log.Fatal(err)
-	}
+	// cfinfofn := prefix + ".cfInfo"
+	// if err := cf.WriteCuckooFilterInfo(cfinfofn); err != nil {
+	// 	log.Fatal(err)
+	// }
 
 	cfmmapfn := prefix + ".cfmmap"
 	err = cf.MmapWriter(cfmmapfn)
