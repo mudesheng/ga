@@ -4,192 +4,235 @@
 !_TAG_PROGRAM_NAME	gotags
 !_TAG_PROGRAM_URL	https://github.com/jstemmer/gotags
 !_TAG_PROGRAM_VERSION	1.3.0
+AccumulateCigar	findPath/findPath.go	70;"	f	access:public	line:70	signature:(cigar sam.Cigar)	type:int, int, int
 Add	cuckoofilter/cuckoofilter.go	206;"	m	access:public	ctype:CuckooFilter	line:206	signature:(index uint64, fingerprint uint64)	type:int, bool
 AddBucket	cuckoofilter/cuckoofilter.go	167;"	m	access:public	ctype:Bucket	line:167	signature:(fp uint64, kickout bool)	type:int, uint64, bool
 AddCount	cuckoofilter/cuckoofilter.go	140;"	m	access:public	ctype:CFItem	line:140	signature:()	type:int, uint64, bool
-AllState	constructcf/constructcf.go	20;"	c	access:public	line:20
+AdpaterSeq	constructdbg/constructdbg.go	1378;"	v	access:public	line:1378
+AllState	constructcf/constructcf.go	21;"	c	access:public	line:21
 AltIndex	cuckoofilter/cuckoofilter.go	98;"	m	access:public	ctype:CuckooFilter	line:98	signature:(index uint64, finger uint64)	type:uint64
-BACKWARD	constructdbg/constructdbg.go	73;"	v	access:public	line:73	type:uint8
+BACKWARD	constructdbg/constructdbg.go	82;"	v	access:public	line:82	type:uint8
 Base2Bnt	bnt/bnt.go	11;"	v	access:public	line:11
 BaseMask	bnt/bnt.go	8;"	c	access:public	line:8
 BaseTypeNum	bnt/bnt.go	6;"	c	access:public	line:6
-BiggerThan	constructcf/constructcf.go	66;"	m	access:public	ctype:ReadBnt	line:66	signature:(s2 ReadBnt)	type:bool
+BiggerThan	constructcf/constructcf.go	67;"	m	access:public	ctype:ReadBnt	line:67	signature:(s2 ReadBnt)	type:bool
 BitNtCharLow	bnt/bnt.go	29;"	v	access:public	line:29
 BitNtCharUp	bnt/bnt.go	30;"	v	access:public	line:30
-BitNtRev	bnt/bnt.go	31;"	v	access:public	line:31
+BitNtRev	bnt/bnt.go	32;"	v	access:public	line:32
 Bkt	cuckoofilter/cuckoofilter.go	48;"	w	access:public	ctype:Bucket	line:48	type:[]CFItem
+BntRev	bnt/bnt.go	31;"	v	access:public	line:31
 Bucket	cuckoofilter/cuckoofilter.go	47;"	t	access:public	line:47	type:struct
 BucketSize	cuckoofilter/cuckoofilter.go	34;"	c	access:public	line:34
 C	cuckoofilter/cuckoofilter.go	9;"	i	line:9
-CCF	constructcf/constructcf.go	316;"	f	access:public	line:316	signature:(c cli.Command)
-CDBG	constructdbg/constructdbg.go	698;"	f	access:public	line:698	signature:(c cli.Command)
+CCF	constructcf/constructcf.go	326;"	f	access:public	line:326	signature:(c cli.Command)
+CDBG	constructdbg/constructdbg.go	807;"	f	access:public	line:807	signature:(c cli.Command)
 CFItem	cuckoofilter/cuckoofilter.go	40;"	t	access:public	line:40	type:uint16
 CMASK	cuckoofilter/cuckoofilter.go	30;"	c	access:public	line:30
-CfgInfo	constructcf/constructcf.go	43;"	t	access:public	line:43	type:struct
+CfgInfo	constructcf/constructcf.go	44;"	t	access:public	line:44	type:struct
+Cigar2String	findPath/findPath.go	84;"	f	access:public	line:84	signature:(cigar sam.Cigar)	type:string
+ConcatEdges	constructdbg/constructdbg.go	1265;"	f	access:public	line:1265	signature:(edgesArr []DBGEdge, inID, outID DBG_MAX_INT)
 Contain	cuckoofilter/cuckoofilter.go	156;"	m	access:public	ctype:Bucket	line:156	signature:(fingerprint uint16)	type:bool
-Count	constructcf/constructcf.go	58;"	w	access:public	ctype:ReadSeqBucket	line:58	type:int
+Count	constructcf/constructcf.go	59;"	w	access:public	ctype:ReadSeqBucket	line:59	type:int
 CuckooFilter	cuckoofilter/cuckoofilter.go	51;"	t	access:public	line:51	type:struct
-DBGEdge	constructdbg/constructdbg.go	51;"	t	access:public	line:51	type:struct
-DBGNode	constructdbg/constructdbg.go	24;"	t	access:public	line:24	type:struct
-DBG_MAX_INT	constructdbg/constructdbg.go	22;"	t	access:public	line:22	type:uint32
-EdgeIDIncoming	constructdbg/constructdbg.go	26;"	w	access:public	ctype:DBGNode	line:26	type:[]DBG_MAX_INT
-EdgeIDOutcoming	constructdbg/constructdbg.go	27;"	w	access:public	ctype:DBGNode	line:27	type:[]DBG_MAX_INT
-End	constructcf/constructcf.go	56;"	w	access:public	ctype:ReadSeqBucket	line:56	type:bool
-EndNID	constructdbg/constructdbg.go	54;"	w	access:public	ctype:DBGEdge	line:54	type:DBG_MAX_INT
-EndString	constructcf/constructcf.go	23;"	c	access:public	line:23
-Equal	constructcf/constructcf.go	84;"	m	access:public	ctype:ReadBnt	line:84	signature:(s2 ReadBnt)	type:bool
+DBGEdge	constructdbg/constructdbg.go	57;"	t	access:public	line:57	type:struct
+DBGNode	constructdbg/constructdbg.go	30;"	t	access:public	line:30	type:struct
+DBG_MAX_INT	constructdbg/constructdbg.go	28;"	t	access:public	line:28	type:uint32
+EdgeIDIncoming	constructdbg/constructdbg.go	32;"	w	access:public	ctype:DBGNode	line:32	type:[]DBG_MAX_INT
+EdgeIDOutcoming	constructdbg/constructdbg.go	33;"	w	access:public	ctype:DBGNode	line:33	type:[]DBG_MAX_INT
+EdgesStatReader	constructdbg/constructdbg.go	756;"	f	access:public	line:756	signature:(edgesStatfn string)	type:int
+EdgesStatWriter	constructdbg/constructdbg.go	747;"	f	access:public	line:747	signature:(edgesStatfn string, edgesSize int)
+End	constructcf/constructcf.go	57;"	w	access:public	ctype:ReadSeqBucket	line:57	type:bool
+EndNID	constructdbg/constructdbg.go	60;"	w	access:public	ctype:DBGEdge	line:60	type:DBG_MAX_INT
+EndString	constructcf/constructcf.go	24;"	c	access:public	line:24
+Equal	constructcf/constructcf.go	85;"	m	access:public	ctype:ReadBnt	line:85	signature:(s2 ReadBnt)	type:bool
 EqualFP	cuckoofilter/cuckoofilter.go	131;"	m	access:public	ctype:CFItem	line:131	signature:(rcfi CFItem)	type:bool
-ExtendNodeKmer	constructdbg/constructdbg.go	127;"	f	access:public	line:127	signature:(nodeBnt constructcf.ReadBnt, cf cuckoofilter.CuckooFilter, min_kmer_count uint16, direction uint8)	type:int, int, byte, uint16
-ExtendReadBnt2Byte	constructcf/constructcf.go	175;"	f	access:public	ctype:ReadBnt	line:175	signature:(rb ReadBnt)	type:ReadBnt
-FORWARD	constructdbg/constructdbg.go	74;"	v	access:public	line:74	type:uint8
+ExtendNodeKmer	constructdbg/constructdbg.go	140;"	f	access:public	line:140	signature:(nodeBnt constructcf.ReadBnt, cf cuckoofilter.CuckooFilter, min_kmer_count uint16, direction uint8)	type:int, int, byte, uint16
+ExtendReadBnt2Byte	constructcf/constructcf.go	176;"	f	access:public	ctype:ReadBnt	line:176	signature:(rb ReadBnt)	type:ReadBnt
+FORWARD	constructdbg/constructdbg.go	83;"	v	access:public	line:83	type:uint8
 FPMASK	cuckoofilter/cuckoofilter.go	29;"	c	access:public	line:29
+FSpath	findPath/findPath.go	179;"	f	access:public	line:179	signature:(c cli.Command)
 FingerHash	cuckoofilter/cuckoofilter.go	93;"	f	access:public	line:93	signature:(v uint64)	type:uint64
-Flag	constructdbg/constructdbg.go	30;"	w	access:public	ctype:DBGNode	line:30	type:uint8
-Flag	constructdbg/constructdbg.go	55;"	w	access:public	ctype:DBGEdge	line:55	type:uint8
-GAArgs	ga.go	13;"	t	access:public	line:13	type:struct
-GapState	constructcf/constructcf.go	22;"	c	access:public	line:22
-GenerateDBGEdges	constructdbg/constructdbg.go	630;"	f	access:public	line:630	signature:(nodeMap map[string]DBGNode, cf cuckoofilter.CuckooFilter, edgesfn string, numCPU int, nodeID DBG_MAX_INT)
+Flag	constructdbg/constructdbg.go	36;"	w	access:public	ctype:DBGNode	line:36	type:uint8
+Flag	constructdbg/constructdbg.go	61;"	w	access:public	ctype:DBGEdge	line:61	type:uint8
+GAArgs	ga.go	14;"	t	access:public	line:14	type:struct
+GapState	constructcf/constructcf.go	23;"	c	access:public	line:23
+GenerateDBGEdges	constructdbg/constructdbg.go	682;"	f	access:public	line:682	signature:(nodeMap map[string]DBGNode, cf cuckoofilter.CuckooFilter, edgesfn string, numCPU int, nodeID DBG_MAX_INT)	type:DBG_MAX_INT
 GetCount	cuckoofilter/cuckoofilter.go	115;"	m	access:public	ctype:CFItem	line:115	signature:()	type:uint16
 GetCount	cuckoofilter/cuckoofilter.go	275;"	m	access:public	ctype:CuckooFilter	line:275	signature:(kb []byte)	type:uint16
 GetCountAllowZero	cuckoofilter/cuckoofilter.go	300;"	m	access:public	ctype:CuckooFilter	line:300	signature:(kb []byte)	type:uint16
-GetEdges	constructdbg/constructdbg.go	277;"	f	access:public	ctype:DBGEdge	line:277	signature:(cf cuckoofilter.CuckooFilter, nBnt constructcf.ReadBnt, count uint8, direction uint8, MIN_KMER_COUNT uint16)	type:DBGEdge, bool
+GetDeleteFlag	constructdbg/constructdbg.go	69;"	m	access:public	ctype:DBGEdge	line:69	signature:()	type:uint8
+GetEdgeIDComing	constructdbg/constructdbg.go	1254;"	f	access:public	line:1254	signature:(coming []DBG_MAX_INT)	type:int, DBG_MAX_INT
+GetEdges	constructdbg/constructdbg.go	297;"	f	access:public	ctype:DBGEdge	line:297	signature:(cf cuckoofilter.CuckooFilter, nBnt constructcf.ReadBnt, count uint8, direction uint8, MIN_KMER_COUNT uint16)	type:DBGEdge, bool
 GetFinger	cuckoofilter/cuckoofilter.go	127;"	m	access:public	ctype:CFItem	line:127	signature:()	type:uint16
-GetProcessFlag	constructdbg/constructdbg.go	33;"	m	access:public	ctype:DBGNode	line:33	signature:()	type:uint8
-GetProcessFlag	constructdbg/constructdbg.go	59;"	m	access:public	ctype:DBGEdge	line:59	signature:()	type:uint8
-GetReadBntKmer	constructcf/constructcf.go	193;"	f	access:public	ctype:ReadBnt	line:193	signature:(extRBnt ReadBnt, startPos int, kmerlen int)	type:ReadBnt
+GetProcessFlag	constructdbg/constructdbg.go	39;"	m	access:public	ctype:DBGNode	line:39	signature:()	type:uint8
+GetProcessFlag	constructdbg/constructdbg.go	65;"	m	access:public	ctype:DBGEdge	line:65	signature:()	type:uint8
+GetReadBntKmer	constructcf/constructcf.go	194;"	f	access:public	ctype:ReadBnt	line:194	signature:(extRBnt ReadBnt, startPos int, kmerlen int)	type:ReadBnt
+GetSamRecord	findPath/findPath.go	28;"	f	access:public	line:28	signature:(bamfn string, rc chan []sam.Record, numCPU int)
 GetStat	cuckoofilter/cuckoofilter.go	327;"	m	access:public	ctype:CuckooFilter	line:327	signature:()
+GraphvizDBG	constructdbg/constructdbg.go	1217;"	f	access:public	line:1217	signature:(nodeMap map[string]DBGNode, edgesArr []DBGEdge, graphfn string)
 Hash	cuckoofilter/cuckoofilter.go	52;"	w	access:public	ctype:CuckooFilter	line:52	type:[]Bucket
-ID	constructdbg/constructdbg.go	25;"	w	access:public	ctype:DBGNode	line:25	type:DBG_MAX_INT
-ID	constructdbg/constructdbg.go	52;"	w	access:public	ctype:DBGEdge	line:52	type:DBG_MAX_INT
+ID	constructdbg/constructdbg.go	31;"	w	access:public	ctype:DBGNode	line:31	type:DBG_MAX_INT
+ID	constructdbg/constructdbg.go	58;"	w	access:public	ctype:DBGEdge	line:58	type:DBG_MAX_INT
 IndexHash	cuckoofilter/cuckoofilter.go	87;"	m	access:public	ctype:CuckooFilter	line:87	signature:(v uint64)	type:uint64
 Insert	cuckoofilter/cuckoofilter.go	249;"	m	access:public	ctype:CuckooFilter	line:249	signature:(kb []byte)	type:int, bool
 KMaxCount	cuckoofilter/cuckoofilter.go	36;"	c	access:public	line:36
-Kmerdef	ga.go	11;"	c	access:public	line:11
-Kmerlen	constructdbg/constructdbg.go	75;"	v	access:public	line:75	type:int
+Kmerdef	ga.go	12;"	c	access:public	line:12
+Kmerlen	constructdbg/constructdbg.go	84;"	v	access:public	line:84	type:int
 Kmerlen	cuckoofilter/cuckoofilter.go	54;"	w	access:public	ctype:CuckooFilter	line:54	type:int
-Kq	constructdbg/constructdbg.go	48;"	w	access:public	ctype:Unitig	line:48	type:[]uint8
-Ks	constructdbg/constructdbg.go	47;"	w	access:public	ctype:Unitig	line:47	type:[]byte
-Length	constructcf/constructcf.go	52;"	w	access:public	ctype:ReadBnt	line:52	type:int
-LibInfo	constructcf/constructcf.go	27;"	t	access:public	line:27	type:struct
+Kmerlen	findPath/findPath.go	26;"	v	access:public	line:26	type:int
+Kq	constructdbg/constructdbg.go	54;"	w	access:public	ctype:Unitig	line:54	type:[]uint8
+Ks	constructdbg/constructdbg.go	53;"	w	access:public	ctype:Unitig	line:53	type:[]byte
+Length	constructcf/constructcf.go	53;"	w	access:public	ctype:ReadBnt	line:53	type:int
+LibInfo	constructcf/constructcf.go	28;"	t	access:public	line:28	type:struct
+LoadEdgesfqFromFn	constructdbg/constructdbg.go	1427;"	f	access:public	line:1427	signature:(fn string, edgesArr []DBGEdge)
 Lookup	cuckoofilter/cuckoofilter.go	261;"	m	access:public	ctype:CuckooFilter	line:261	signature:(kb []byte)	type:bool
 MAX_C	cuckoofilter/cuckoofilter.go	31;"	c	access:public	line:31
-MIN_KMER_COUNT	constructdbg/constructdbg.go	72;"	v	access:public	line:72	type:uint16
+MIN_KMER_COUNT	constructdbg/constructdbg.go	81;"	v	access:public	line:81	type:uint16
 MakeCuckooFilter	cuckoofilter/cuckoofilter.go	72;"	f	access:public	ctype:CuckooFilter	line:72	signature:(maxNumKeys uint64, kmerLen int)	type:CuckooFilter
 MaxLoad	cuckoofilter/cuckoofilter.go	35;"	c	access:public	line:35
 MmapReader	cuckoofilter/cuckoofilter.go	419;"	f	access:public	ctype:CuckooFilter	line:419	signature:(cfmmapfn string)	type:CuckooFilter, error
 MmapWriter	cuckoofilter/cuckoofilter.go	339;"	m	access:public	ctype:CuckooFilter	line:339	signature:(cfmmapfn string)	type:error
 NUM_C_BITS	cuckoofilter/cuckoofilter.go	28;"	c	access:public	line:28
 NUM_FP_BITS	cuckoofilter/cuckoofilter.go	27;"	c	access:public	line:27
-NodeMapMmapReader	constructdbg/constructdbg.go	683;"	f	access:public	line:683	signature:(nodesfn string)	type:map[string]DBGNode
-NodeMapMmapWriter	constructdbg/constructdbg.go	670;"	f	access:public	line:670	signature:(nodeMap map[string]DBGNode, nodesfn string)
+NodeMap2NodeArr	constructdbg/constructdbg.go	797;"	f	access:public	line:797	signature:(nodeMap map[string]DBGNode, nodesArr []DBGNode)
+NodeMapMmapReader	constructdbg/constructdbg.go	782;"	f	access:public	line:782	signature:(nodesfn string)	type:map[string]DBGNode
+NodeMapMmapWriter	constructdbg/constructdbg.go	769;"	f	access:public	line:769	signature:(nodeMap map[string]DBGNode, nodesfn string)
+NodesStatReader	constructdbg/constructdbg.go	734;"	f	access:public	line:734	signature:(nodesStatfn string)	type:DBG_MAX_INT
+NodesStatWriter	constructdbg/constructdbg.go	725;"	f	access:public	line:725	signature:(nodesStatfn string, newNodeID DBG_MAX_INT)
 NumBaseInByte	bnt/bnt.go	4;"	c	access:public	line:4
 NumBitsInBase	bnt/bnt.go	5;"	c	access:public	line:5
-ParseEdge	constructdbg/constructdbg.go	775;"	f	access:public	ctype:DBGEdge	line:775	signature:(edgesbuffp *bufio.Reader)	type:DBGEdge, error
-ProcessAddedNode	constructdbg/constructdbg.go	480;"	f	access:public	line:480	signature:(cf cuckoofilter.CuckooFilter, nodeMap map[string]DBGNode, newNodeBntArr []constructcf.ReadBnt, wc chan DBGEdge, nodeID DBG_MAX_INT)	type:int, int
-RCEdge	constructdbg/constructdbg.go	907;"	f	access:public	line:907	signature:(edgesArr []DBGEdge, eid DBG_MAX_INT)
-ReadBnt	constructcf/constructcf.go	50;"	t	access:public	line:50	type:struct
-ReadBuf	constructcf/constructcf.go	57;"	w	access:public	ctype:ReadSeqBucket	line:57	type:[]ReadBnt
-ReadDBGNodeToChan	constructdbg/constructdbg.go	241;"	f	access:public	line:241	signature:(nodeMap map[string]DBGNode, nc chan DBGNode, numCPU int)
-ReadEdgesFromFile	constructdbg/constructdbg.go	807;"	f	access:public	line:807	signature:(nodeMap map[string]DBGNode, edgesfn string)	type:[]DBGEdge
-ReadSeqBucket	constructcf/constructcf.go	55;"	t	access:public	line:55	type:struct
-ReadSeqSize	constructcf/constructcf.go	24;"	c	access:public	line:24
-ReconstructConsistenceDBG	constructdbg/constructdbg.go	922;"	f	access:public	line:922	signature:(nodeMap map[string]DBGNode, edgesArr []DBGEdge)
+ParseEdge	constructdbg/constructdbg.go	892;"	f	access:public	ctype:DBGEdge	line:892	signature:(edgesbuffp *bufio.Reader)	type:DBGEdge, error
+ProcessAddedNode	constructdbg/constructdbg.go	528;"	f	access:public	line:528	signature:(cf cuckoofilter.CuckooFilter, nodeMap map[string]DBGNode, newNodeBntArr []constructcf.ReadBnt, wc chan DBGEdge, nodeID DBG_MAX_INT)	type:int, int
+RCEdge	constructdbg/constructdbg.go	1064;"	f	access:public	line:1064	signature:(edgesArr []DBGEdge, eid DBG_MAX_INT)
+ReadBnt	constructcf/constructcf.go	51;"	t	access:public	line:51	type:struct
+ReadBuf	constructcf/constructcf.go	58;"	w	access:public	ctype:ReadSeqBucket	line:58	type:[]ReadBnt
+ReadDBGNodeToChan	constructdbg/constructdbg.go	261;"	f	access:public	line:261	signature:(nodeMap map[string]DBGNode, nc chan DBGNode, numCPU int)
+ReadEdgesFromFile	constructdbg/constructdbg.go	930;"	f	access:public	line:930	signature:(nodeMap map[string]DBGNode, edgesfn string)	type:[]DBGEdge
+ReadSeqBucket	constructcf/constructcf.go	56;"	t	access:public	line:56	type:struct
+ReadSeqSize	constructcf/constructcf.go	25;"	c	access:public	line:25
+ReconstructConsistenceDBG	constructdbg/constructdbg.go	1086;"	f	access:public	line:1086	signature:(nodeMap map[string]DBGNode, edgesArr []DBGEdge)
 RecoverCuckooFilterInfo	cuckoofilter/cuckoofilter.go	382;"	f	access:public	ctype:CuckooFilter	line:382	signature:(cfinfofn string)	type:CuckooFilter, error
-RevNode	constructdbg/constructdbg.go	913;"	f	access:public	line:913	signature:(nodeMap map[string]DBGNode, rBnt constructcf.ReadBnt)
-ReverseByteArr	constructdbg/constructdbg.go	254;"	f	access:public	line:254	signature:(ba []byte)
-ReverseCompByteArr	constructdbg/constructdbg.go	261;"	f	access:public	line:261	signature:(seq []byte)
-ReverseComplet	constructcf/constructcf.go	205;"	f	access:public	ctype:ReadBnt	line:205	signature:(ks ReadBnt)	type:ReadBnt
-ReverseUint8Arr	constructdbg/constructdbg.go	270;"	f	access:public	line:270	signature:(ua []uint8)
-ScaffState	constructcf/constructcf.go	21;"	c	access:public	line:21
-Seq	constructcf/constructcf.go	51;"	w	access:public	ctype:ReadBnt	line:51	type:[]byte
-Seq	constructdbg/constructdbg.go	28;"	w	access:public	ctype:DBGNode	line:28	type:[]byte
-SetProcessFlag	constructdbg/constructdbg.go	37;"	m	access:public	ctype:DBGNode	line:37	signature:(f uint8)
-SetProcessFlag	constructdbg/constructdbg.go	63;"	m	access:public	ctype:DBGEdge	line:63	signature:(f uint8)
-Smfy	constructdbg/constructdbg.go	1024;"	f	access:public	line:1024	signature:(c cli.Command)
-StartNID	constructdbg/constructdbg.go	53;"	w	access:public	ctype:DBGEdge	line:53	type:DBG_MAX_INT
-SubGID	constructdbg/constructdbg.go	29;"	w	access:public	ctype:DBGNode	line:29	type:uint8
-Trans2Byte	constructcf/constructcf.go	300;"	f	access:public	ctype:ReadBnt	line:300	signature:(s string)	type:ReadBnt
-Unitig	constructdbg/constructdbg.go	46;"	t	access:public	line:46	type:struct
-Utg	constructdbg/constructdbg.go	56;"	w	access:public	ctype:DBGEdge	line:56	type:Unitig
+RevNode	constructdbg/constructdbg.go	1070;"	f	access:public	ctype:DBGNode	line:1070	signature:(node DBGNode)	type:DBGNode
+ReverseByteArr	constructdbg/constructdbg.go	274;"	f	access:public	line:274	signature:(ba []byte)
+ReverseCompByteArr	constructdbg/constructdbg.go	281;"	f	access:public	line:281	signature:(seq []byte)
+ReverseComplet	constructcf/constructcf.go	206;"	f	access:public	ctype:ReadBnt	line:206	signature:(ks ReadBnt)	type:ReadBnt
+ReverseUint8Arr	constructdbg/constructdbg.go	290;"	f	access:public	line:290	signature:(ua []uint8)
+ScaffState	constructcf/constructcf.go	22;"	c	access:public	line:22
+Seq	constructcf/constructcf.go	52;"	w	access:public	ctype:ReadBnt	line:52	type:[]byte
+Seq	constructdbg/constructdbg.go	34;"	w	access:public	ctype:DBGNode	line:34	type:[]byte
+SetDefaultQual	constructdbg/constructdbg.go	1380;"	f	access:public	ctype:Unitig	line:1380	signature:(Adapter Unitig)	type:Unitig
+SetDeleteFlag	constructdbg/constructdbg.go	77;"	m	access:public	ctype:DBGEdge	line:77	signature:()
+SetProcessFlag	constructdbg/constructdbg.go	43;"	m	access:public	ctype:DBGNode	line:43	signature:(f uint8)
+SetProcessFlag	constructdbg/constructdbg.go	73;"	m	access:public	ctype:DBGEdge	line:73	signature:()
+Smfy	constructdbg/constructdbg.go	1466;"	f	access:public	line:1466	signature:(c cli.Command)
+SmfyDBG	constructdbg/constructdbg.go	1319;"	f	access:public	line:1319	signature:(nodeMap map[string]DBGNode, edgesArr []DBGEdge)
+StartNID	constructdbg/constructdbg.go	59;"	w	access:public	ctype:DBGEdge	line:59	type:DBG_MAX_INT
+StoreEdgesToFn	constructdbg/constructdbg.go	1388;"	f	access:public	line:1388	signature:(edgesfn string, edgesArr []DBGEdge, addAdapter bool)
+SubGID	constructdbg/constructdbg.go	35;"	w	access:public	ctype:DBGNode	line:35	type:uint8
+SubstituteEdgeID	constructdbg/constructdbg.go	1285;"	f	access:public	line:1285	signature:(nodeMap map[string]DBGNode, nodekey []byte, srcID, dstID DBG_MAX_INT)	type:bool
+Trans2Byte	constructcf/constructcf.go	310;"	f	access:public	ctype:ReadBnt	line:310	signature:(s string)	type:ReadBnt
+Unitig	constructdbg/constructdbg.go	52;"	t	access:public	line:52	type:struct
+Utg	constructdbg/constructdbg.go	62;"	w	access:public	ctype:DBGEdge	line:62	type:Unitig
 WriteCuckooFilterInfo	cuckoofilter/cuckoofilter.go	363;"	m	access:public	ctype:CuckooFilter	line:363	signature:(cfinfofn string)	type:error
-WriteEdgesToFn	constructdbg/constructdbg.go	454;"	f	access:public	line:454	signature:(edgesfn string, wc chan DBGEdge)
-app	ga.go	21;"	v	access:private	line:21
-asmFlag	constructcf/constructcf.go	32;"	w	access:private	ctype:LibInfo	line:32	type:uint8
+WriteEdgesToFn	constructdbg/constructdbg.go	484;"	f	access:public	line:484	signature:(edgesfn string, wc chan DBGEdge)
+WriteShortPathToDBG	findPath/findPath.go	163;"	f	access:public	line:163	signature:(wc chan []constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, numCPU int)
+app	ga.go	22;"	v	access:private	line:22
+asmFlag	constructcf/constructcf.go	33;"	w	access:private	ctype:LibInfo	line:33	type:uint8
 bnt	bnt/bnt.go	1;"	p	line:1
 bufio	constructcf/constructcf.go	4;"	i	line:4
 bufio	constructdbg/constructdbg.go	4;"	i	line:4
 bufio	cuckoofilter/cuckoofilter.go	12;"	i	line:12
-cfSize	ga.go	18;"	w	access:private	ctype:GAArgs	line:18	type:int64
-cfg	ga.go	14;"	w	access:private	ctype:GAArgs	line:14	type:string
-cleanEdgeIDInNodeMap	constructdbg/constructdbg.go	620;"	f	access:private	line:620	signature:(nodeMap map[string]DBGNode)
+cfSize	ga.go	19;"	w	access:private	ctype:GAArgs	line:19	type:int64
+cfg	ga.go	15;"	w	access:private	ctype:GAArgs	line:15	type:string
+cleanEdgeIDInNodeMap	constructdbg/constructdbg.go	672;"	f	access:private	line:672	signature:(nodeMap map[string]DBGNode)
 combineCFItem	cuckoofilter/cuckoofilter.go	104;"	f	access:private	line:104	signature:(fp uint64, count uint64)	type:CFItem
 compress/gzip	constructcf/constructcf.go	5;"	i	line:5
 compress/gzip	constructdbg/constructdbg.go	5;"	i	line:5
-constructNodeMap	constructdbg/constructdbg.go	199;"	f	access:private	line:199	signature:(complexKmergzfn string)	type:map[string]DBGNode, DBG_MAX_INT
+constructNodeMap	constructdbg/constructdbg.go	213;"	f	access:private	line:213	signature:(complexKmergzfn string)	type:map[string]DBGNode, DBG_MAX_INT
 constructcf	constructcf/constructcf.go	1;"	p	line:1
 constructdbg	constructdbg/constructdbg.go	1;"	p	line:1
 container/list	constructdbg/constructdbg.go	6;"	i	line:6
 countItems	cuckoofilter/cuckoofilter.go	57;"	v	access:private	line:57	type:uint64
 crypto/sha1	cuckoofilter/cuckoofilter.go	13;"	i	line:13
 cuckoofilter	cuckoofilter/cuckoofilter.go	1;"	p	line:1
-diverse	constructcf/constructcf.go	30;"	w	access:private	ctype:LibInfo	line:30	type:uint8
-encoding/gob	constructdbg/constructdbg.go	7;"	i	line:7
+diverse	constructcf/constructcf.go	31;"	w	access:private	ctype:LibInfo	line:31	type:uint8
+encoding/binary	constructcf/constructcf.go	6;"	i	line:6
+encoding/binary	constructdbg/constructdbg.go	7;"	i	line:7
+encoding/gob	constructdbg/constructdbg.go	8;"	i	line:8
 encoding/gob	cuckoofilter/cuckoofilter.go	21;"	i	line:21
-fmt	constructcf/constructcf.go	6;"	i	line:6
-fmt	constructdbg/constructdbg.go	8;"	i	line:8
+findPath	findPath/findPath.go	1;"	p	line:1
+fmt	constructcf/constructcf.go	7;"	i	line:7
+fmt	constructdbg/constructdbg.go	9;"	i	line:9
 fmt	cuckoofilter/cuckoofilter.go	14;"	i	line:14
-fnName	constructcf/constructcf.go	40;"	w	access:private	ctype:LibInfo	line:40	type:[]string
-ga/bnt	constructcf/constructcf.go	7;"	i	line:7
-ga/bnt	constructdbg/constructdbg.go	9;"	i	line:9
-ga/constructcf	constructdbg/constructdbg.go	10;"	i	line:10
+fmt	findPath/findPath.go	9;"	i	line:9
+fnName	constructcf/constructcf.go	41;"	w	access:private	ctype:LibInfo	line:41	type:[]string
+ga/bnt	constructcf/constructcf.go	8;"	i	line:8
+ga/bnt	constructdbg/constructdbg.go	10;"	i	line:10
+ga/constructcf	constructdbg/constructdbg.go	11;"	i	line:11
 ga/constructcf	ga.go	5;"	i	line:5
+ga/constructdbg	findPath/findPath.go	12;"	i	line:12
 ga/constructdbg	ga.go	6;"	i	line:6
-ga/cuckoofilter	constructcf/constructcf.go	8;"	i	line:8
-ga/cuckoofilter	constructdbg/constructdbg.go	11;"	i	line:11
-github.com/jwaldrip/odin/cli	constructcf/constructcf.go	9;"	i	line:9
-github.com/jwaldrip/odin/cli	constructdbg/constructdbg.go	19;"	i	line:19
-github.com/jwaldrip/odin/cli	ga.go	8;"	i	line:8
+ga/cuckoofilter	constructcf/constructcf.go	9;"	i	line:9
+ga/cuckoofilter	constructdbg/constructdbg.go	12;"	i	line:12
+ga/findPath	ga.go	7;"	i	line:7
+github.com/awalterschulze/gographviz	constructdbg/constructdbg.go	21;"	i	line:21
+github.com/biogo/biogo/alphabet	constructdbg/constructdbg.go	22;"	i	line:22
+github.com/biogo/biogo/io/seqio/fastq	constructdbg/constructdbg.go	23;"	i	line:23
+github.com/biogo/biogo/seq/linear	constructdbg/constructdbg.go	24;"	i	line:24
+github.com/biogo/hts/bam	findPath/findPath.go	20;"	i	line:20
+github.com/biogo/hts/sam	findPath/findPath.go	21;"	i	line:21
+github.com/jwaldrip/odin/cli	constructcf/constructcf.go	10;"	i	line:10
+github.com/jwaldrip/odin/cli	constructdbg/constructdbg.go	25;"	i	line:25
+github.com/jwaldrip/odin/cli	findPath/findPath.go	22;"	i	line:22
+github.com/jwaldrip/odin/cli	ga.go	9;"	i	line:9
 hk2uint64	cuckoofilter/cuckoofilter.go	233;"	f	access:private	line:233	signature:(hk []byte)	type:uint64
-init	ga.go	25;"	f	access:private	line:25	signature:()
-insertSD	constructcf/constructcf.go	38;"	w	access:private	ctype:LibInfo	line:38	type:int
-insertSize	constructcf/constructcf.go	37;"	w	access:private	ctype:LibInfo	line:37	type:int
-io	constructcf/constructcf.go	10;"	i	line:10
-io	constructdbg/constructdbg.go	12;"	i	line:12
+init	ga.go	26;"	f	access:private	line:26	signature:()
+insertSD	constructcf/constructcf.go	39;"	w	access:private	ctype:LibInfo	line:39	type:int
+insertSize	constructcf/constructcf.go	38;"	w	access:private	ctype:LibInfo	line:38	type:int
+io	constructcf/constructcf.go	11;"	i	line:11
+io	constructdbg/constructdbg.go	13;"	i	line:13
 io	cuckoofilter/cuckoofilter.go	15;"	i	line:15
-kmer	ga.go	15;"	w	access:private	ctype:GAArgs	line:15	type:int
-libs	constructcf/constructcf.go	47;"	w	access:private	ctype:CfgInfo	line:47	type:[]LibInfo
-log	constructcf/constructcf.go	11;"	i	line:11
-log	constructdbg/constructdbg.go	13;"	i	line:13
+kmer	ga.go	16;"	w	access:private	ctype:GAArgs	line:16	type:int
+libs	constructcf/constructcf.go	48;"	w	access:private	ctype:CfgInfo	line:48	type:[]LibInfo
+log	constructcf/constructcf.go	12;"	i	line:12
+log	constructdbg/constructdbg.go	14;"	i	line:14
 log	cuckoofilter/cuckoofilter.go	16;"	i	line:16
+log	findPath/findPath.go	15;"	i	line:15
 main	ga.go	1;"	p	line:1
-main	ga.go	46;"	f	access:private	line:46	signature:()
-maxRdLen	constructcf/constructcf.go	44;"	w	access:private	ctype:CfgInfo	line:44	type:int
-minRdLen	constructcf/constructcf.go	45;"	w	access:private	ctype:CfgInfo	line:45	type:int
-name	constructcf/constructcf.go	28;"	w	access:private	ctype:LibInfo	line:28	type:string
-numCPU	ga.go	17;"	w	access:private	ctype:GAArgs	line:17	type:int
+main	ga.go	52;"	f	access:private	line:52	signature:()
+maxRdLen	constructcf/constructcf.go	45;"	w	access:private	ctype:CfgInfo	line:45	type:int
+minRdLen	constructcf/constructcf.go	46;"	w	access:private	ctype:CfgInfo	line:46	type:int
+name	constructcf/constructcf.go	29;"	w	access:private	ctype:LibInfo	line:29	type:string
+numCPU	ga.go	18;"	w	access:private	ctype:GAArgs	line:18	type:int
 numItems	cuckoofilter/cuckoofilter.go	53;"	w	access:private	ctype:CuckooFilter	line:53	type:uint64
-numberReads	constructcf/constructcf.go	29;"	w	access:private	ctype:LibInfo	line:29	type:int64
-os	constructcf/constructcf.go	12;"	i	line:12
-os	constructdbg/constructdbg.go	14;"	i	line:14
+numberReads	constructcf/constructcf.go	30;"	w	access:private	ctype:LibInfo	line:30	type:int64
+os	constructcf/constructcf.go	13;"	i	line:13
+os	constructdbg/constructdbg.go	15;"	i	line:15
 os	cuckoofilter/cuckoofilter.go	17;"	i	line:17
-paired	constructcf/constructcf.go	31;"	w	access:private	ctype:LibInfo	line:31	type:uint8
-paraConstructCF	constructcf/constructcf.go	220;"	f	access:private	line:220	signature:(cf cuckoofilter.CuckooFilter, cs chan ReadSeqBucket, wc chan ReadSeqBucket)
-paraGenerateDBGEdges	constructdbg/constructdbg.go	332;"	f	access:private	line:332	signature:(nc chan DBGNode, newNodeChan chan constructcf.ReadBnt, nodeMap map[string]DBGNode, cf cuckoofilter.CuckooFilter, wc chan DBGEdge)
-paraLookupComplexNode	constructdbg/constructdbg.go	167;"	f	access:private	line:167	signature:(cs chan constructcf.ReadBnt, wc chan constructcf.ReadBnt, cf cuckoofilter.CuckooFilter)
-parseCfg	constructcf/constructcf.go	98;"	f	access:private	ctype:CfgInfo	line:98	signature:(fn string)	type:CfgInfo, error
-prefix	ga.go	16;"	w	access:private	ctype:GAArgs	line:16	type:string
-qualBenchmark	constructcf/constructcf.go	34;"	w	access:private	ctype:LibInfo	line:34	type:uint8
-readLen	constructcf/constructcf.go	36;"	w	access:private	ctype:LibInfo	line:36	type:int
-readUniqKmer	constructdbg/constructdbg.go	77;"	f	access:private	line:77	signature:(uniqkmergzfn string, cs chan constructcf.ReadBnt, kmerlen, numCPU int)
-runtime	constructcf/constructcf.go	13;"	i	line:13
-runtime	constructdbg/constructdbg.go	15;"	i	line:15
-seqProfile	constructcf/constructcf.go	33;"	w	access:private	ctype:LibInfo	line:33	type:uint8
+os	findPath/findPath.go	16;"	i	line:16
+paired	constructcf/constructcf.go	32;"	w	access:private	ctype:LibInfo	line:32	type:uint8
+paraConstructCF	constructcf/constructcf.go	221;"	f	access:private	line:221	signature:(cf cuckoofilter.CuckooFilter, cs chan ReadSeqBucket, wc chan ReadSeqBucket)
+paraFindShortMappingPath	findPath/findPath.go	91;"	f	access:private	line:91	signature:(rc chan []sam.Record, wc chan []constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode)
+paraGenerateDBGEdges	constructdbg/constructdbg.go	352;"	f	access:private	line:352	signature:(nc chan DBGNode, newNodeChan chan constructcf.ReadBnt, nodeMap map[string]DBGNode, cf cuckoofilter.CuckooFilter, wc chan DBGEdge)
+paraLookupComplexNode	constructdbg/constructdbg.go	180;"	f	access:private	line:180	signature:(cs chan constructcf.ReadBnt, wc chan constructcf.ReadBnt, cf cuckoofilter.CuckooFilter)
+parseCfg	constructcf/constructcf.go	99;"	f	access:private	ctype:CfgInfo	line:99	signature:(fn string)	type:CfgInfo, error
+prefix	ga.go	17;"	w	access:private	ctype:GAArgs	line:17	type:string
+qualBenchmark	constructcf/constructcf.go	35;"	w	access:private	ctype:LibInfo	line:35	type:uint8
+readLen	constructcf/constructcf.go	37;"	w	access:private	ctype:LibInfo	line:37	type:int
+readUniqKmer	constructdbg/constructdbg.go	86;"	f	access:private	line:86	signature:(uniqkmergzfn string, cs chan constructcf.ReadBnt, kmerlen, numCPU int)
+runtime	constructcf/constructcf.go	14;"	i	line:14
+runtime	constructdbg/constructdbg.go	16;"	i	line:16
+seqProfile	constructcf/constructcf.go	34;"	w	access:private	ctype:LibInfo	line:34	type:uint8
 setCount	cuckoofilter/cuckoofilter.go	119;"	m	access:private	ctype:CFItem	line:119	signature:(count uint16)
-strconv	constructcf/constructcf.go	14;"	i	line:14
-strconv	constructdbg/constructdbg.go	16;"	i	line:16
-strings	constructcf/constructcf.go	15;"	i	line:15
-time	constructcf/constructcf.go	16;"	i	line:16
-totalBasesNum	constructcf/constructcf.go	35;"	w	access:private	ctype:LibInfo	line:35	type:int64
+strconv	constructcf/constructcf.go	15;"	i	line:15
+strconv	constructdbg/constructdbg.go	17;"	i	line:17
+strconv	findPath/findPath.go	18;"	i	line:18
+strings	constructcf/constructcf.go	16;"	i	line:16
+strings	constructdbg/constructdbg.go	18;"	i	line:18
+time	constructcf/constructcf.go	17;"	i	line:17
+totalBasesNum	constructcf/constructcf.go	36;"	w	access:private	ctype:LibInfo	line:36	type:int64
+transform2QSeq	constructdbg/constructdbg.go	1354;"	f	access:private	line:1354	signature:(utg Unitig)	type:alphabet.QLetters
+transform2Unitig	constructdbg/constructdbg.go	1368;"	f	access:private	line:1368	signature:(Seq alphabet.QLetters, utg *Unitig, lenKs int)
 unsafe	cuckoofilter/cuckoofilter.go	23;"	i	line:23
 upperpower2	cuckoofilter/cuckoofilter.go	59;"	f	access:private	line:59	signature:(x uint64)	type:uint64
-writeKmer	constructcf/constructcf.go	264;"	f	access:private	line:264	signature:(wrfn string, we chan int, wc chan ReadSeqBucket, Kmerlen, numCPU int)
+writeKmer	constructcf/constructcf.go	265;"	f	access:private	line:265	signature:(wrfn string, we chan int, wc chan ReadSeqBucket, Kmerlen, numCPU int)

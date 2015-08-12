@@ -4,6 +4,7 @@ import (
 	//	"GA/cuckoofilter"
 	"ga/constructcf"
 	"ga/constructdbg"
+	"ga/findPath"
 	//	"fmt"
 	"github.com/jwaldrip/odin/cli"
 )
@@ -36,9 +37,14 @@ func init() {
 		cdbg.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
 
-	smfy := app.DefineSubCommand("cdbg", "construct De bruijn Graph", constructdbg.Smfy)
+	smfy := app.DefineSubCommand("smfy", "construct De bruijn Graph", constructdbg.Smfy)
 	{
 		smfy.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
+	}
+	// find short read mapping
+	fspath := app.DefineSubCommand("fpath", "construct De bruijn Graph", findPath.FSpath)
+	{
+		fspath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
 
 }
