@@ -54,12 +54,51 @@ type Unitig struct {
 	Kq []uint8
 }
 
+type Path struct {
+	IDArr []DBG_MAX_INT
+	Freq  int
+}
+
 type DBGEdge struct {
 	ID       DBG_MAX_INT
 	StartNID DBG_MAX_INT // start node ID
 	EndNID   DBG_MAX_INT // end node ID
 	Flag     uint8
 	Utg      Unitig
+	PathMat  []Path // read Path matrix
+}
+
+func EqualDBG_MAX_INT(path1, path2 []DBG_MAX_INT) bool {
+	if len(path1) != len(path2) {
+		return false
+	}
+
+	for i, v := range path1 {
+		if v != path2[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (e *DBGEdge) InsertPathToEdge(path []DBG_MAX_INT, freq int) {
+
+	// check have been added
+	added := false
+	for i, v := range e.PathMat {
+		if EqualDBG_MAX_INT(v.IDArr, path) {
+			e.PathMat[i].Freq += freq
+			added = true
+			break
+		}
+	}
+	if added == false {
+		var np Path
+		np.IDArr = make([]DBG_MAX_INT, len(path))
+		copy(np.IDArr, path)
+		np.Freq = freq
+		e.PathMat = append(e.PathMat, np)
+	}
 }
 
 func (e *DBGEdge) GetProcessFlag() uint8 {
@@ -70,8 +109,20 @@ func (e *DBGEdge) GetDeleteFlag() uint8 {
 	return e.Flag & 0x2
 }
 
+func (e *DBGEdge) GetUniqueFlag() uint8 {
+	return e.Flag & 0x4
+}
+
+func (e *DBGEdge) SetUniqueFlag() {
+	e.Flag = e.Flag | 0x4
+}
+
 func (e *DBGEdge) SetProcessFlag() {
 	e.Flag = e.Flag | 0x1
+}
+
+func (e *DBGEdge) ResetProcessFlag() {
+	e.Flag = e.Flag & 0xFE
 }
 
 func (e *DBGEdge) SetDeleteFlag() {
@@ -82,6 +133,14 @@ var MIN_KMER_COUNT uint16 = 2
 var BACKWARD uint8 = 1
 var FORWARD uint8 = 2
 var Kmerlen int
+
+func ReverseDBG_MAX_INTArr(path []DBG_MAX_INT) []DBG_MAX_INT {
+	for i := 0; i < len(path)/2; i++ {
+		path[i], path[len(path)-1-i] = path[len(path)-1-i], path[i]
+	}
+
+	return path
+}
 
 func readUniqKmer(uniqkmergzfn string, cs chan constructcf.ReadBnt, kmerlen, numCPU int) {
 	uniqkmergzfp, err := os.Open(uniqkmergzfn)
@@ -794,6 +853,34 @@ func NodeMapMmapReader(nodesfn string) (nodeMap map[string]DBGNode) {
 	return
 }
 
+func NodesArrWriter(nodesArr []DBGNode, nodesfn string) {
+	nodesfp, err := os.Create(nodesfn)
+	if err != nil {
+		log.Fatalf("[NodesArrWriter] file %s create error, err: %v\n", nodesfn, err)
+	}
+	defer nodesfp.Close()
+	enc := gob.NewEncoder(nodesfp)
+	err = enc.Encode(nodesArr)
+	if err != nil {
+		log.Fatalf("[NodeMapMmapWriter] encode err: %v\n", err)
+	}
+}
+
+func NodesArrReader(nodesfn string) (nodesArr []DBGNode) {
+	nodesfp, err := os.Open(nodesfn)
+	if err != nil {
+		log.Fatalf("[NodeMapMmapReader] open file %s failed, err:%v\n", nodesfn, err)
+	}
+	defer nodesfp.Close()
+	dec := gob.NewDecoder(nodesfp)
+	err = dec.Decode(&nodesArr)
+	if err != nil {
+		log.Fatalf("[NodeMapMmapReader] decode failed, err: %v\n", err)
+	}
+
+	return
+}
+
 func NodeMap2NodeArr(nodeMap map[string]DBGNode, nodesArr []DBGNode) {
 	naLen := DBG_MAX_INT(len(nodesArr))
 	for _, v := range nodeMap {
@@ -1262,24 +1349,42 @@ func GetEdgeIDComing(coming [bnt.BaseTypeNum]DBG_MAX_INT) (num int, edgeID DBG_M
 	return
 }
 
-func ConcatEdges(edgesArr []DBGEdge, inID, outID DBG_MAX_INT) {
+func ConcatEdges(edgesArr []DBGEdge, inID, outID, dstID DBG_MAX_INT) {
 	// check if is connective
 	var inBnt, outBnt constructcf.ReadBnt
 	inBnt.Seq = edgesArr[inID].Utg.Ks[len(edgesArr[inID].Utg.Ks)-Kmerlen+1:]
 	inBnt.Length = len(inBnt.Seq)
 	outBnt.Seq = edgesArr[outID].Utg.Ks[:Kmerlen-1]
 	outBnt.Length = len(outBnt.Seq)
+	fmt.Printf("[ConcatEdges] inID: %d, outID: %d, dstID: %d\nseq1:%v\nseq2:%v\n", inID, outID, dstID, inBnt, outBnt)
 	if inBnt.Equal(outBnt) == false {
 		log.Fatalf("[ConcatEdges] two edges is not connective\n")
 	}
-	edgesArr[inID].Utg.Ks = append(edgesArr[inID].Utg.Ks, edgesArr[outID].Utg.Ks[Kmerlen-1:]...)
-	for i := 0; i < Kmerlen-1; i++ {
-		if edgesArr[inID].Utg.Kq[len(edgesArr[inID].Utg.Kq)-Kmerlen+1+i] < edgesArr[outID].Utg.Kq[i] {
-			edgesArr[inID].Utg.Kq[len(edgesArr[inID].Utg.Kq)-Kmerlen+1+i] = edgesArr[outID].Utg.Kq[i]
+	if dstID == inID {
+		edgesArr[inID].Utg.Ks = append(edgesArr[inID].Utg.Ks, edgesArr[outID].Utg.Ks[Kmerlen-1:]...)
+		for i := 0; i < Kmerlen-1; i++ {
+			if edgesArr[inID].Utg.Kq[len(edgesArr[inID].Utg.Kq)-Kmerlen+1+i] < edgesArr[outID].Utg.Kq[i] {
+				edgesArr[inID].Utg.Kq[len(edgesArr[inID].Utg.Kq)-Kmerlen+1+i] = edgesArr[outID].Utg.Kq[i]
+			}
 		}
+		edgesArr[inID].Utg.Kq = append(edgesArr[inID].Utg.Kq, edgesArr[outID].Utg.Kq[Kmerlen-1:]...)
+		edgesArr[inID].EndNID = edgesArr[outID].EndNID
+
+	} else {
+		seq := make([]byte, len(edgesArr[inID].Utg.Ks))
+		copy(seq, edgesArr[inID].Utg.Ks)
+		edgesArr[outID].Utg.Ks = append(seq, edgesArr[outID].Utg.Ks[Kmerlen-1:]...)
+		qul := make([]uint8, len(edgesArr[inID].Utg.Kq))
+		copy(qul, edgesArr[inID].Utg.Kq)
+		for i := 0; i < Kmerlen-1; i++ {
+			if edgesArr[inID].Utg.Kq[len(edgesArr[inID].Utg.Kq)-Kmerlen+1+i] < edgesArr[outID].Utg.Kq[i] {
+				qul[len(qul)-Kmerlen+1+i] = edgesArr[outID].Utg.Kq[i]
+			}
+		}
+		edgesArr[outID].Utg.Kq = append(qul, edgesArr[outID].Utg.Kq[Kmerlen-1:]...)
+		edgesArr[outID].StartNID = edgesArr[inID].StartNID
+
 	}
-	edgesArr[inID].Utg.Kq = append(edgesArr[inID].Utg.Kq, edgesArr[outID].Utg.Kq[Kmerlen-1:]...)
-	edgesArr[inID].EndNID = edgesArr[outID].EndNID
 }
 
 func SubstituteEdgeID(nodeMap map[string]DBGNode, nodekey []byte, srcID, dstID DBG_MAX_INT) bool {
@@ -1334,7 +1439,7 @@ func SmfyDBG(nodeMap map[string]DBGNode, edgesArr []DBGEdge) {
 			if e2.EndNID == v.ID {
 				RCEdge(edgesArr, outID)
 			}
-			ConcatEdges(edgesArr, inID, outID)
+			ConcatEdges(edgesArr, inID, outID, inID)
 			edgesArr[outID].SetDeleteFlag()
 			deleteEdgeNum++
 			if edgesArr[outID].EndNID > 0 {
@@ -1370,12 +1475,12 @@ func transform2Unitig(Seq alphabet.QLetters, utg *Unitig, lenKs int) {
 	utg.Ks = make([]byte, lenKs)
 	utg.Kq = make([]uint8, lenKs)
 	for i, v := range Seq {
-		utg.Ks[i] = byte(v.L)
+		utg.Ks[i] = bnt.Base2Bnt[v.L]
 		utg.Kq[i] = uint8(v.Q)
 	}
 }
 
-var AdpaterSeq = "cggccgcaaggggttcgcgtcagcgggtgttggcgggtgtcggggctggcttaactatgcggcatcagagcagattgtactgagagtgcaccatatgcggtgtgaaataccacacagatgcgtaaggagaaaataccgcatcaggcgccattcgccattcagctgcgcaactgttgggaagggcgatcggtgcgggcctcttcgctattacgccagctg"
+var AdpaterSeq = "cggccgcaaggggttcgcgtcagcgggtgttggcgggtgtcggggctggcttaactatgcggcatcagagcagattgtactgagagtgcaccatatgcggtgtgaaataccacacagatgcgtaaggagaaaataccgcatcaggcgccattcgccattcagctgcgcaactgttgggaagggcgatcggtgcgggcctc"
 
 func SetDefaultQual(Adapter Unitig) (new Unitig) {
 	for i := 0; i < len(Adapter.Ks); i++ {
@@ -1396,7 +1501,7 @@ func StoreEdgesToFn(edgesfn string, edgesArr []DBGEdge, addAdapter bool) {
 		UpAdpaterSeq := strings.ToUpper(AdpaterSeq)
 		Adapter.Ks = []byte(UpAdpaterSeq)
 		Adapter = SetDefaultQual(Adapter)
-		fmt.Printf("[StoreEdgesToFn] %v\n", Adapter)
+		fmt.Printf("[StoreEdgesToFn] Unitig of Adapter:%v\n", Adapter)
 	}
 
 	fqfp := fastq.NewWriter(fp)
@@ -1495,6 +1600,6 @@ func Smfy(c cli.Command) {
 	StoreEdgesToFn(smfyEdgesfn, edgesArr, false)
 	edgesStatfn := prefix + ".edges.stat"
 	EdgesStatWriter(edgesStatfn, len(edgesArr))
-	smfyNodesfn := prefix + ".nodes.smfy"
+	smfyNodesfn := prefix + ".nodes.smfy.mmap"
 	NodeMapMmapWriter(nodeMap, smfyNodesfn)
 }

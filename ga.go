@@ -42,7 +42,7 @@ func init() {
 		smfy.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
 	// find short read mapping
-	fspath := app.DefineSubCommand("fpath", "construct De bruijn Graph", findPath.FSpath)
+	fspath := app.DefineSubCommand("fspath", "Parse short read path", findPath.FSpath)
 	{
 		fspath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
