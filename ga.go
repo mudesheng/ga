@@ -46,6 +46,10 @@ func init() {
 	{
 		fspath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
+	flpath := app.DefineSubCommand("flpath", "Parse long read path", findPath.FLpath)
+	{
+		flpath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
+	}
 
 }
 

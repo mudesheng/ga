@@ -166,7 +166,6 @@ func readUniqKmer(uniqkmergzfn string, cs chan constructcf.ReadBnt, kmerlen, num
 			if err == io.EOF {
 				err = nil
 				eof = true
-				break
 			} else {
 				log.Fatalf("[readUniqKmer] read kmer seq err: %v\n", err)
 			}
@@ -1320,7 +1319,7 @@ func GraphvizDBG(nodeMap map[string]DBGNode, edgesArr []DBGEdge, graphfn string)
 
 	for i := 1; i < len(edgesArr); i++ {
 		e := edgesArr[i]
-		if e.GetDeleteFlag() > 0 {
+		if e.ID == 0 || e.GetDeleteFlag() > 0 {
 			continue
 		}
 		attr := gographviz.NewAttrs()
@@ -1368,6 +1367,7 @@ func ConcatEdges(edgesArr []DBGEdge, inID, outID, dstID DBG_MAX_INT) {
 			}
 		}
 		edgesArr[inID].Utg.Kq = append(edgesArr[inID].Utg.Kq, edgesArr[outID].Utg.Kq[Kmerlen-1:]...)
+		// DeleteEdgeID(nodesArr, edgesArr[inID].EndNID, inID)
 		edgesArr[inID].EndNID = edgesArr[outID].EndNID
 
 	} else {
@@ -1382,6 +1382,7 @@ func ConcatEdges(edgesArr []DBGEdge, inID, outID, dstID DBG_MAX_INT) {
 			}
 		}
 		edgesArr[outID].Utg.Kq = append(qul, edgesArr[outID].Utg.Kq[Kmerlen-1:]...)
+		// DeleteEdgeID(nodesArr, edgesArr[outID].StartNID, outID)
 		edgesArr[outID].StartNID = edgesArr[inID].StartNID
 
 	}
@@ -1440,6 +1441,7 @@ func SmfyDBG(nodeMap map[string]DBGNode, edgesArr []DBGEdge) {
 				RCEdge(edgesArr, outID)
 			}
 			ConcatEdges(edgesArr, inID, outID, inID)
+			// edgesArr[inID].EndNID = edgesArr[outID].EndNID
 			edgesArr[outID].SetDeleteFlag()
 			deleteEdgeNum++
 			if edgesArr[outID].EndNID > 0 {
@@ -1519,7 +1521,7 @@ func StoreEdgesToFn(edgesfn string, edgesArr []DBGEdge, addAdapter bool) {
 			} else {
 				seq.AppendQLetters(qs...)
 			}
-			ans := strconv.Itoa(int(v.StartNID)) + "\t" + strconv.Itoa(int(v.EndNID)) + "\tlen:" + strconv.Itoa(len(v.Utg.Ks))
+			ans := strconv.Itoa(int(v.StartNID)) + "\t" + strconv.Itoa(int(v.EndNID)) + "\tlen:" + strconv.Itoa(seq.Len())
 			seq.Annotation.SetDescription(ans)
 			_, err := fqfp.Write(seq)
 			if err != nil {
