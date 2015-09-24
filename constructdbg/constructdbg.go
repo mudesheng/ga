@@ -1425,6 +1425,7 @@ func SubstituteEdgeID(nodeMap map[string]DBGNode, nodekey []byte, srcID, dstID D
 func SmfyDBG(nodeMap map[string]DBGNode, edgesArr []DBGEdge) {
 
 	deleteNodeNum, deleteEdgeNum := 0, 0
+	// longTipsEdgesNum := 0
 	for k, v := range nodeMap {
 		inNum, inID := GetEdgeIDComing(v.EdgeIDIncoming)
 		outNum, outID := GetEdgeIDComing(v.EdgeIDOutcoming)

@@ -46,11 +46,16 @@ func init() {
 	{
 		fspath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
+	// find long read mapping
 	flpath := app.DefineSubCommand("flpath", "Parse long read path", findPath.FLpath)
 	{
 		flpath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
-
+	// merge find short and long read mapping path
+	fpath := app.DefineSubCommand("fpath", "Merge Parse short and long read path", findPath.Fpath)
+	{
+		fpath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
+	}
 }
 
 func main() {
