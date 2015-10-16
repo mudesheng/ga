@@ -1,5 +1,6 @@
 #ignore load files
 *.o
+*.out *.err
 test/*
 tmp*
 *.gz
