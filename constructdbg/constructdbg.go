@@ -101,6 +101,28 @@ func (e *DBGEdge) InsertPathToEdge(path []DBG_MAX_INT, freq int) {
 	}
 }
 
+func InsertPathToEdge(pathMat []Path, path []DBG_MAX_INT, freq int) []Path {
+
+	// check have been added
+	added := false
+	for i, v := range pathMat {
+		if EqualDBG_MAX_INT(v.IDArr, path) {
+			pathMat[i].Freq += freq
+			added = true
+			break
+		}
+	}
+	if added == false {
+		var np Path
+		np.IDArr = make([]DBG_MAX_INT, len(path))
+		copy(np.IDArr, path)
+		np.Freq = freq
+		pathMat = append(pathMat, np)
+	}
+
+	return pathMat
+}
+
 func (e *DBGEdge) GetProcessFlag() uint8 {
 	return e.Flag & 0x1
 }

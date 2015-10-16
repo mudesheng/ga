@@ -1,15 +1,19 @@
 package main
 
+import _ "net/http/pprof"
 import (
 	//	"GA/cuckoofilter"
 	"ga/constructcf"
 	"ga/constructdbg"
 	"ga/findPath"
+	"log"
+	"net/http"
+	// "strconv"
 	//	"fmt"
 	"github.com/jwaldrip/odin/cli"
 )
 
-const Kmerdef = 57
+const Kmerdef = 203
 
 type GAArgs struct {
 	cfg    string
@@ -24,10 +28,14 @@ var app = cli.New("1.0.0", "Graph Assembler for complex genome", func(c cli.Comm
 //var gaargs GAArgs
 
 func init() {
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 	app.DefineStringFlag("C", "ga.cfg", "configure file")
 	app.DefineIntFlag("K", Kmerdef, "kmer length")
-	app.DefineStringFlag("p", "ga", "prefix of the output file")
-	app.DefineIntFlag("t", 4, "number of CPU used")
+	// app.DefineStringFlag("p", "K"+strconv.Itoa(Kmerdef), "prefix of the output file")
+	app.DefineStringFlag("p", "./test/t20150708/K203", "prefix of the output file")
+	app.DefineIntFlag("t", 1, "number of CPU used")
 	ccf := app.DefineSubCommand("ccf", "construct cukcoofilter", constructcf.CCF)
 	{
 		ccf.DefineInt64Flag("S", 0, "the Size number of items cuckoofilter set")
