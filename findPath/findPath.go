@@ -4027,12 +4027,12 @@ func WriteLongPathToDBG(wc chan []constructdbg.DBG_MAX_INT, edgesArr []construct
 			// 	continue
 			// }
 
-			LongPathMatArr[path[0]] = constructdbg.InsertPathToEdge(LongPathMatArr[path[0]], path[1:], 1)
-			path = constructdbg.ReverseDBG_MAX_INTArr(path)
-			LongPathMatArr[path[0]] = constructdbg.InsertPathToEdge(LongPathMatArr[path[0]], path[1:], 1)
 			// edgesArr[path[0]].InsertPathToEdge(path, 1)
 		}
 		if len(path) > 3 {
+			LongPathMatArr[path[0]] = constructdbg.InsertPathToEdge(LongPathMatArr[path[0]], path[1:], 1)
+			path = constructdbg.ReverseDBG_MAX_INTArr(path)
+			LongPathMatArr[path[0]] = constructdbg.InsertPathToEdge(LongPathMatArr[path[0]], path[1:], 1)
 			fmt.Printf("[WriteLongPathToDBG] LongPathMatArr[%d]: %v\n", path[0], LongPathMatArr[path[0]])
 			fmt.Printf("[WriteLongPathToDBG] pathArr: %v\n", path)
 			totalPathNum++
@@ -4163,6 +4163,7 @@ func GetOverlapArr(arr []constructdbg.DBG_MAX_INT, pathArr []constructdbg.Path) 
 }
 
 func GetTotalFreq(pathArr []constructdbg.Path, idx int, eID constructdbg.DBG_MAX_INT) (freqSum int) {
+	// fmt.Printf("[GetTotalFreq] idx: %v\n", idx)
 	for _, p := range pathArr {
 		if p.IDArr[idx] == eID {
 			freqSum += p.Freq
@@ -4235,6 +4236,7 @@ func GetMinCutPathArr(pathArr []constructdbg.Path, minPathFreq int) (consisPathA
 				consisPathArr = append(consisPathArr, eIDArr[idx])
 			} else {
 				consisPathArr = nil
+				break
 			}
 		}
 	}
@@ -4421,7 +4423,7 @@ func GetCrossPathMat(neighbourEIDArr []constructdbg.DBG_MAX_INT, LongPathMatArr 
 	return crossPathA
 }
 
-func ParseUniquePath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, LongPathMatArr [][]constructdbg.Path) (mergeMat [][]constructdbg.DBG_MAX_INT) {
+/*func ParseUniquePath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, LongPathMatArr [][]constructdbg.Path) (mergeMat [][]constructdbg.DBG_MAX_INT) {
 	IDLenArr := GetEIDLenArr(edgesArr, 2*Kmerlen-10)
 	sort.Sort(sort.Reverse(IDLenA(IDLenArr)))
 
@@ -4542,10 +4544,161 @@ func ParseUniquePath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DB
 	}
 
 	return mergeMat
+} */
+
+func ParseUniquePath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, LongPathMatArr [][]constructdbg.Path) (mergeMat [][]constructdbg.DBG_MAX_INT) {
+	IDLenArr := GetEIDLenArr(edgesArr, 2*Kmerlen-10)
+	sort.Sort(sort.Reverse(IDLenA(IDLenArr)))
+
+	// traverse edge from longest to shorter
+	for _, IDLen := range IDLenArr {
+		edge := edgesArr[IDLen.EID]
+		if edge.ID == 0 || edge.GetProcessFlag() > 0 {
+			continue
+		}
+		if IsUniqueEdge(edge, nodesArr) == false {
+			continue
+		}
+		fmt.Printf("[ParseUniquePath] edge[%d] length %d\n", edge.ID, len(edge.Utg.Ks))
+
+		// get crossPathInfo
+		var crossPathA [2][]constructdbg.Path
+		if edge.StartNID > 0 {
+			neighbourEIDArr := GetNeighbourEID(edge.ID, edge.StartNID, edgesArr, nodesArr, MAX_LONG_READ_LEN)
+			fmt.Printf("[ParseUniquePath] neighbourEIDArr:%v\n", neighbourEIDArr)
+			crossPathA = GetCrossPathMat(neighbourEIDArr, LongPathMatArr, edge.ID)
+			cs0 := GetMinCutPathArr(crossPathA[0], 2)
+			cs1 := GetMinCutPathArr(crossPathA[1], 2)
+			if len(crossPathA[0]) > 0 && len(cs0) == 0 {
+				continue
+			}
+			if len(crossPathA[1]) > 0 && len(cs1) == 0 {
+				continue
+			}
+			fmt.Printf("[ParseUniquePath] crossPathA:%v\n", crossPathA)
+			fmt.Printf("[ParseUniquePath] cs0:%v\n", cs0)
+			fmt.Printf("[ParseUniquePath] cs1:%v\n", cs1)
+
+		}
+		// extend two flank
+		var pathArr [2][]constructdbg.DBG_MAX_INT
+		for j := 0; j < 2; j++ {
+			// var d uint8 // direction
+			var neID constructdbg.DBG_MAX_INT
+			if j == 0 {
+				fmt.Printf("[ParseUniquePath] direction : FORWARD\n")
+				// d = constructdbg.FORWARD
+				if edge.EndNID == 0 {
+					continue
+				}
+				neID = GetNextEID(edge.ID, nodesArr[edge.EndNID])
+
+			} else {
+				fmt.Printf("[ParseUniquePath] direction : BACKWARD\n")
+				// d = constructdbg.BACKWARD
+				if edge.StartNID == 0 {
+					continue
+				}
+				neID = GetNextEID(edge.ID, nodesArr[edge.StartNID])
+			}
+			// if len(LongPathMatArr[edge.ID]) > 0 {
+			// 	fmt.Printf("[ParseUniquePath] LongPathMatArr: %v\n", LongPathMatArr[edge.ID])
+			// }
+			dPathArr := GetSameDirectionPath(LongPathMatArr[edge.ID], neID)
+			dPathArr = append(dPathArr, crossPathA[j]...)
+			for x := 0; x < len(dPathArr); x++ {
+				fmt.Printf("[ParseUniquePath] dPathArr[%d]: %v\n", x, dPathArr[x])
+			}
+			// consisPathMat := GetMinCutPathArr(dPathArr, MIN_ALLOW_PATH_FREQ)
+			consisPathArr := GetMinCutPathArr(dPathArr, 2)
+			fmt.Printf("[ParseUniquePath] consisPathArr: %v\n", consisPathArr)
+			if len(consisPathArr) < MIN_PATH_LEN {
+				continue
+			}
+			pathArr[j] = consisPathArr
+			for {
+				leID := pathArr[j][len(pathArr[j])-1]
+				nID := GetInterNodeID(edgesArr[pathArr[j][len(pathArr[j])-2]], edgesArr[leID])
+				if nID == edgesArr[leID].StartNID {
+					nID = edgesArr[leID].EndNID
+				} else {
+					nID = edgesArr[leID].StartNID
+				}
+				if nID == 0 {
+					break
+				}
+				eIDArr := GetNextEArr(leID, nodesArr[nID])
+				if len(eIDArr) == 0 {
+					break
+				} else if len(eIDArr) == 1 {
+					pathArr[j] = append(pathArr[j], eIDArr[0])
+				} else {
+					minLen := 1000
+					scoreArr := make([]int, len(eIDArr))
+					extLen := len(edgesArr[leID].Utg.Ks) - (Kmerlen - 1)
+					for x := len(pathArr[j]) - 2; x >= 0 && extLen < MAX_LONG_READ_LEN; x-- {
+						eID := pathArr[j][x]
+						if extLen > minLen {
+							// for _, opa := range overlapPathArr {
+							// 	fmt.Printf("[ParseUniquePath] overlap: %v\n", opa)
+							// }
+							overlapPathArr := GetOverlapArr(pathArr[j][x+1:], LongPathMatArr[eID])
+							for _, opa := range overlapPathArr {
+								fmt.Printf("[ParseUniquePath] overlap: %v\n", opa)
+							}
+							for y, id := range eIDArr {
+								scoreArr[y] += GetTotalFreq(overlapPathArr, len(pathArr[j])-(x+1), id) * extLen
+							}
+						}
+						extLen += len(edgesArr[eID].Utg.Ks) - (Kmerlen - 1)
+
+					}
+					if id, OK := CheckSignificantDiff(scoreArr, eIDArr); OK {
+						pathArr[j] = append(pathArr[j], id)
+					} else {
+						fmt.Printf("[ParseUniquePath] eIDArr: %v\nscoreArr: %v\n", eIDArr, scoreArr)
+						break
+					}
+					fmt.Printf("[ParseUniquePath] pathArr: %v\n", pathArr[j])
+				}
+			}
+		}
+		// merge two flank
+
+		catArr := GetReverseDBG_MAX_INTArr(pathArr[1])
+		catArr = append(catArr, edge.ID)
+		catArr = append(catArr, pathArr[0]...)
+		for _, id := range catArr {
+			edgesArr[id].SetProcessFlag()
+		}
+		if len(catArr) >= MIN_PATH_LEN {
+			mergeMat = append(mergeMat, catArr)
+		}
+		fmt.Printf("[ParseUniquePath] catArr: %v\n", catArr)
+
+	}
+
+	return mergeMat
 }
 
-func StaticsLongPath(LongPathMatArr [][]constructdbg.Path, edgesArr []constructdbg.DBGEdge) {
+func IsBubbleEdge(edge constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, edgesArr []constructdbg.DBGEdge) (b bool) {
+	if edge.StartNID > 0 {
+		eIDArr := GetOtherEArr(nodesArr[edge.StartNID], edge.ID)
+		if len(eIDArr) == 1 {
+			e2 := edgesArr[eIDArr[0]]
+			if e2.StartNID == edge.StartNID && e2.EndNID == edge.EndNID {
+				b = true
+			} else if e2.EndNID == edge.StartNID && e2.StartNID == edge.EndNID {
+				b = true
+			}
+		}
+	}
 
+	return b
+}
+
+func StaticsLongPath(LongPathMatArr [][]constructdbg.Path, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode) {
+	freqNum := make([]int, len(edgesArr))
 	num := 0
 	totalBaseLen := 0
 	for _, pathMat := range LongPathMatArr {
@@ -4554,6 +4707,7 @@ func StaticsLongPath(LongPathMatArr [][]constructdbg.Path, edgesArr []constructd
 				initLen := Kmerlen - 1
 				for _, eID := range p.IDArr {
 					initLen += len(edgesArr[eID].Utg.Ks) - (Kmerlen - 1)
+					freqNum[eID] += p.Freq
 				}
 				totalBaseLen += initLen * p.Freq
 				num += p.Freq
@@ -4561,6 +4715,34 @@ func StaticsLongPath(LongPathMatArr [][]constructdbg.Path, edgesArr []constructd
 		}
 	}
 	fmt.Printf("[StaticsLongPath]LongPathMatArr has path num: %d, avgBaseLen: %d\n", num, totalBaseLen/num)
+
+	// statics freq
+	max := 256
+	bubbleNum := 0
+	freqdistri := make([]int, max)
+	for i, freq := range freqNum {
+		if freq >= max {
+			freqdistri[max-1]++
+		} else if freq > 0 {
+			freqdistri[freq]++
+		} else {
+			freqdistri[freq]++
+			if IsBubbleEdge(edgesArr[i], nodesArr, edgesArr) {
+				bubbleNum++
+				// arr := GetOtherEArr(nodesArr[edgesArr[i].StartNID], edgesArr[i].ID)
+				// fmt.Fprintf(os.Stderr, "%v\n", freqNum[arr[0]])
+			} else {
+				if edgesArr[i].ID > 0 {
+					fmt.Fprintf(os.Stderr, "%v\n", len(edgesArr[i].Utg.Ks))
+
+				}
+			}
+		}
+	}
+	fmt.Printf("[StaticsLongPath] bubbleNum: %d\n", bubbleNum)
+	// for _, depth := range freqdistri {
+	// 	 fmt.Fprintf(os.Stderr, "%d\n", depth)
+	// }
 }
 
 func StaticsMergeMat(matArr [][]constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge) {
@@ -4572,7 +4754,7 @@ func StaticsMergeMat(matArr [][]constructdbg.DBG_MAX_INT, edgesArr []constructdb
 		for _, eID := range p {
 			initLen += len(edgesArr[eID].Utg.Ks) - (Kmerlen - 1)
 		}
-		fmt.Fprintf(os.Stderr, "%d\n", initLen)
+		// fmt.Fprintf(os.Stderr, "%d\n", initLen)
 		totalBaseLen += initLen
 		num++
 	}
@@ -4646,7 +4828,7 @@ func Fpath(c cli.Command) {
 	}
 
 	LongPathMatArr := WriteLongPathToDBG(wc, edgesArr, numCPU)
-	StaticsLongPath(LongPathMatArr, edgesArr)
+	StaticsLongPath(LongPathMatArr, edgesArr, nodesArr)
 	// fmt.Printf("[Fpath]sizeof(LongPathMatArr): %d\n", unsafe.Sizeof(LongPathMatArr))
 	mergeMat := ParseUniquePath(edgesArr, nodesArr, LongPathMatArr)
 	StaticsMergeMat(mergeMat, edgesArr)

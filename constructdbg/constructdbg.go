@@ -1623,6 +1623,8 @@ func Smfy(c cli.Command) {
 	GraphvizDBG(nodeMap, edgesArr, graphfn)
 	smfyEdgesfn := prefix + ".edges.smfy.fq"
 	StoreEdgesToFn(smfyEdgesfn, edgesArr, false)
+	adpaterEdgesfn := prefix + ".edges.adapter.fq"
+	StoreEdgesToFn(adpaterEdgesfn, edgesArr, true)
 	edgesStatfn := prefix + ".edges.stat"
 	EdgesStatWriter(edgesStatfn, len(edgesArr))
 	smfyNodesfn := prefix + ".nodes.smfy.mmap"
