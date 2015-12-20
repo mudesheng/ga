@@ -2981,7 +2981,7 @@ func FSpath(c cli.Command) {
 	edgesSize := constructdbg.EdgesStatReader(edgesStatfn)
 	edgesArr := make([]constructdbg.DBGEdge, edgesSize)
 	edgesfn := prefix + ".edges.smfy.fq"
-	constructdbg.LoadEdgesfqFromFn(edgesfn, edgesArr)
+	constructdbg.LoadEdgesfqFromFn(edgesfn, edgesArr, false)
 
 	bamfn := prefix + ".bam"
 	rc := make(chan []sam.Record, numCPU*2)
@@ -4330,14 +4330,21 @@ func paraFindLongMappingPath(lac chan []LA, wc chan []constructdbg.DBG_MAX_INT, 
 		// found repeat region and masked pseudo mappming record, get Unique region
 		uniqueRegTagArr := MaskRepeatMapping(laArr)
 		fmt.Printf("[paraFindLongMappingPath] uniqueRegTagArr: %v\n", uniqueRegTagArr)
+		lowCount := 0
+		for _, t := range uniqueRegTagArr {
+			if t <= 2 {
+				lowCount++
+			}
+		}
+		fmt.Printf("[paraFindLongMappingPath] len(uniqueRegTagArr): %v\tlowCount: %v\n", len(uniqueRegTagArr), lowCount)
 		// MaskRepeatMapping(laArr)
 		for i, te := range laArr {
 			fmt.Printf("[paraFindLongMappingPath] laArr[%d]: %v\n", i, te)
 		}
 		for _, gr := range gapRegArr {
 			if gr.Begin != 0 {
-				fmt.Fprintf(os.Stderr, "\t[%d,\t%d],\n", gr.Begin, gr.End)
-				// fmt.Fprintf(os.Stderr, "%d\t%d\n", gr.Begin, gr.End)
+				// fmt.Fprintf(os.Stderr, "\t[%d,\t%d],\n", gr.Begin, gr.End)
+				fmt.Fprintf(os.Stderr, "%d\t%d\n", gr.Begin, gr.End)
 			}
 		}
 		// found all regions map to the DBG, when found one region and added to the mapRegArr used tagged
@@ -5720,19 +5727,19 @@ func Fpath(c cli.Command) {
 	}
 	prefix := c.Parent().Flag("p").String()
 	// read nodes file and transform to array mode, for more quickly access
-	smfyNodesfn := prefix + ".nodes.smfy.mmap"
-	nodeMap := constructdbg.NodeMapMmapReader(smfyNodesfn)
 	nodesStatfn := prefix + ".nodes.stat"
 	nodesSize := constructdbg.NodesStatReader(nodesStatfn)
 	nodesArr := make([]constructdbg.DBGNode, nodesSize)
-	constructdbg.NodeMap2NodeArr(nodeMap, nodesArr)
-	nodeMap = nil
+	smfyNodesfn := prefix + ".nodes.smfy.Arr"
+	nodesArr = constructdbg.NodesArrReader(smfyNodesfn)
+	// constructdbg.NodeMap2NodeArr(nodeMap, nodesArr)
+
 	// Restore edges info
 	edgesStatfn := prefix + ".edges.stat"
 	edgesSize := constructdbg.EdgesStatReader(edgesStatfn)
 	edgesArr := make([]constructdbg.DBGEdge, edgesSize)
 	edgesfn := prefix + ".edges.smfy.fq"
-	constructdbg.LoadEdgesfqFromFn(edgesfn, edgesArr)
+	constructdbg.LoadEdgesfqFromFn(edgesfn, edgesArr, true)
 
 	// get coverage of smfy edge
 	computeCoverageSmfyEdge(prefix)

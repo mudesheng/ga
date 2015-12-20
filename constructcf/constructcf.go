@@ -26,26 +26,26 @@ const (
 )
 
 type LibInfo struct {
-	name          string // name of library
-	numberReads   int64  // the number of reads
-	diverse       uint8
-	paired        uint8
-	asmFlag       uint8 // denote which assembly phase used, note 1 used for all step of assembly pipeline, note 2 used for scaffold phase only, 3 used for filling gap only
-	seqProfile    uint8 // denote the data origin
-	qualBenchmark uint8 // the benchmark of quality score, strength encourage use phred+33
-	totalBasesNum int64
-	readLen       int
-	insertSize    int // paired read insert size
-	insertSD      int // Standard Deviation
+	Name          string // name of library
+	NumberReads   int64  // the number of reads
+	Diverse       uint8
+	Paired        uint8
+	AsmFlag       uint8 // denote which assembly phase used, note 1 used for all step of assembly pipeline, note 2 used for scaffold phase only, 3 used for filling gap only
+	SeqProfile    uint8 // denote the data origin
+	QualBenchmark uint8 // the benchmark of quality score, strength encourage use phred+33
+	TotalBasesNum int64
+	ReadLen       int
+	InsertSize    int // paired read insert size
+	InsertSD      int // Standard Deviation
 	//	fnNum         int      // the number of files
-	fnName []string // the files name slice
+	FnName []string // the files name slice
 }
 
 type CfgInfo struct {
-	maxRdLen int // maximum read length
-	minRdLen int // minimum read length
+	MaxRdLen int // maximum read length
+	MinRdLen int // minimum read length
 	//	n        int // the number of library
-	libs []LibInfo
+	Libs []LibInfo
 }
 
 type ReadBnt struct {
@@ -96,7 +96,7 @@ func (s1 ReadBnt) Equal(s2 ReadBnt) bool {
 	return true
 }
 
-func parseCfg(fn string) (cfgInfo CfgInfo, e error) {
+func ParseCfg(fn string) (cfgInfo CfgInfo, e error) {
 	var inFile *os.File
 	var err error
 	if inFile, err = os.Open(fn); err != nil {
@@ -123,39 +123,39 @@ func parseCfg(fn string) (cfgInfo CfgInfo, e error) {
 		switch fields[0] {
 		case "[global_setting]":
 		case "[LIB]":
-			if libInfo.name != "" {
-				cfgInfo.libs = append(cfgInfo.libs, libInfo)
+			if libInfo.Name != "" {
+				cfgInfo.Libs = append(cfgInfo.Libs, libInfo)
 				var nli LibInfo
 				libInfo = nli
 			}
 		case "max_rd_len":
 			v, err = strconv.Atoi(fields[2])
-			cfgInfo.maxRdLen = v
+			cfgInfo.MaxRdLen = v
 		case "min_rd_len":
 			v, err = strconv.Atoi(fields[2])
-			cfgInfo.minRdLen = v
+			cfgInfo.MinRdLen = v
 		case "name":
-			libInfo.name = fields[2]
+			libInfo.Name = fields[2]
 		case "avg_insert_len":
 			v, err = strconv.Atoi(fields[2])
-			libInfo.insertSize = v
+			libInfo.InsertSize = v
 		case "insert_SD":
 			v, err = strconv.Atoi(fields[2])
-			libInfo.insertSD = v
+			libInfo.InsertSD = v
 		case "diverse_rd_len":
 			v, err = strconv.Atoi(fields[2])
-			libInfo.diverse = uint8(v)
+			libInfo.Diverse = uint8(v)
 		case "asm_flag":
 			v, err = strconv.Atoi(fields[2])
-			libInfo.asmFlag = uint8(v)
+			libInfo.AsmFlag = uint8(v)
 		case "seq_profile":
 			v, err = strconv.Atoi(fields[2])
-			libInfo.seqProfile = uint8(v)
+			libInfo.SeqProfile = uint8(v)
 		case "qual_benchmark":
 			v, err = strconv.Atoi(fields[2])
-			libInfo.qualBenchmark = uint8(v)
+			libInfo.QualBenchmark = uint8(v)
 		case "f1", "f2":
-			libInfo.fnName = append(libInfo.fnName, fields[2])
+			libInfo.FnName = append(libInfo.FnName, fields[2])
 		default:
 			if fields[0][0] != '#' && fields[0][0] != ';' {
 				log.Fatalf("noknown line: %s", line)
@@ -166,8 +166,8 @@ func parseCfg(fn string) (cfgInfo CfgInfo, e error) {
 			return
 		}
 	}
-	if libInfo.name != "" {
-		cfgInfo.libs = append(cfgInfo.libs, libInfo)
+	if libInfo.Name != "" {
+		cfgInfo.Libs = append(cfgInfo.Libs, libInfo)
 	}
 
 	return
@@ -328,7 +328,7 @@ func CCF(c cli.Command) {
 
 	//argsCheck(c)
 	fnName := c.Parent().Flag("C").String()
-	cfgInfo, err := parseCfg(string(fnName))
+	cfgInfo, err := ParseCfg(string(fnName))
 	if err != nil {
 		log.Fatal("[parseCfg] found err")
 	}
@@ -364,9 +364,10 @@ func CCF(c cli.Command) {
 	var rsb ReadSeqBucket
 	//var bucketCount int
 	// iteration read cfgInfo files
-	for _, lib := range cfgInfo.libs {
-		if lib.asmFlag == AllState {
-			for _, fn := range lib.fnName {
+	for _, lib := range cfgInfo.Libs {
+		// seqProfile == 1 note Illumina
+		if lib.AsmFlag == AllState && lib.SeqProfile == 1 {
+			for _, fn := range lib.FnName {
 				infile, err := os.Open(fn)
 				if err != nil {
 					log.Fatal(err)

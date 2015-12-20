@@ -1495,13 +1495,17 @@ func transform2QSeq(utg Unitig) (qs alphabet.QLetters) {
 	return
 }
 
-func transform2Unitig(Seq alphabet.QLetters, utg *Unitig, lenKs int) {
+func transform2Unitig(Seq alphabet.QLetters, utg *Unitig, lenKs int, qual bool) {
 
 	utg.Ks = make([]byte, lenKs)
-	utg.Kq = make([]uint8, lenKs)
+	if qual {
+		utg.Kq = make([]uint8, lenKs)
+	}
 	for i, v := range Seq {
 		utg.Ks[i] = bnt.Base2Bnt[v.L]
-		utg.Kq[i] = uint8(v.Q)
+		if qual {
+			utg.Kq[i] = uint8(v.Q)
+		}
 	}
 }
 
@@ -1554,7 +1558,7 @@ func StoreEdgesToFn(edgesfn string, edgesArr []DBGEdge, addAdapter bool) {
 	}
 }
 
-func LoadEdgesfqFromFn(fn string, edgesArr []DBGEdge) {
+func LoadEdgesfqFromFn(fn string, edgesArr []DBGEdge, qual bool) {
 	fp, err := os.Open(fn)
 	if err != nil {
 		log.Fatalf("[LoadEdgesfaFromFn] open file: %s error: %v\n", fn, err)
@@ -1581,7 +1585,7 @@ func LoadEdgesfqFromFn(fn string, edgesArr []DBGEdge) {
 			if err != nil {
 				log.Fatalf("[LoadEdgesfqFromFn] parse Description:%s of fastq err: %v\n", l.Description(), err)
 			}
-			transform2Unitig(l.Seq, &edge.Utg, lenKs)
+			transform2Unitig(l.Seq, &edge.Utg, lenKs, qual)
 			if edge.ID >= DBG_MAX_INT(len(edgesArr)) {
 				log.Fatalf("[LoadEdgesfqFromFn] edge.ID:%v >= len(edgesArr):%d\n", edge.ID, len(edgesArr))
 			} else if edgesArr[edge.ID].ID > 0 {

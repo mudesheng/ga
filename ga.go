@@ -6,6 +6,7 @@ import (
 	"ga/constructcf"
 	"ga/constructdbg"
 	"ga/findPath"
+	"ga/mapDBG"
 	"log"
 	"net/http"
 	// "strconv"
@@ -48,6 +49,12 @@ func init() {
 	smfy := app.DefineSubCommand("smfy", "construct De bruijn Graph", constructdbg.Smfy)
 	{
 		smfy.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
+	}
+	// mapping long read to the DBG
+	mapDBG := app.DefineSubCommand("mapDBG", "mapping long read to the DBG", mapDBG.MapDBG)
+	{
+		mapDBG.DefineIntFlag("Seed", 15, "the seek length(must <=16)")
+		mapDBG.DefineIntFlag("Width", 5, "band width for found min kmer")
 	}
 	// find short read mapping
 	fspath := app.DefineSubCommand("fspath", "Parse short read path", findPath.FSpath)
