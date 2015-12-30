@@ -12,6 +12,7 @@ import (
 	"reflect"
 	// "ga/constructcf"
 	"ga/constructdbg"
+	"ga/mapDBG"
 	// "ga/cuckoofilter"
 	"io"
 	"log"
@@ -905,35 +906,6 @@ func GetNextEID(eID constructdbg.DBG_MAX_INT, node constructdbg.DBGNode) (neID c
 	return neID
 }
 
-func GetNextEArr(eID constructdbg.DBG_MAX_INT, node constructdbg.DBGNode) (eIDArr []constructdbg.DBG_MAX_INT) {
-	var direction uint8
-	for i := 0; i < bnt.BaseTypeNum; i++ {
-		if node.EdgeIDIncoming[i] == eID {
-			direction = constructdbg.BACKWARD
-			break
-		}
-		if node.EdgeIDOutcoming[i] == eID {
-			direction = constructdbg.FORWARD
-			break
-		}
-	}
-	if direction != constructdbg.BACKWARD && direction != constructdbg.FORWARD {
-		log.Fatalf("[GetNextEArr] direction not set, eID:%d, node:%v\n", eID, node)
-	}
-	for i := 0; i < bnt.BaseTypeNum; i++ {
-		if direction == constructdbg.FORWARD {
-			if node.EdgeIDIncoming[i] > 0 {
-				eIDArr = append(eIDArr, node.EdgeIDIncoming[i])
-			}
-		} else {
-			if node.EdgeIDOutcoming[i] > 0 {
-				eIDArr = append(eIDArr, node.EdgeIDOutcoming[i])
-			}
-		}
-	}
-	return eIDArr
-}
-
 func GetOtherEArr(node constructdbg.DBGNode, eID constructdbg.DBG_MAX_INT) (eIDArr []constructdbg.DBG_MAX_INT) {
 	var direction uint8
 	for i := 0; i < bnt.BaseTypeNum; i++ {
@@ -1806,7 +1778,7 @@ func GetNeighbourEID(eID constructdbg.DBG_MAX_INT, nID constructdbg.DBG_MAX_INT,
 		pci := stk[len(stk)-1]
 		stk = stk[:len(stk)-1]
 		// fmt.Printf("[GetNeighbourEID] pci: %v\n", pci)
-		eIDArr := GetNextEArr(pci.EdgeID, nodesArr[pci.NID])
+		eIDArr := mapDBG.GetNextEArr(pci.EdgeID, nodesArr[pci.NID])
 		for _, eID := range eIDArr {
 			if IsInDBG_MAX_INTArr(neighbourEIDArr, eID) {
 				continue
@@ -1947,7 +1919,7 @@ func GetMergePathArr(EpathMat []constructdbg.Path, edgesArr []constructdbg.DBGEd
 			}
 			for nID > 0 && eID > 0 {
 				// fmt.Printf("[GetMergePathArr] extend right nID: %d, eID:%v\n", nID, eID)
-				eIDArr := GetNextEArr(eID, nodesArr[nID])
+				eIDArr := mapDBG.GetNextEArr(eID, nodesArr[nID])
 				num := 0
 				for _, ne := range eIDArr {
 					if IsInPathMat(pathMat, ne) {
@@ -1999,7 +1971,7 @@ func GetMergePathArr(EpathMat []constructdbg.Path, edgesArr []constructdbg.DBGEd
 			}
 			for nID > 0 && eID > 0 {
 				// fmt.Printf("[GetMergePathArr] extend left nID: %d, eID:%v\n", nID, eID)
-				eIDArr := GetNextEArr(eID, nodesArr[nID])
+				eIDArr := mapDBG.GetNextEArr(eID, nodesArr[nID])
 				num := 0
 				for _, ne := range eIDArr {
 					if IsInPathMat(pathMat, ne) {
@@ -4423,7 +4395,8 @@ func paraFindLongMappingPath(lac chan []LA, wc chan []constructdbg.DBG_MAX_INT, 
 					//neID, b, e, rl
 					// fmt.Printf("[paraFindLongMappingPath]extArr: %v\n", extArr[i])
 					// fmt.Printf("[paraFindLongMappingPath]nID: %v\n", nID)
-					eIDArr := GetNextEArr(eID, nodesArr[nID])
+					eIDArr := mapDBG.GetNextEArr(eID, nodesArr[nID])
+
 					if len(eIDArr) == 0 {
 						break
 					}
@@ -4464,7 +4437,7 @@ func paraFindLongMappingPath(lac chan []LA, wc chan []constructdbg.DBG_MAX_INT, 
 											nodeID = edge.StartNID
 										}
 										if nodeID > 0 {
-											arr[j] = GetNextEArr(edge.ID, nodesArr[nodeID])
+											arr[j] = mapDBG.GetNextEArr(edge.ID, nodesArr[nodeID])
 										}
 									}
 									nextLAArr := findNextProEdge(append(arr[0], arr[1]...), laArr, gapRegArr, QuyPos, QuyDirection)
