@@ -5,9 +5,6 @@ import (
 	"compress/gzip"
 	"encoding/binary"
 	"fmt"
-	"ga/bnt"
-	"ga/cuckoofilter"
-	"github.com/jwaldrip/odin/cli"
 	"io"
 	"log"
 	"os"
@@ -15,6 +12,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mudesheng/GA/bnt"
+	"github.com/mudesheng/GA/cuckoofilter"
+
+	//"github.com/mudesheng/GA/bnt"
+	"github.com/jwaldrip/odin/cli"
 )
 
 const (

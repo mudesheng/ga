@@ -7,15 +7,16 @@ import (
 	"encoding/binary"
 	"encoding/gob"
 	"fmt"
-	"ga/bnt"
-	"ga/constructcf"
-	"ga/cuckoofilter"
 	"io"
 	"log"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/mudesheng/GA/bnt"
+	"github.com/mudesheng/GA/constructcf"
+	"github.com/mudesheng/GA/cuckoofilter"
 	// "time"
 
 	"github.com/awalterschulze/gographviz"
@@ -906,7 +907,7 @@ func NodeMap2NodeArr(nodeMap map[string]DBGNode, nodesArr []DBGNode) {
 	naLen := DBG_MAX_INT(len(nodesArr))
 	for _, v := range nodeMap {
 		if v.ID >= naLen {
-			log.Fatalf("[NodeMap2NodeArr] v.ID:%u >= nodesArr len: %u\n", v.ID, naLen)
+			log.Fatalf("[NodeMap2NodeArr] v.ID: %v >= nodesArr len: %v\n", v.ID, naLen)
 		}
 		nodesArr[v.ID] = v
 	}
@@ -1009,7 +1010,7 @@ func ParseEdge(edgesbuffp *bufio.Reader) (edge DBGEdge, err error) {
 			err = io.EOF
 			return
 		} else {
-			log.Fatal("[ParseEdge] Read edge found err\n")
+			log.Fatalf("[ParseEdge] Read edge found err\nline1: %v\nline2: %v\nline3: %v\n", &line1, &line2, &line3)
 		}
 	}
 	var tmp int
@@ -1052,8 +1053,11 @@ func ReadEdgesFromFile(nodeMap map[string]DBGNode, edgesfn string) (edgesArr []D
 	// defer edgesgzfp.Close()
 	edgesbuffp := bufio.NewReader(edgesfp)
 
+	var num int
 	for {
 		edge, err := ParseEdge(edgesbuffp)
+		num++
+		fmt.Printf("[ParseEdge] num of edges: %v\n", num)
 		if err == io.EOF {
 			break
 		} else if err != nil {
@@ -1062,7 +1066,6 @@ func ReadEdgesFromFile(nodeMap map[string]DBGNode, edgesfn string) (edgesArr []D
 		// if len(edgesArr) > 0 && int(edgesArr[len(edgesArr)-1].ID) != len(edgesArr) {
 		// 	log.Fatalf("[ReadEdgesFromFile] edgesArr[len(edgesArr)-1](%v) != len(edgesArr):%d\n", edgesArr[len(edgesArr)-1], len(edgesArr))
 		// }
-		// fmt.Printf("[ParseEdge] edge: %v\n", edge)
 		collisiontag := false
 		var collisionEdgeID DBG_MAX_INT
 		// check start and end node, 1 note start, 2 note end
@@ -1589,7 +1592,7 @@ func LoadEdgesfqFromFn(fn string, edgesArr []DBGEdge, qual bool) {
 			if edge.ID >= DBG_MAX_INT(len(edgesArr)) {
 				log.Fatalf("[LoadEdgesfqFromFn] edge.ID:%v >= len(edgesArr):%d\n", edge.ID, len(edgesArr))
 			} else if edgesArr[edge.ID].ID > 0 {
-				log.Fatalf("[LoadEdgesfqFromFn] the position: %u in edgesArr has value:%v\n", edge.ID, edgesArr[edge.ID])
+				log.Fatalf("[LoadEdgesfqFromFn] the position: %v in edgesArr has value:%v\n", edge.ID, edgesArr[edge.ID])
 			}
 			edgesArr[edge.ID] = edge
 		}

@@ -1,18 +1,23 @@
 package main
 
-import _ "net/http/pprof"
 import (
-	//	"GA/cuckoofilter"
-	"ga/constructcf"
-	"ga/constructdbg"
-	"ga/findPath"
-	"ga/mapDBG"
 	"log"
 	"net/http"
-	// "strconv"
-	//	"fmt"
+	_ "net/http/pprof"
+
+	"github.com/mudesheng/GA/constructcf"
+	//"./constructdbg"
+	//"./findPath"
+
 	"github.com/jwaldrip/odin/cli"
+	"github.com/mudesheng/GA/constructdbg"
+	"github.com/mudesheng/GA/findPath"
+	"github.com/mudesheng/GA/mapDBG"
 )
+
+//"./mapDBG"
+// "strconv"
+//	"fmt"
 
 const Kmerdef = 203
 
@@ -46,7 +51,7 @@ func init() {
 		cdbg.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
 
-	smfy := app.DefineSubCommand("smfy", "construct De bruijn Graph", constructdbg.Smfy)
+	smfy := app.DefineSubCommand("smfy", "simplify De bruijn Graph", constructdbg.Smfy)
 	{
 		smfy.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}

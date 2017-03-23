@@ -3,30 +3,33 @@ package findPath
 import (
 	"bufio"
 	"sort"
-	// "compress/gzip"
-	// "encoding/binary"
-	// "encoding/gob"
+	//"compress/gzip"
+	//"encoding/binary"
+	//"encoding/gob"
 	"container/list"
 	"fmt"
-	"ga/bnt"
 	"reflect"
-	// "ga/constructcf"
-	"ga/constructdbg"
-	"ga/mapDBG"
-	// "ga/cuckoofilter"
+
+	"github.com/mudesheng/GA/bnt"
+	"github.com/mudesheng/GA/constructdbg"
+	//"ga/constructcf"
+
 	"io"
 	"log"
 	"os"
+
+	"github.com/mudesheng/GA/mapDBG"
 	// "unsafe"
 	// "runtime"
 	"math"
 	"strconv"
 
+	"strings"
+
 	"github.com/awalterschulze/gographviz"
 	"github.com/biogo/hts/bam"
 	"github.com/biogo/hts/sam"
 	"github.com/jwaldrip/odin/cli"
-	"strings"
 )
 
 var Kmerlen int
