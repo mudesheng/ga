@@ -568,9 +568,10 @@ func WriteEdgesToFn(edgesfn string, wc chan DBGEdge) {
 	if err != nil {
 		log.Fatalf("[WriteEdgesToFn] Open file %s failed: %v\n", edgesfn, err)
 	}
-	defer edgesfp.Close()
 	edgesbuffp := bufio.NewWriter(edgesfp)
 	defer edgesbuffp.Flush()
+	defer edgesfp.Close()
+
 	// edgesgzfp := gzip.NewWriter(edgesbuffp)
 	// defer edgesgzfp.Close()
 	for {
@@ -591,7 +592,7 @@ func WriteEdgesToFn(edgesfn string, wc chan DBGEdge) {
 			}
 			fmt.Fprintf(edgesbuffp, "%c", bnt.BitNtCharUp[ei.Utg.Ks[i]])
 		}
-		fmt.Fprintf(edgesbuffp, "%s", "\n")
+		fmt.Fprintf(edgesbuffp, "\n")
 		// write quality to the file
 		for i := 0; i < len(ei.Utg.Kq); i++ {
 			fmt.Fprintf(edgesbuffp, "%c", ei.Utg.Kq[i]+33)
@@ -1001,16 +1002,16 @@ func CDBG(c cli.Command) {
 func ParseEdge(edgesbuffp *bufio.Reader) (edge DBGEdge, err error) {
 
 	err = nil
-	line1, err1 := edgesbuffp.ReadBytes('\n')
-	line2, err2 := edgesbuffp.ReadBytes('\n')
-	line3, err3 := edgesbuffp.ReadBytes('\n')
+	line1, err1 := edgesbuffp.ReadString('\n')
+	line2, err2 := edgesbuffp.ReadString('\n')
+	line3, err3 := edgesbuffp.ReadString('\n')
 	if err1 != nil || err2 != nil || err3 != nil {
-		if err1 == io.EOF {
+		if err3 == io.EOF {
 			err3 = nil
 			err = io.EOF
 			return
 		} else {
-			log.Fatalf("[ParseEdge] Read edge found err\nline1: %v\nline2: %v\nline3: %v\n", &line1, &line2, &line3)
+			log.Fatalf("[ParseEdge] Read edge found err\nline1: %v\nline2: %v\nline3: %v\n", line1, line2, line3)
 		}
 	}
 	var tmp int
@@ -1053,11 +1054,11 @@ func ReadEdgesFromFile(nodeMap map[string]DBGNode, edgesfn string) (edgesArr []D
 	// defer edgesgzfp.Close()
 	edgesbuffp := bufio.NewReader(edgesfp)
 
-	var num int
+	// var num int
 	for {
 		edge, err := ParseEdge(edgesbuffp)
-		num++
-		fmt.Printf("[ParseEdge] num of edges: %v\n", num)
+		// num++
+		// fmt.Printf("[ParseEdge] num of edges: %v\n", num)
 		if err == io.EOF {
 			break
 		} else if err != nil {
@@ -1336,7 +1337,16 @@ func GraphvizDBG(nodeMap map[string]DBGNode, edgesArr []DBGEdge, graphfn string)
 		attr.Add("color", "Green")
 		attr.Add("shape", "record")
 		var labels string
-		labels = "{" + strconv.Itoa(int(v.EdgeIDIncoming[0])) + "|" + strconv.Itoa(int(v.EdgeIDIncoming[1])) + "|" + strconv.Itoa(int(v.EdgeIDIncoming[2])) + "|" + strconv.Itoa(int(v.EdgeIDIncoming[3])) + "}|" + strconv.Itoa(int(v.ID)) + "|{" + strconv.Itoa(int(v.EdgeIDOutcoming[0])) + "|" + strconv.Itoa(int(v.EdgeIDOutcoming[1])) + "|" + strconv.Itoa(int(v.EdgeIDOutcoming[2])) + "|" + strconv.Itoa(int(v.EdgeIDOutcoming[3])) + "}"
+		//labels = "{<f0>" + strconv.Itoa(int(v.EdgeIDIncoming[0])) + "|<f1>" + strconv.Itoa(int(v.EdgeIDIncoming[1])) + "|<f2>" + strconv.Itoa(int(v.EdgeIDIncoming[2])) + "|<f3>" + strconv.Itoa(int(v.EdgeIDIncoming[3])) + "}|" + strconv.Itoa(int(v.ID)) + "|{<f0>" + strconv.Itoa(int(v.EdgeIDOutcoming[0])) + "|<f1>" + strconv.Itoa(int(v.EdgeIDOutcoming[1])) + "|<f2>" + strconv.Itoa(int(v.EdgeIDOutcoming[2])) + "|<f3>" + strconv.Itoa(int(v.EdgeIDOutcoming[3])) + "}"
+		labels = "\"{" + strconv.Itoa(int(v.EdgeIDIncoming[0])) +
+			"|" + strconv.Itoa(int(v.EdgeIDIncoming[1])) +
+			"|" + strconv.Itoa(int(v.EdgeIDIncoming[2])) +
+			"|" + strconv.Itoa(int(v.EdgeIDIncoming[3])) +
+			"}|" + strconv.Itoa(int(v.ID)) +
+			"| {" + strconv.Itoa(int(v.EdgeIDOutcoming[0])) +
+			"|" + strconv.Itoa(int(v.EdgeIDOutcoming[1])) +
+			"|" + strconv.Itoa(int(v.EdgeIDOutcoming[2])) +
+			"|" + strconv.Itoa(int(v.EdgeIDOutcoming[3])) + "}\""
 		attr.Add("label", labels)
 		g.AddNode("G", strconv.Itoa(int(v.ID)), attr)
 	}
@@ -1349,7 +1359,9 @@ func GraphvizDBG(nodeMap map[string]DBGNode, edgesArr []DBGEdge, graphfn string)
 		}
 		attr := gographviz.NewAttrs()
 		attr.Add("color", "Blue")
-		labels := "ID:" + strconv.Itoa(int(e.ID)) + " len:" + strconv.Itoa(len(e.Utg.Ks))
+		labels := "\"ID:" + strconv.Itoa(int(e.ID)) + " len:" + strconv.Itoa(len(e.Utg.Ks)) + "\""
+		//labels := strconv.Itoa(int(e.ID)) + "len" + strconv.Itoa(len(e.Utg.Ks))
+		//labels := strconv.Itoa(int(e.ID))
 		attr.Add("label", labels)
 		g.AddEdge(strconv.Itoa(int(e.StartNID)), strconv.Itoa(int(e.EndNID)), true, attr)
 	}
@@ -1514,13 +1526,14 @@ func transform2Unitig(Seq alphabet.QLetters, utg *Unitig, lenKs int, qual bool) 
 
 var AdpaterSeq = "cggccgcaaggggttcgcgtcagcgggtgttggcgggtgtcggggctggcttaactatgcggcatcagagcagattgtactgagagtgcaccatatgcggtgtgaaataccacacagatgcgtaaggagaaaataccgcatcaggcgccattcgccattcagctgcgcaactgttgggaagggcgatcggtgcgggcctc"
 
-func SetDefaultQual(Adapter Unitig) (new Unitig) {
-	for i := 0; i < len(Adapter.Ks); i++ {
-		Adapter.Ks[i] = bnt.Base2Bnt[Adapter.Ks[i]]
-		Adapter.Kq = append(Adapter.Kq, uint8(1))
+// Set default quality(default = 1)
+func SetDefaultQual(seq Unitig) (new Unitig) {
+	for i := 0; i < len(seq.Ks); i++ {
+		seq.Ks[i] = bnt.Base2Bnt[seq.Ks[i]]
+		seq.Kq = append(seq.Kq, uint8(1))
 	}
 
-	return Adapter
+	return seq
 }
 func StoreEdgesToFn(edgesfn string, edgesArr []DBGEdge, addAdapter bool) {
 	fp, err := os.Create(edgesfn)
@@ -1530,8 +1543,8 @@ func StoreEdgesToFn(edgesfn string, edgesArr []DBGEdge, addAdapter bool) {
 	defer fp.Close()
 	var Adapter Unitig
 	if addAdapter == true {
-		UpAdpaterSeq := strings.ToUpper(AdpaterSeq)
-		Adapter.Ks = []byte(UpAdpaterSeq)
+		upAdpaterSeq := strings.ToUpper(AdpaterSeq)
+		Adapter.Ks = []byte(upAdpaterSeq)
 		Adapter = SetDefaultQual(Adapter)
 		fmt.Printf("[StoreEdgesToFn] Unitig of Adapter:%v\n", Adapter)
 	}
