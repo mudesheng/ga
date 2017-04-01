@@ -15,6 +15,7 @@ import (
 
 	"github.com/mudesheng/GA/bnt"
 	"github.com/mudesheng/GA/cuckoofilter"
+	"github.com/mudesheng/GA/utils"
 
 	//"github.com/mudesheng/GA/bnt"
 	"github.com/jwaldrip/odin/cli"
@@ -270,12 +271,9 @@ func writeKmer(wrfn string, we chan int, wc chan ReadSeqBucket, Kmerlen, numCPU 
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer outfp.Close()
 	gzwriter := gzip.NewWriter(outfp)
-	if err != nil {
-		log.Fatal(err)
-	}
 	defer gzwriter.Close()
+	defer outfp.Close()
 	// bufwriter := bufio.NewWriter(gzwriter)
 
 	// KBntByteNum := (Kmerlen + bnt.NumBaseInByte - 1) / bnt.NumBaseInByte
@@ -326,28 +324,48 @@ func Trans2Byte(s string) (rb ReadBnt) {
 	return rb
 }
 
-func CCF(c cli.Command) {
-	fmt.Println(c.Flags(), c.Parent().Flags())
+type Options struct {
+	utils.ArgsOpt
+	CFSize int64
+}
 
-	//argsCheck(c)
-	fnName := c.Parent().Flag("C").String()
-	cfgInfo, err := ParseCfg(string(fnName))
+func checkArgs(c cli.Command) (opt Options, suc bool) {
+	tmp, err := strconv.Atoi(c.Flag("S").String())
 	if err != nil {
-		log.Fatal("[parseCfg] found err")
+		log.Fatalf("[checkArgs] argument 'S': %v set error: %v\n", c.Flag("S"), err)
+	}
+	if tmp < 1024*1024 {
+		log.Fatalf("the argument 'S': %v must bigger than 1024 * 1024\n", c.Flag("S"))
+	}
+	opt.CFSize = int64(tmp)
+	suc = true
+	return opt, suc
+}
+
+func CCF(c cli.Command) {
+	//fmt.Println(c.Flags(), c.Parent().Flags())
+	//argsCheck(c)
+	gOpt, suc := utils.CheckGlobalArgs(c.Parent())
+	if suc == false {
+		log.Fatalf("[Smfy] check global Arguments error, opt: %v\n", gOpt)
+	}
+	opt := Options{gOpt, 0}
+	tmp, suc := checkArgs(c)
+	if suc == false {
+		log.Fatalf("[Smfy] check Arguments error, opt: %v\n", tmp)
+	}
+	opt.CFSize = tmp.CFSize
+	cfgInfo, err := ParseCfg(opt.CfgFn)
+	if err != nil {
+		log.Fatal("[CCF] ParseCfg 'C': %v err :%v\n", opt.CfgFn, err)
 	}
 	fmt.Println(cfgInfo)
 
 	// make CuckooFilter
-	var size, kmerlen int
-	if size, err = strconv.Atoi(c.Flag("S").String()); err != nil {
-		log.Fatal("flag 'S' set error")
-	}
-	if kmerlen, err = strconv.Atoi(c.Parent().Flag("K").String()); err != nil {
-		log.Fatal("flag 'K' set error")
-	}
+
 	t0 := time.Now()
-	cf := cuckoofilter.MakeCuckooFilter(uint64(size), kmerlen)
-	numCPU, err := strconv.Atoi(c.Parent().Flag("t").String())
+	cf := cuckoofilter.MakeCuckooFilter(uint64(opt.CFSize), opt.Kmer)
+	numCPU := opt.NumCPU
 	runtime.GOMAXPROCS(numCPU + 2)
 	bufsize := 10
 	cs := make(chan ReadSeqBucket, bufsize)
@@ -360,8 +378,8 @@ func CCF(c cli.Command) {
 		go paraConstructCF(cf, cs, wc)
 	}
 	// write goroutinue
-	wrfn := c.Parent().Flag("p").String() + ".uniqkmerseq.gz"
-	go writeKmer(wrfn, we, wc, kmerlen, numCPU)
+	wrfn := opt.Prefix + ".uniqkmerseq.gz"
+	go writeKmer(wrfn, we, wc, opt.Kmer, numCPU)
 
 	var processNumReads int
 	var rsb ReadSeqBucket
@@ -375,15 +393,13 @@ func CCF(c cli.Command) {
 				if err != nil {
 					log.Fatal(err)
 				}
-				defer infile.Close()
 				gzreader, err := gzip.NewReader(infile)
+				if err != nil {
+					log.Fatal(err)
+				}
+				defer gzreader.Close()
+				defer infile.Close()
 				bufin := bufio.NewReader(gzreader)
-				defer func() {
-					if err != nil {
-						log.Fatal(err)
-					}
-					gzreader.Close()
-				}()
 
 				eof := false
 				count := 0
@@ -429,14 +445,14 @@ func CCF(c cli.Command) {
 		cs <- nrsb
 	}
 
-	<-we // end signal from wirte goroutinue
-	prefix := c.Parent().Flag("p").String()
+	<-we // end signal from write goroutinue
+	// prefix := c.Parent().Flag("p").String()
 	// cfinfofn := prefix + ".cfInfo"
 	// if err := cf.WriteCuckooFilterInfo(cfinfofn); err != nil {
 	// 	log.Fatal(err)
 	// }
 
-	cfmmapfn := prefix + ".cfmmap"
+	cfmmapfn := opt.Prefix + ".cfmmap"
 	err = cf.MmapWriter(cfmmapfn)
 	if err != nil {
 		log.Fatal(err)

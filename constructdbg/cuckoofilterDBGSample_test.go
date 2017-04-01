@@ -1,0 +1,9 @@
+package constructdbg
+
+import (
+	"testing"
+)
+
+func test(t *testing.T) {
+
+}

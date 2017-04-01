@@ -51,9 +51,11 @@ func init() {
 		cdbg.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
 
-	smfy := app.DefineSubCommand("smfy", "simplify De bruijn Graph", constructdbg.Smfy)
+	smfy := app.DefineSubCommand("smfy", "find Illumina reads path and simplify De bruijn Graph", constructdbg.Smfy)
 	{
 		smfy.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
+		smfy.DefineIntFlag("WinSize", 10, "th size of sliding window for DBG edge Sample")
+		smfy.DefineIntFlag("MaxNGSReadLen", 550, "Max NGS Read Length")
 	}
 	// mapping long read to the DBG
 	mapDBG := app.DefineSubCommand("mapDBG", "mapping long read to the DBG", mapDBG.MapDBG)
