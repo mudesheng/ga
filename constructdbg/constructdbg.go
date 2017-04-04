@@ -2039,7 +2039,7 @@ func paraMapNGS2DBG(cs chan ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edg
 		}
 
 		// write to output
-		fmt.Printf("ai: %v\n", ai)
+		//fmt.Printf("ai: %v\n", ai)
 		if overAll && len(ai.Paths) > 2 {
 			wc <- ai
 		}
