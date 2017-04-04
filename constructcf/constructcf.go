@@ -86,7 +86,7 @@ func (s1 ReadBnt) BiggerThan(s2 ReadBnt) bool {
 	return false
 }
 
-func (s1 ReadBnt) Equal(s2 ReadBnt) bool {
+/*func (s1 ReadBnt) Equal(s2 ReadBnt) bool {
 	if s1.Length != s2.Length {
 		return false
 	} else {
@@ -98,7 +98,7 @@ func (s1 ReadBnt) Equal(s2 ReadBnt) bool {
 	}
 
 	return true
-}
+} */
 
 func ParseCfg(fn string) (cfgInfo CfgInfo, e error) {
 	var inFile *os.File

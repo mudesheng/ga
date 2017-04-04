@@ -11,8 +11,6 @@ import (
 
 	"github.com/jwaldrip/odin/cli"
 	"github.com/mudesheng/GA/constructdbg"
-	"github.com/mudesheng/GA/findPath"
-	"github.com/mudesheng/GA/mapDBG"
 )
 
 //"./mapDBG"
@@ -48,33 +46,33 @@ func init() {
 	}
 	cdbg := app.DefineSubCommand("cdbg", "construct De bruijn Graph", constructdbg.CDBG)
 	{
-		cdbg.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
+		cdbg.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length(-K * 2)")
 	}
 
 	smfy := app.DefineSubCommand("smfy", "find Illumina reads path and simplify De bruijn Graph", constructdbg.Smfy)
 	{
-		smfy.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
+		smfy.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length(-K * 2)")
 		smfy.DefineIntFlag("WinSize", 10, "th size of sliding window for DBG edge Sample")
 		smfy.DefineIntFlag("MaxNGSReadLen", 550, "Max NGS Read Length")
 	}
 	// mapping long read to the DBG
-	mapDBG := app.DefineSubCommand("mapDBG", "mapping long read to the DBG", mapDBG.MapDBG)
+	mapDBG := app.DefineSubCommand("mapDBG", "mapping long read to the DBG", constructdbg.MapDBG)
 	{
 		mapDBG.DefineIntFlag("Seed", 15, "the seek length(must <=16)")
 		mapDBG.DefineIntFlag("Width", 5, "band width for found min kmer")
 	}
 	// find short read mapping
-	fspath := app.DefineSubCommand("fspath", "Parse short read path", findPath.FSpath)
+	fspath := app.DefineSubCommand("fspath", "Parse short read path", constructdbg.FSpath)
 	{
 		fspath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
 	// find long read mapping
-	flpath := app.DefineSubCommand("flpath", "Parse long read path", findPath.FLpath)
+	flpath := app.DefineSubCommand("flpath", "Parse long read path", constructdbg.FLpath)
 	{
 		flpath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
 	// merge find short and long read mapping path
-	fpath := app.DefineSubCommand("fpath", "Merge Parse short and long read path", findPath.Fpath)
+	fpath := app.DefineSubCommand("fpath", "Merge Parse short and long read path", constructdbg.Fpath)
 	{
 		fpath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}

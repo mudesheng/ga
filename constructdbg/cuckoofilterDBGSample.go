@@ -2,10 +2,8 @@ package constructdbg
 
 import (
 	"crypto/sha1"
-	"math"
+	"math/rand"
 	"reflect"
-
-	"github.com/mudesheng/GA/cuckoofilter"
 
 	//"log"
 
@@ -16,17 +14,18 @@ import (
 )
 
 const (
-	NUM_FP_BITS = 14     // number of fingerprint  bits occpied
-	NUM_C_BITS  = 2      // number of count equal sizeof(uint16)*8 - NUM_FP_BITS
-	FPMASK      = 0x3FFF // mask other info only set fingerprint = (1<<NUM_FP_BITS) -1
-	CMASK       = 0x3    // set count bits field = (1<<NUM_C_BITS) -1
-	MAX_C       = (1 << NUM_C_BITS) - 1
+	NUM_FP_BITS = 15                 // number of fingerprint  bits occpied
+	NUM_C_BITS  = 1                  // number of count equal sizeof(uint16)*8 - NUM_FP_BITS
+	FPMASK      = 1<<NUM_FP_BITS - 1 // mask other info only set fingerprint = (1<<NUM_FP_BITS) -1
+	CMASK       = 1<<NUM_C_BITS - 1  // set count bits field = (1<<NUM_C_BITS) -1
+	MAX_C       = 1<<NUM_C_BITS - 1
 )
 
 const BucketSize = 4
 const MaxLoad = 0.95
 const KMaxCount = 512
-const MAXFREQ = math.MaxUint16
+
+//const MAXFREQ = math.MaxUint16
 
 //func CompareAndSwapUint16(addr *uint16, old uint16, new uint16) (swapped bool)
 
@@ -34,9 +33,9 @@ type CFItem uint16
 
 type DBGKmer struct {
 	Item CFItem
-	Freq uint16
-	ID   DBG_MAX_INT
-	Pos  uint32
+	//Freq uint16
+	ID  DBG_MAX_INT
+	Pos uint32
 }
 
 /* type cfitem struct {
@@ -117,31 +116,30 @@ func (dbgK DBGKmer) GetCount() uint16 {
 	return uint16(dbgK.Item) & CMASK
 }
 
-/*func (cfi *CFItem) setCount(count uint16) {
+func (dbgK *DBGKmer) setCFItem(finger, count uint16) {
 	if count > MAX_C {
-		panic("count bigger than CFItem allowed")
+		panic("[setCFItem] count bigger than CFItem allowed")
 	}
-	nc := uint16(*cfi) >> NUM_C_BITS
-	nc <<= NUM_C_BITS
+	nc := finger << NUM_C_BITS
 	nc |= count
 
-	*cfi = CFItem(nc)
-} */
-
-func (dbgK DBGKmer) GetFinger() uint16 {
-	return uint16(dbgK.Item >> NUM_C_BITS)
+	dbgK.Item = CFItem(nc)
 }
 
-func (dbgK DBGKmer) EqualFP(sec DBGKmer) bool {
+func (dbgK DBGKmer) GetFinger() uint16 {
+	return uint16(dbgK.Item) >> NUM_C_BITS
+}
+
+/*func (dbgK DBGKmer) EqualFP(sec DBGKmer) bool {
 	if dbgK.GetFinger() == sec.GetFinger() {
 		return true
 	} else {
 		return false
 	}
-}
+} */
 
 // return oldcount, oldfinger, added
-func (dbgK *DBGKmer) AddFreq(f uint16) bool {
+/*func (dbgK *DBGKmer) AddFreq(f uint16) bool {
 	for {
 		of := dbgK.Freq
 		if of < math.MaxUint16 {
@@ -156,9 +154,9 @@ func (dbgK *DBGKmer) AddFreq(f uint16) bool {
 	}
 
 	return false
-}
+} */
 
-func (b Bucket) AddFreq(dbgK DBGKmer, c int) bool {
+/*func (b Bucket) AddFreq(dbgK DBGKmer, c int) bool {
 	for i, d := range b.Bkt {
 		if d.Item == dbgK.Item && d.ID == dbgK.ID && d.Pos == dbgK.Pos {
 			b.Bkt[i].AddFreq(uint16(c))
@@ -166,12 +164,20 @@ func (b Bucket) AddFreq(dbgK DBGKmer, c int) bool {
 		}
 	}
 	return false
-}
+}*/
 
-func (b Bucket) Contain(fingerprint uint16) (arr []DBGKmer) {
-	for _, item := range b.Bkt {
-		if item.GetCount() > 0 && item.GetFinger() == fingerprint {
-			arr = append(arr, item)
+func (cf CuckooFilter) Contain(v uint64) (arr []DBGKmer) {
+	index := cf.IndexHash(v)
+	fingerprint := FingerHash(v)
+	for _, dk := range cf.Hash[index].Bkt {
+		if dk.GetCount() > 0 && dk.GetFinger() == uint16(fingerprint) {
+			arr = append(arr, dk)
+		}
+	}
+	index2 := cf.AltIndex(index, fingerprint)
+	for _, dk := range cf.Hash[index2].Bkt {
+		if dk.GetCount() > 0 && dk.GetFinger() == uint16(fingerprint) {
+			arr = append(arr, dk)
 		}
 	}
 	return arr
@@ -195,7 +201,7 @@ func (b *Bucket) AddBucket(dbgK DBGKmer, kickout bool) (old DBGKmer, suc bool) {
 
 	//fmt.Printf("kikcout: %t", kickout)
 	if kickout {
-		ci := dbgK.GetFinger() & CMASK
+		ci := rand.Uint32() % BucketSize
 		old = b.Bkt[ci]
 		b.Bkt[ci] = dbgK
 		suc = true
@@ -208,16 +214,19 @@ func (b *Bucket) AddBucket(dbgK DBGKmer, kickout bool) (old DBGKmer, suc bool) {
 func (cf CuckooFilter) Add(index uint64, dbgK DBGKmer) bool {
 	ci := index
 	gK := dbgK
+	_, added := cf.Hash[ci].AddBucket(gK, false)
+	if added {
+		return true
+	}
+	// choose alter index
+	ci = cf.AltIndex(ci, uint64(gK.GetFinger()))
 	for count := 0; count < KMaxCount; count++ {
-		kickout := count > 0
-		b := &cf.Hash[ci]
-		old, added := b.AddBucket(gK, kickout)
-		if added == true && old.GetCount() == 0 {
+		//b := &cf.Hash[ci]
+		old, _ := cf.Hash[ci].AddBucket(gK, true)
+		if old.GetCount() == 0 {
 			return true
 		}
-		if old.GetCount() > 0 {
-			gK = old
-		}
+		gK = old
 		//fmt.Printf("[Add]cycle : %d\n\tb: %v\n", count, b)
 
 		ci = cf.AltIndex(ci, uint64(gK.GetFinger()))
@@ -248,11 +257,10 @@ func (cf CuckooFilter) Insert(kb []byte, id DBG_MAX_INT, pos uint32) bool {
 	index := cf.IndexHash(v)
 	fingerprint := FingerHash(v)
 	var dbgK DBGKmer
-	dbgK.Item = CFItem(fingerprint << NUM_C_BITS)
-	dbgK.Item |= CFItem(1)
+	dbgK.setCFItem(uint16(fingerprint), 1)
 	dbgK.ID = id
 	dbgK.Pos = pos
-	//fmt.Printf("[cf.Insert]%v\t%v\n", index, fingerprint)
+	//fmt.Printf("[cf.Insert]fingerprint: %v\tindex: %v\tdbgK.%v\n", fingerprint, index, dbgK)
 	//fmt.Printf(" sizeof cuckoofilter.Hash[0] : %d\n", unsafe.Sizeof(cf.Hash[0]))
 
 	return cf.Add(index, dbgK)
@@ -261,11 +269,8 @@ func (cf CuckooFilter) Insert(kb []byte, id DBG_MAX_INT, pos uint32) bool {
 func (cf CuckooFilter) Lookup(kb, rb []byte, edgesArr []DBGEdge) (dbgK DBGKmer) {
 	hk := sha1.Sum(kb)
 	v := hk2uint64(hk)
-	index := cf.IndexHash(v)
-	fingerprint := FingerHash(v)
-	da := cf.Hash[index].Contain(uint16(fingerprint))
-	index2 := cf.AltIndex(index, fingerprint)
-	da = append(da, cf.Hash[index2].Contain(uint16(fingerprint))...)
+	da := cf.Contain(v)
+	//fmt.Printf("[cf.Lookup] da: %v\n", da)
 	if len(da) == 0 {
 		return dbgK
 	} else if len(da) == 1 {
@@ -286,11 +291,11 @@ func (cf CuckooFilter) Lookup(kb, rb []byte, edgesArr []DBGEdge) (dbgK DBGKmer) 
 	}
 
 	// add the frequency of kmer
-	if dbgK.ID > 0 {
+	/*if dbgK.ID > 0 {
 		if cf.Hash[index].AddFreq(dbgK, 1) == false {
 			cf.Hash[index2].AddFreq(dbgK, 1)
 		}
-	}
+	} */
 
 	return dbgK
 }
