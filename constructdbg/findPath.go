@@ -1060,18 +1060,18 @@ func mutualReachable(a1, a2 []DBG_MAX_INT, eID1, eID2 DBG_MAX_INT) bool {
 
 	idx3 := IndexEID(a2, eID1)
 	idx4 := IndexEID(a2, eID2)
-	if idx1 < 0 || idx2 < 0 || idx3 < 0 {
+	if idx1 < 0 || idx2 < 0 || idx4 < 0 {
 		log.Fatalf("[mutualReachable] eID not found in the PathArr, eID1: %v or eID2: %v\n\ta1: %v\n\ta2:%v\n", eID1, eID2, a1, a2)
 	}
-	if idx4 < 0 {
+	if idx3 < 0 {
 		return false
 	}
 
 	if idx1 > idx2 {
-		log.Fatalf("[mutualReachable] idx1: %v > idx2: %v in the a1: %v\n", idx1, idx2, a1)
+		log.Fatalf("[mutualReachable] idx1: %v > idx2: %v in the a1: %v\n\teID1: %v, eID2: %v\ta2:%v\n", idx1, idx2, a1, eID1, eID2, a2)
 	}
 	if idx3 > idx4 {
-		log.Fatalf("[mutualReachable] idx3: %v > idx4: %v in the a2: %v\n", idx3, idx4, a2)
+		log.Fatalf("[mutualReachable] idx3: %v > idx4: %v in the a2: %v\n\teID1: %v, eID2: %v\ta1:%v\n", idx3, idx4, a2, eID1, eID2, a1)
 	}
 
 	if !reflect.DeepEqual(a1[idx1:idx2+1], a2[idx3:idx4+1]) {
@@ -1104,15 +1104,15 @@ func FindConsistenceAndMergePath(a1, a2 []DBG_MAX_INT, eID1, eID2 DBG_MAX_INT) (
 		return mergeArr, consisFlag
 	}
 	i, j := idx1, idx3
-	for ; i >= 0 && j >= 0; i, j = i+1, j+1 {
+	for ; i >= 0 && j >= 0; i, j = i-1, j-1 {
 		if a1[i] != a2[j] {
 			consisFlag = false
 			return mergeArr, consisFlag
 		}
 	}
-	if i > 0 {
+	if i >= 0 {
 		mergeArr = append(mergeArr, a1[0:i+1]...)
-	} else if j > 0 {
+	} else if j >= 0 {
 		mergeArr = append(mergeArr, a2[0:j+1]...)
 	}
 

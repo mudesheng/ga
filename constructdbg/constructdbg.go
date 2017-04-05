@@ -94,7 +94,8 @@ func (e *DBGEdge) InsertPathToEdge(path []DBG_MAX_INT, freq int) {
 	// check have been added
 	added := false
 	for i, v := range e.PathMat {
-		if reflect.DeepEqual(v.IDArr, path) {
+		rp := GetReverseDBG_MAX_INTArr(path)
+		if reflect.DeepEqual(v.IDArr, path) || reflect.DeepEqual(v.IDArr, rp) {
 			e.PathMat[i].Freq += freq
 			added = true
 			break
@@ -2040,7 +2041,7 @@ func paraMapNGS2DBG(cs chan ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edg
 
 		// write to output
 		//fmt.Printf("ai: %v\n", ai)
-		if overAll && len(ai.Paths) > 2 {
+		if overAll && len(ai.Paths) > 1 {
 			wc <- ai
 		}
 	}
@@ -2136,7 +2137,7 @@ func FindConsisPath(pID DBG_MAX_INT, e DBGEdge) (consisP Path) {
 		if p1 >= 0 {
 			var npa Path
 			if p1 < p2 {
-				npa.IDArr = ReverseDBG_MAX_INTArr(pa.IDArr[:p2+1])
+				npa.IDArr = GetReverseDBG_MAX_INTArr(pa.IDArr[:p2+1])
 			} else {
 				npa.IDArr = pa.IDArr[p2:]
 			}
@@ -2144,6 +2145,11 @@ func FindConsisPath(pID DBG_MAX_INT, e DBGEdge) (consisP Path) {
 			pm = append(pm, npa)
 		}
 	}
+
+	// debug code
+	//for i, p := range pm {
+	//	fmt.Printf("[FindConsisPath] pm[%v]: %v\n", i, p)
+	//}
 
 	freq := 1
 	for k := 0; freq > 0; k++ {
@@ -2157,7 +2163,7 @@ func FindConsisPath(pID DBG_MAX_INT, e DBGEdge) (consisP Path) {
 			} else {
 				if consisP.IDArr[k] != p.IDArr[k] {
 					freq = 0
-					consisP.IDArr = nil
+					consisP.IDArr = consisP.IDArr[:len(consisP.IDArr)-1] // remove last element
 					break
 				}
 			}
@@ -2198,7 +2204,19 @@ func GetNearEdgeIDArr(nd DBGNode, eID DBG_MAX_INT) (eArr []DBG_MAX_INT) {
 // merge DBGEdge's pathMat
 func mergePathMat(edgesArr []DBGEdge, nodesArr []DBGNode) {
 	for i, e := range edgesArr {
-		if e.ID == 0 || e.GetDeleteFlag() > 0 || len(e.PathMat) < 2 {
+		if e.ID == 0 || e.GetDeleteFlag() > 0 {
+			continue
+		}
+
+		// debug code
+		//for j := 0; j < len(e.PathMat); j++ {
+		//	fmt.Printf("[mergePathMat] edgesArr[%v].PathMat[%v]: %v\n", i, j, e.PathMat[j])
+		//}
+
+		if len(e.PathMat) == 1 {
+			if e.PathMat[0].Freq == 0 {
+				edgesArr[i].PathMat = nil
+			}
 			continue
 		}
 
@@ -2238,7 +2256,13 @@ func mergePathMat(edgesArr []DBGEdge, nodesArr []DBGNode) {
 				mP = consisPM[1]
 			}
 		}
-		edgesArr[i].PathMat = []Path{mP}
+		if len(mP.IDArr) > 1 {
+			edgesArr[i].PathMat = []Path{mP}
+		} else {
+			edgesArr[i].PathMat = nil
+		}
+
+		//fmt.Printf("[mergePathMat] mergePath: %v\nedge: %v\n", edgesArr[i].PathMat, e)
 	}
 }
 
@@ -2249,9 +2273,19 @@ func findMaxPath(edgesArr []DBGEdge, nodesArr []DBGNode) {
 			continue
 		}
 
+		// debug code
+		if len(e.PathMat) != 1 {
+			log.Fatalf("[findMaxPath] edgesArr[%v].PathMat: %v\t != 1\n", i, e.PathMat)
+		}
+		if e.PathMat[0].Freq == 0 || len(e.PathMat[0].IDArr) < 2 {
+			log.Fatalf("[findMaxPath] edgesArr[%v].PathMat: %v\t not contain useful info\n", i, e.PathMat)
+		}
+
 		var maxP Path
 		maxP.IDArr = append(maxP.IDArr, e.PathMat[0].IDArr...)
+		maxP.Freq = e.PathMat[0].Freq
 		mutualArr := []DBG_MAX_INT{e.ID}
+		fmt.Printf("[findMaxPath]edge info, eID: %v\t e.StartNID: %v\te.EndNID: %v\n", e.ID, e.StartNID, e.EndNID)
 		if e.StartNID > 0 {
 			nd := nodesArr[e.StartNID]
 			ea := GetNearEdgeIDArr(nd, e.ID)
@@ -2278,6 +2312,7 @@ func findMaxPath(edgesArr []DBGEdge, nodesArr []DBGNode) {
 							nP.IDArr = ne.PathMat[0].IDArr
 						}
 						nP.Freq = ne.PathMat[0].Freq
+						fmt.Printf("eID1: %v, eID2: %v\n\tmaxP: %v\n\tnP: %v\n", mutualArr[len(mutualArr)-1], ne.ID, maxP, nP)
 						if mutualReachable(maxP.IDArr, nP.IDArr, mutualArr[len(mutualArr)-1], ne.ID) {
 							var suc bool
 							maxP.IDArr, suc = FindConsistenceAndMergePath(maxP.IDArr, nP.IDArr, mutualArr[len(mutualArr)-1], ne.ID)
@@ -2285,6 +2320,10 @@ func findMaxPath(edgesArr []DBGEdge, nodesArr []DBGNode) {
 								log.Fatalf("[findMaxPath] Failed to merge two paths, maxP: %v\tnP: %v\n", maxP, nP)
 							}
 							mutualArr = append(mutualArr, ne.ID)
+							if nP.Freq < maxP.Freq {
+								maxP.Freq = nP.Freq
+							}
+							fmt.Printf("after merge, maxP: %v\n", maxP)
 						}
 						nd = nodesArr[nextNID]
 					}
@@ -2295,6 +2334,7 @@ func findMaxPath(edgesArr []DBGEdge, nodesArr []DBGNode) {
 			}
 		}
 
+		fmt.Printf("[findMaxPath] after extend previous edges, maxP: %v\n\te: %v\n", maxP, e)
 		if e.EndNID > 0 {
 			nd := nodesArr[e.EndNID]
 			ea := GetNearEdgeIDArr(nd, e.ID)
@@ -2320,6 +2360,7 @@ func findMaxPath(edgesArr []DBGEdge, nodesArr []DBGNode) {
 							nP.IDArr = ne.PathMat[0].IDArr
 						}
 						nP.Freq = ne.PathMat[0].Freq
+						fmt.Printf("eID1: %v, eID2: %v\n\tmaxP: %v\n\tnP: %v\n", mutualArr[len(mutualArr)-1], ne.ID, maxP, nP)
 						if mutualReachable(maxP.IDArr, nP.IDArr, mutualArr[len(mutualArr)-1], ne.ID) {
 							var suc bool
 							maxP.IDArr, suc = FindConsistenceAndMergePath(maxP.IDArr, nP.IDArr, mutualArr[len(mutualArr)-1], ne.ID)
@@ -2327,6 +2368,10 @@ func findMaxPath(edgesArr []DBGEdge, nodesArr []DBGNode) {
 								log.Fatalf("[findMaxPath] Failed to merge two paths, maxP: %v\tne.PathMat[0]: %v\n", maxP, nP)
 							}
 							mutualArr = append(mutualArr, ne.ID)
+							if nP.Freq < maxP.Freq {
+								maxP.Freq = nP.Freq
+							}
+							fmt.Printf("after merge, maxP: %v\n", maxP)
 						}
 						nd = nodesArr[nextNID]
 					}
@@ -2339,12 +2384,15 @@ func findMaxPath(edgesArr []DBGEdge, nodesArr []DBGNode) {
 			edgesArr[i].SetProcessFlag()
 			edgesArr[i].PathMat = nil
 		} else {
+			fmt.Printf("[findMaxPath]mutualArr: %v\t maxP: %v\n", mutualArr, maxP)
 			p1 := IndexEID(maxP.IDArr, mutualArr[0])
 			eID := mutualArr[len(mutualArr)-1]
 			p2 := IndexEID(maxP.IDArr, eID)
 			maxP.IDArr = maxP.IDArr[p1 : p2+1]
 			edgesArr[i].PathMat = []Path{maxP}
+			edgesArr[i].SetProcessFlag()
 			edgesArr[eID].PathMat = []Path{maxP}
+			edgesArr[i].SetProcessFlag()
 			for _, id := range mutualArr[1 : len(mutualArr)-1] {
 				edgesArr[id].PathMat = nil
 				edgesArr[id].SetDeleteFlag()
