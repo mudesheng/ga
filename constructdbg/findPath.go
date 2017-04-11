@@ -910,6 +910,9 @@ func GetNextEID(eID DBG_MAX_INT, node DBGNode) (neID DBG_MAX_INT) {
 
 func GetOtherEArr(node DBGNode, eID DBG_MAX_INT) (eIDArr []DBG_MAX_INT) {
 	var direction uint8
+	if eID <= 0 {
+		log.Fatalf("[GetOtherEArr] eID must bigger than zero, eID: %v\n", eID)
+	}
 	for i := 0; i < bnt.BaseTypeNum; i++ {
 		if node.EdgeIDIncoming[i] == eID {
 			direction = BACKWARD
@@ -1110,13 +1113,13 @@ func FindConsistenceAndMergePath(a1, a2 []DBG_MAX_INT, eID1, eID2 DBG_MAX_INT) (
 			return mergeArr, consisFlag
 		}
 	}
-	if i >= 0 {
-		mergeArr = append(mergeArr, a1[0:i+1]...)
-	} else if j >= 0 {
-		mergeArr = append(mergeArr, a2[0:j+1]...)
-	}
+	//if i >= 0 {
+	//	mergeArr = append(mergeArr, a1[0:i+1]...)
+	//} else if j >= 0 {
+	//	mergeArr = append(mergeArr, a2[0:j+1]...)
+	//}
 
-	mergeArr = append(mergeArr, a1[i+1:idx2+1]...)
+	mergeArr = append(mergeArr, a1[0:idx2+1]...)
 
 	i, j = idx2+1, idx4+1
 	for ; i < len(a1) && j < len(a2); i, j = i+1, j+1 {
@@ -2993,8 +2996,8 @@ func FSpath(c cli.Command) {
 	GraphvizDBGArr(nodesArr, edgesArr, graphfn)
 	// Write to files
 	edgesfn = prefix + ".edges.ShortPath.fq"
-	StoreEdgesToFn(edgesfn, edgesArr, true)
-	// StoreEdgesToFn(edgesfn, edgesArr, false)
+	//StoreEdgesToFn(edgesfn, edgesArr, true)
+	StoreEdgesToFn(edgesfn, edgesArr)
 	nodesfn := prefix + ".nodes.ShortPath.Arr"
 	NodesArrWriter(nodesArr, nodesfn)
 }
@@ -5780,7 +5783,7 @@ func Fpath(c cli.Command) {
 	// GraphvizDBG(nodesArr, edgesArr, graphfn)
 	// Write to files
 	edgesfn = prefix + ".edges.LongPath.fq"
-	StoreEdgesToFn(edgesfn, edgesArr, false)
+	StoreEdgesToFn(edgesfn, edgesArr)
 	// StoreEdgesToFn(edgesfn, edgesArr, false)
 	nodesfn := prefix + ".nodes.LongPath.Arr"
 	NodesArrWriter(nodesArr, nodesfn)
