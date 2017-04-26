@@ -26,7 +26,6 @@ import (
 	"strings"
 
 	"github.com/awalterschulze/gographviz"
-	"github.com/biogo/hts/bam"
 	"github.com/biogo/hts/sam"
 	"github.com/jwaldrip/odin/cli"
 )
@@ -93,84 +92,6 @@ type FastMapRecord struct {
 
 type GapRegion struct {
 	Begin, End int
-}
-
-func GetSamRecord(bamfn string, rc chan []sam.Record, numCPU int) {
-	fp, err := os.Open(bamfn)
-	if err != nil {
-		log.Fatalf("[GetSamRecord] open file: %s failed, err: %v\n", bamfn, err)
-	}
-	defer fp.Close()
-	bamfp, err := bam.NewReader(fp, 0)
-	if err != nil {
-		log.Fatalf("[GetSamRecord] create bam.NewReader err: %v\n", err)
-	}
-	defer bamfp.Close()
-	var rArr []sam.Record
-	// var cigar sam.Cigar
-	var NM = sam.Tag{'N', 'M'}
-	var AS = sam.Tag{'A', 'S'}
-	for {
-		r, err := bamfp.Read()
-		if err != nil {
-			break
-		}
-		if len(r.Cigar) < 2 || len(r.Cigar) > 3 {
-			continue
-		} else {
-			v := r.AuxFields.Get(NM).Value()
-			vi := 0
-			switch v.(type) {
-			case uint8:
-				vi = int(v.(uint8))
-			case uint16:
-				vi = int(v.(uint16))
-			}
-			if vi != 0 {
-				continue
-			}
-			as := r.AuxFields.Get(AS).Value()
-			asi := 0
-			switch as.(type) {
-			case uint8:
-				asi = int(as.(uint8))
-			case uint16:
-				asi = int(as.(uint16))
-			case uint32:
-				asi = int(as.(uint32))
-			default:
-				log.Fatalf("[GetSamRecord] as type unknown\n")
-			}
-			// fmt.Printf("[GetSamRecord]AS:%d, cigar: %v\n", asi, r.Cigar.String())
-			if asi < Kmerlen {
-				continue
-			}
-		}
-		// Debug
-		// if r.Cigar.String() == "400M" {
-		// 	continue
-		// }
-		//Debug
-		if len(rArr) > 0 {
-			if rArr[0].Name != r.Name {
-				if len(rArr) >= 3 {
-					rc <- rArr
-					rArr = nil
-				} else {
-					rArr = rArr[0:0]
-				}
-			}
-		}
-		rArr = append(rArr, *r)
-	}
-	if len(rArr) >= 3 {
-		rc <- rArr
-	}
-	// send terminal signals
-	for i := 0; i < numCPU; i++ {
-		var nilArr []sam.Record
-		rc <- nilArr
-	}
 }
 
 func GetFastMapRecord(fastmapfn string, rc chan [2]FastMapRecord, numCPU int) {
@@ -505,20 +426,6 @@ func computeCoverageSmfyEdge(prefix string) {
 
 }
 
-func AccumulateCigar(cigar sam.Cigar) (Mnum, Inum, Dnum int) {
-	for _, co := range cigar {
-		if co.Type() == sam.CigarInsertion {
-			Inum += co.Len()
-		} else if co.Type() == sam.CigarDeletion {
-			Dnum += co.Len()
-		} else if co.Type() == sam.CigarMatch {
-			Mnum += co.Len()
-		}
-	}
-
-	return
-}
-
 func findNextEdge(node DBGNode, eID DBG_MAX_INT, rArr []sam.Record) (neID DBG_MAX_INT, recd sam.Record) {
 
 	var direction uint8
@@ -594,6 +501,7 @@ func (p MapInfoSlice) Less(i, j int) bool {
 func (p MapInfoSlice) Swap(i, j int) {
 	p[i], p[j] = p[j], p[i]
 }
+
 func bubbleSort(data sort.Interface) {
 	r := data.Len() - 1
 	for i := 0; i < r; i++ {
@@ -744,7 +652,7 @@ func paraFindShortMappingPath(rc chan [2]FastMapRecord, wc chan []DBG_MAX_INT, e
 		// 	// } else {
 		// 	// 	log.Fatalf("[paraFindPacbioMappingPath] nm: %v\n", v.Ref)
 		// 	// }
-		// 	Mnum, Inum, Dnum := AccumulateCigar(v.Cigar)
+		// Mnum, Inum, Dnum := AccumulateCigar(v.Cigar)
 		// 	if Mnum < 1000 {
 		// 		continue
 		// 	}
@@ -753,7 +661,7 @@ func paraFindShortMappingPath(rc chan [2]FastMapRecord, wc chan []DBG_MAX_INT, e
 		// 	totalI += Inum
 		// 	totalD += Dnum
 		// 	totalMis += (int(nmv) - Inum - Dnum)
-		// 	// as := Cigar2String(acgr)
+		//  as := Cigar2String(acgr)
 		// 	fmt.Printf("%s\t%d\t%v\t%v\n", v.Ref.Name(), v.Pos, v.MapQ, v.Cigar)
 		// 	// sav := v.AuxFields.Get(SA)
 		// 	// // fmt.Printf("%v\n", sav)
@@ -2974,24 +2882,24 @@ func FSpath(c cli.Command) {
 	edgesfn := prefix + ".edges.smfy.fq"
 	LoadEdgesfqFromFn(edgesfn, edgesArr, false)
 
-	bamfn := prefix + ".bam"
-	rc := make(chan []sam.Record, numCPU*2)
-	wc := make(chan []DBG_MAX_INT, numCPU*2)
+	//bamfn := prefix + ".bam"
+	//rc := make(chan []sam.Record, numCPU*2)
+	//wc := make(chan []DBG_MAX_INT, numCPU*2)
 	// defer rc.Close()
-	go GetSamRecord(bamfn, rc, numCPU)
+	//go GetSamRecord(bamfn, rc, numCPU)
 
 	for i := 0; i < numCPU; i++ {
-		// go paraFindShortMappingPath(rc, wc, edgesArr, nodesArr)
+		//go paraFindShortMappingPath(rc, wc, edgesArr, nodesArr)
 	}
 
-	WriteShortPathToDBG(wc, edgesArr, numCPU)
+	//WriteShortPathToDBG(wc, edgesArr, numCPU)
 
 	// Find Max unique path   and merge neighbour edges
 	// fmt.Printf("[FSpath] edgesArr[76]: %v\n", edgesArr[76])
 	FindMaxUnqiuePath(edgesArr, nodesArr)
 	CleanDBG(edgesArr, nodesArr)
 	// simplify DBG
-	// SmfyDBG(edgesArr, nodesArr)
+	//SmfyDBG(edgesArr, nodesArr)
 	graphfn := prefix + ".ShortPath.dot"
 	GraphvizDBGArr(nodesArr, edgesArr, graphfn)
 	// Write to files
@@ -5636,6 +5544,21 @@ func IsBubbleEdge(edge DBGEdge, nodesArr []DBGNode, edgesArr []DBGEdge) (b bool)
 				b = true
 			}
 		}
+	}
+
+	return b
+}
+
+func IsBubble(eID1, eID2 DBG_MAX_INT, edgesArr []DBGEdge) (b bool) {
+	e1, e2 := edgesArr[eID1], edgesArr[eID2]
+	if e1.StartNID == 0 || e1.EndNID == 0 || e2.StartNID == 0 || e2.EndNID == 0 {
+		return b
+	}
+
+	if e1.StartNID == e2.StartNID && e1.EndNID == e2.EndNID {
+		b = true
+	} else if e1.EndNID == e2.StartNID && e1.StartNID == e2.EndNID {
+		b = true
 	}
 
 	return b
