@@ -209,25 +209,15 @@ func sortIdxByUniqueEdgeLen(edgesArr []constructdbg.DBGEdge) (sortedEIDIdxArr []
 	}
 } */
 
-func FreqNumInDBG_MAX_INTArr(arr []constructdbg.DBG_MAX_INT, eID constructdbg.DBG_MAX_INT) (count int) {
-	for _, id := range arr {
-		if id == eID {
-			count++
-		}
-	}
-
-	return count
-}
-
 func findMaxPath(sortedEIDIdxArr []IdxLen, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode) (pathArr []constructdbg.Path) {
 	for _, item := range sortedEIDIdxArr {
 		e := edgesArr[item.Idx]
-		if e.GetDeleteFlag() > 0 || e.GetProcessFlag() > 0 || len(e.PathMat) == 0 || len(e.PathMat[0].IDArr) == 0 || constructdbg.IsTwoEdgesCyclePath(edgesArr, nodesArr, e.ID) || FreqNumInDBG_MAX_INTArr(edgesArr[e.ID].PathMat[0].IDArr, e.ID) != 1 {
+		if e.GetDeleteFlag() > 0 || e.GetProcessFlag() > 0 || e.GetUniqueFlag() == 0 || len(e.PathMat) == 0 || len(e.PathMat[0].IDArr) == 0 || constructdbg.IsTwoEdgesCyclePath(edgesArr, nodesArr, e.ID) || constructdbg.FreqNumInDBG_MAX_INTArr(edgesArr[e.ID].PathMat[0].IDArr, e.ID) != 1 {
 			continue
 		}
 		fmt.Printf("[findMaxPath] eID: %v, length: %v\n", item.Idx, item.Length)
 		maxP := constructdbg.ExtendPath(edgesArr, nodesArr, e)
-		if len(maxP.IDArr) > 2 {
+		if len(maxP.IDArr) > 1 {
 			pathArr = append(pathArr, maxP)
 		}
 	}
@@ -243,7 +233,7 @@ func SimplifyByLongReadsPath(edgesArr []constructdbg.DBGEdge, nodesArr []constru
 	pathArr := findMaxPath(sortedEIDIdxArr, edgesArr, nodesArr)
 	// constuct map edge ID to the path
 	IDMapPath := constructdbg.ConstructIDMapPath(pathArr)
-
+	constructdbg.DeleteJoinPathArrEnd(edgesArr, pathArr)
 	pathArr = constructdbg.ReconstructDBG(edgesArr, nodesArr, pathArr, IDMapPath)
 }
 

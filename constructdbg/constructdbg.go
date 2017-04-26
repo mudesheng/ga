@@ -1394,9 +1394,9 @@ func GraphvizDBGArr(nodesArr []DBGNode, edgesArr []DBGEdge, graphfn string) {
 	g.SetDir(true)
 	g.SetStrict(false)
 	for _, v := range nodesArr {
-		//if v.GetDeleteFlag() > 0 {
-		//	continue
-		//}
+		if v.GetDeleteFlag() > 0 {
+			continue
+		}
 		attr := gographviz.NewAttrs()
 		attr.Add("color", "Green")
 		attr.Add("shape", "record")
@@ -2347,13 +2347,23 @@ func GetNearEdgeIDArr(nd DBGNode, eID DBG_MAX_INT) (eArr []DBG_MAX_INT) {
 	return eArr
 }
 
+func FreqNumInDBG_MAX_INTArr(arr []DBG_MAX_INT, eID DBG_MAX_INT) (count int) {
+	for _, id := range arr {
+		if id == eID {
+			count++
+		}
+	}
+
+	return count
+}
+
 // merge DBGEdge's pathMat
 func MergePathMat(edgesArr []DBGEdge, nodesArr []DBGNode) {
 	for i, e := range edgesArr {
 		//if e.GetUniqueFlag() > 0 {
 		//	fmt.Printf("[MergePathMat]unique edge : %v\n", e)
 		//}
-		if e.ID == 0 || e.GetDeleteFlag() > 0 || len(e.PathMat) == 0 || IsTwoEdgesCyclePath(edgesArr, nodesArr, e.ID) {
+		if e.ID == 0 || e.GetDeleteFlag() > 0 || len(e.PathMat) == 0 || e.GetUniqueFlag() == 0 {
 			continue
 		}
 
@@ -2362,6 +2372,7 @@ func MergePathMat(edgesArr []DBGEdge, nodesArr []DBGNode) {
 			var p Path
 			edgesArr[i].PathMat[0] = p
 		}
+
 		if len(e.PathMat) == 1 {
 			CheckPathDirection(edgesArr, nodesArr, e.ID)
 			continue
@@ -2428,7 +2439,7 @@ func MergePathMat(edgesArr []DBGEdge, nodesArr []DBGNode) {
 				mP = consisPM[1]
 			}
 		}
-		if len(mP.IDArr) > 1 {
+		if len(mP.IDArr) > 1 && FreqNumInDBG_MAX_INTArr(mP.IDArr, e.ID) == 1 {
 			edgesArr[i].PathMat = []Path{mP}
 			CheckPathDirection(edgesArr, nodesArr, e.ID)
 		} else {
@@ -2456,7 +2467,7 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge) (maxP Path) {
 	maxP.IDArr = append(maxP.IDArr, e.PathMat[0].IDArr...)
 	maxP.Freq = e.PathMat[0].Freq
 	mutualArr := []DBG_MAX_INT{e.ID}
-	fmt.Printf("[ExtendPath]edge info, eID: %v\t e.StartNID: %v\te.EndNID: %v\n", e.ID, e.StartNID, e.EndNID)
+	fmt.Printf("[ExtendPath] edge info, eID: %v\t e.StartNID: %v\te.EndNID: %v\n", e.ID, e.StartNID, e.EndNID)
 	if e.StartNID > 0 {
 		nd := nodesArr[e.StartNID]
 		ea := GetNearEdgeIDArr(nd, e.ID)
@@ -2474,7 +2485,7 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge) (maxP Path) {
 					} else {
 						nextNID = ne.StartNID
 					}
-					if ne.GetDeleteFlag() > 0 || ne.GetUniqueFlag() == 0 || len(ne.PathMat) == 0 || IsTwoEdgesCyclePath(edgesArr, nodesArr, ne.ID) {
+					if ne.GetDeleteFlag() > 0 || ne.GetUniqueFlag() == 0 || len(ne.PathMat) == 0 {
 						nd = nodesArr[nextNID]
 						continue
 					}
@@ -2483,10 +2494,11 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge) (maxP Path) {
 					if ne.EndNID == nd.ID {
 						nP.IDArr = GetReverseDBG_MAX_INTArr(ne.PathMat[0].IDArr)
 					} else {
-						nP.IDArr = ne.PathMat[0].IDArr
+						nP.IDArr = make([]DBG_MAX_INT, len(ne.PathMat[0].IDArr))
+						copy(nP.IDArr, ne.PathMat[0].IDArr)
 					}
 					nP.Freq = ne.PathMat[0].Freq
-					fmt.Printf("eID1: %v, eID2: %v\n\tmaxP: %v\n\tnP: %v\n\tnd: %v\n", mutualArr[len(mutualArr)-1], ne.ID, maxP, nP, nd)
+					fmt.Printf("[ExtendPath] eID1: %v, eID2: %v\n\tmaxP: %v\n\tnP: %v\n\tnd: %v\n", mutualArr[len(mutualArr)-1], ne.ID, maxP, nP, nd)
 					if mutualReachable(maxP.IDArr, nP.IDArr, mutualArr[len(mutualArr)-1], ne.ID) {
 						var suc bool
 						maxP.IDArr, suc = FindConsistenceAndMergePath(maxP.IDArr, nP.IDArr, mutualArr[len(mutualArr)-1], ne.ID)
@@ -2526,7 +2538,7 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge) (maxP Path) {
 						nextNID = ne.StartNID
 					}
 					fmt.Printf("[ExtendPath] ne: %v\nne.PathMat: %v\n\tnd: %v\n", ne, ne.PathMat, nd)
-					if ne.GetDeleteFlag() > 0 || ne.GetUniqueFlag() == 0 || len(ne.PathMat) == 0 || IsTwoEdgesCyclePath(edgesArr, nodesArr, ne.ID) {
+					if ne.GetDeleteFlag() > 0 || ne.GetUniqueFlag() == 0 || len(ne.PathMat) == 0 {
 						nd = nodesArr[nextNID]
 						continue
 					}
@@ -2534,10 +2546,11 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge) (maxP Path) {
 					if ne.EndNID == nd.ID {
 						nP.IDArr = GetReverseDBG_MAX_INTArr(ne.PathMat[0].IDArr)
 					} else {
-						nP.IDArr = ne.PathMat[0].IDArr
+						nP.IDArr = make([]DBG_MAX_INT, len(ne.PathMat[0].IDArr))
+						copy(nP.IDArr, ne.PathMat[0].IDArr)
 					}
 					nP.Freq = ne.PathMat[0].Freq
-					fmt.Printf("eID1: %v, eID2: %v\n\tmaxP: %v\n\tnP: %v\n", mutualArr[len(mutualArr)-1], ne.ID, maxP, nP)
+					fmt.Printf("[ExtendPath] eID1: %v, eID2: %v\n\tmaxP: %v\n\tnP: %v\n", mutualArr[len(mutualArr)-1], ne.ID, maxP, nP)
 					if mutualReachable(maxP.IDArr, nP.IDArr, mutualArr[len(mutualArr)-1], ne.ID) {
 						var suc bool
 						maxP.IDArr, suc = FindConsistenceAndMergePath(maxP.IDArr, nP.IDArr, mutualArr[len(mutualArr)-1], ne.ID)
@@ -2568,8 +2581,9 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge) (maxP Path) {
 		p1 := IndexEID(maxP.IDArr, eID1)
 		eID2 := mutualArr[len(mutualArr)-1]
 		p2 := IndexEID(maxP.IDArr, eID2)
-		if IsTwoEdgesCyclePath(edgesArr, nodesArr, eID1) || IsTwoEdgesCyclePath(edgesArr, nodesArr, eID2) {
+		if IsTwoEdgesCyclePath(edgesArr, nodesArr, eID1) || IsTwoEdgesCyclePath(edgesArr, nodesArr, eID2) || len(maxP.IDArr[p1:p2+1]) <= 2 {
 			maxP.IDArr = nil
+			maxP.Freq = 0
 			return maxP
 		}
 		/*var np Path
@@ -2583,9 +2597,10 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge) (maxP Path) {
 		CheckPathDirection(edgesArr, nodesArr, eID1)
 		maxP.IDArr = maxP.IDArr[p1 : p2+1]
 		edgesArr[eID1].SetProcessFlag()
+		edgesArr[eID2].SetProcessFlag()
 		//edgesArr[eID].PathMat = []Path{maxP}
 		//edgesArr[eID].SetProcessFlag()
-		for _, id := range mutualArr[1:] {
+		for _, id := range mutualArr[1 : len(mutualArr)-1] {
 			//edgesArr[id].PathMat = nil
 			edgesArr[id].SetDeleteFlag()
 			edgesArr[id].SetProcessFlag()
@@ -2598,7 +2613,7 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge) (maxP Path) {
 // find maximum path
 func findMaxPath(edgesArr []DBGEdge, nodesArr []DBGNode) (pathArr []Path) {
 	for i, e := range edgesArr {
-		if e.ID == 0 || e.GetDeleteFlag() > 0 || e.GetProcessFlag() > 0 || len(e.PathMat) == 0 || IsTwoEdgesCyclePath(edgesArr, nodesArr, e.ID) {
+		if e.ID == 0 || e.GetDeleteFlag() > 0 || e.GetProcessFlag() > 0 || e.GetUniqueFlag() == 0 || len(e.PathMat) == 0 || IsTwoEdgesCyclePath(edgesArr, nodesArr, e.ID) {
 			continue
 		}
 
@@ -2611,7 +2626,7 @@ func findMaxPath(edgesArr []DBGEdge, nodesArr []DBGNode) (pathArr []Path) {
 		}
 
 		maxP := ExtendPath(edgesArr, nodesArr, e)
-		if len(maxP.IDArr) > 2 {
+		if len(maxP.IDArr) > 1 {
 			pathArr = append(pathArr, maxP)
 		}
 
@@ -3090,10 +3105,16 @@ func CheckPathDirection(edgesArr []DBGEdge, nodesArr []DBGNode, eID DBG_MAX_INT)
 		ea2 = GetNearEdgeIDArr(nodesArr[e.EndNID], eID)
 	}
 	idx := IndexEID(e.PathMat[0].IDArr, eID)
-	if idx > 0 && IsInDBG_MAX_INTArr(ea2, e.PathMat[0].IDArr[idx-1]) {
+	step := 1
+	if len(ea1) == 1 && len(ea2) == 1 && ea1[0] == ea2[0] { // found two edge cycle
+		ea1 = GetOtherEArr(nodesArr[e.EndNID], eID)
+		ea2 = GetOtherEArr(nodesArr[e.StartNID], eID)
+		step = 2
+	}
+	if idx >= step && IsInDBG_MAX_INTArr(ea2, e.PathMat[0].IDArr[idx-step]) {
 		ReverseDBG_MAX_INTArr(edgesArr[eID].PathMat[0].IDArr)
 	}
-	if idx < len(e.PathMat[0].IDArr)-1 && IsInDBG_MAX_INTArr(ea1, e.PathMat[0].IDArr[idx+1]) {
+	if idx < len(e.PathMat[0].IDArr)-step && IsInDBG_MAX_INTArr(ea1, e.PathMat[0].IDArr[idx+step]) {
 		ReverseDBG_MAX_INTArr(edgesArr[eID].PathMat[0].IDArr)
 	}
 	fmt.Printf("[CheckPathDirection] ea1: %v, ea2: %v, PathMat: %v\n", ea1, ea2, edgesArr[eID].PathMat[0])
@@ -3251,17 +3272,19 @@ func AdjustPathMat(edgesArr []DBGEdge, nodesArr []DBGNode, joinPathArr []Path, I
 	}
 }
 
-func IsContainArr(a1, a2 []DBG_MAX_INT) bool {
-	for i := 0; i <= len(a1)-len(a2); i++ {
-		if reflect.DeepEqual(a1[i:i+len(a2)], a2) {
-			return true
-		}
+func IsContainBoundaryArr(a1, a2 []DBG_MAX_INT) bool {
+	if reflect.DeepEqual(a1[:len(a2)], a2) {
+		return true
+	}
+	if reflect.DeepEqual(a1[len(a1)-len(a2):], a2) {
+		return true
 	}
 	ra2 := GetReverseDBG_MAX_INTArr(a2)
-	for i := 0; i <= len(a1)-len(ra2); i++ {
-		if reflect.DeepEqual(a1[i:i+len(ra2)], ra2) {
-			return true
-		}
+	if reflect.DeepEqual(a1[:len(ra2)], ra2) {
+		return true
+	}
+	if reflect.DeepEqual(a1[len(a1)-len(ra2):], ra2) {
+		return true
 	}
 	return false
 }
@@ -3274,12 +3297,13 @@ func ConstructIDMapPath(joinPathArr []Path) map[DBG_MAX_INT]uint32 {
 		for j, id := range sc {
 			if idx, ok := IDMapPath[id]; ok {
 				a := joinPathArr[idx]
+
 				fmt.Printf("[ConstructIDMapPath] path: %v collison with : %v\n", a, p)
 				a1, a2 := p, a
 				if len(a.IDArr) > len(p.IDArr) {
 					a1, a2 = a, p
 				}
-				if IsContainArr(a1.IDArr, a2.IDArr) {
+				if IsContainBoundaryArr(a1.IDArr, a2.IDArr) {
 					if len(a1.IDArr) > len(a.IDArr) {
 						fmt.Printf("[ConstructIDMapPath] delete : %v\n", joinPathArr[idx])
 						delete(IDMapPath, joinPathArr[idx].IDArr[0])
@@ -3308,6 +3332,15 @@ func ConstructIDMapPath(joinPathArr []Path) map[DBG_MAX_INT]uint32 {
 	return IDMapPath
 }
 
+func DeleteJoinPathArrEnd(edgesArr []DBGEdge, joinPathArr []Path) {
+	for _, p := range joinPathArr {
+		if p.Freq > 0 && len(p.IDArr) > 0 {
+			eID := p.IDArr[len(p.IDArr)-1]
+			edgesArr[eID].SetDeleteFlag()
+		}
+	}
+}
+
 func SimplifyByNGS(opt Options, nodesArr []DBGNode, edgesArr []DBGEdge, mapNGSFn string) {
 	// add to the DBGEdge pathMat
 	AddPathToDBGEdge(edgesArr, mapNGSFn)
@@ -3319,7 +3352,7 @@ func SimplifyByNGS(opt Options, nodesArr []DBGNode, edgesArr []DBGEdge, mapNGSFn
 	joinPathArr := findMaxPath(edgesArr, nodesArr)
 	// constuct map edge ID to the path
 	IDMapPath := ConstructIDMapPath(joinPathArr)
-
+	DeleteJoinPathArrEnd(edgesArr, joinPathArr)
 	joinPathArr = ReconstructDBG(edgesArr, nodesArr, joinPathArr, IDMapPath)
 	// debug code
 	//graphfn := opt.Prefix + ".afterNGS.dot"
@@ -3453,14 +3486,14 @@ func Smfy(c cli.Command) {
 
 	// set the unique edge of edgesArr
 	uniqueNum := SetDBGEdgesUniqueFlag(edgesArr, nodesArr)
-	CheckInterConnectivity(edgesArr, nodesArr)
+	//CheckInterConnectivity(edgesArr, nodesArr)
 	fmt.Printf("[Smfy] the number of DBG Unique  Edges is : %d\n", uniqueNum)
 
 	t1 := time.Now()
 	// map Illumina reads to the DBG and find reads map path for simplify DBG
 	wrFn := opt.Prefix + ".NGSAlignment"
 	MapNGS2DBG(opt, nodesArr, edgesArr, wrFn)
-	CheckInterConnectivity(edgesArr, nodesArr)
+	//CheckInterConnectivity(edgesArr, nodesArr)
 	SimplifyByNGS(opt, nodesArr, edgesArr, wrFn)
 	CheckInterConnectivity(edgesArr, nodesArr)
 
