@@ -365,10 +365,11 @@ func RelocateLRRecordArr(arr []LRRecord, si int, direction uint8, newArr []const
 }
 
 type ExtPathInfo struct {
-	Path   []constructdbg.DBG_MAX_INT
-	ExtLen int
-	Score  int
-	Nd     constructdbg.DBGNode
+	Path        []constructdbg.DBG_MAX_INT
+	LRRecordArr []LRRecord
+	ExtLen      int
+	Score       int
+	Nd          constructdbg.DBGNode
 }
 
 type ExtPathInfoArr []ExtPathInfo
@@ -387,9 +388,9 @@ func (a ExtPathInfoArr) Swap(i, j int) {
 
 func Getscore(R LRRecord, begin, end int) (score int) {
 	if begin == R.RefPos && end == R.GetRefEnd() {
-		return R.GetScore()
+		score = R.GetScore()
+		return score
 	}
-
 	indel := 0
 	st, ed := begin-R.RefPos, end-R.RefPos
 	pos := 0
@@ -438,18 +439,20 @@ func Getscore(R LRRecord, begin, end int) (score int) {
 			}
 			if st <= pos && pos+num <= ed {
 				mch += num
-			} else if pos < st && pos+num <= ed {
+			} else if pos < st && pos+num > st && pos+num <= ed {
 				mch += pos + num - st
-			} else if st >= pos && pos+num > ed {
+			} else if pos >= st && pos < ed && pos+num > ed {
 				mch += ed - pos
 			} else if pos <= st && pos+num >= ed {
 				mch += ed - st
 			}
+			//fmt.Printf("[GetScore] MD: %v, convert to num: %v\n\tst: %v, ed: %v, pos: %v, mch: %v\n", R.MD[i:j], num, st, ed, pos, mch)
 			pos += num
 			i = j
 		} else if 'A' <= R.MD[i] && R.MD[i] <= 'Z' {
 			if st <= pos && pos < ed {
 				mis++
+				pos++
 			}
 			i++
 		} else {
@@ -460,50 +463,77 @@ func Getscore(R LRRecord, begin, end int) (score int) {
 			break
 		}
 	}
-	fmt.Printf("[Getscore] begin: %v, end: %v, indel: %v, mis: %v\n\tMD: %v\n", begin, end, indel, mis, R.MD)
 	score = mch - mis - indel
+	fmt.Printf("[Getscore] RefPos: %v, RefEnd : %v\n\tbegin: %v, end: %v, mch: %v, indel: %v, mis: %v, score: %v\n\tMD: %v\n", R.RefPos, R.GetRefEnd(), begin, end, mch, indel, mis, score, R.MD)
 	return score
+}
+func priorIndex(arr []LRRecord, idx int) int {
+	pi := -1
+	for i := idx - 1; i >= 0; i-- {
+		if arr[i].ID != 0 {
+			pi = i
+			break
+		}
+	}
+
+	return pi
+}
+
+func nextIndex(arr []LRRecord, idx int) int {
+	ni := -1
+	for i := idx + 1; i < len(arr); i++ {
+		if arr[i].ID != 0 {
+			ni = i
+			break
+		}
+	}
+
+	return ni
 }
 
 // region special by Refence(Long Reads)
-func GetScoreFixedLen(mapArr []LRRecord, edgesArr []constructdbg.DBGEdge, epi ExtPathInfo, opt Options, direction uint8) int {
+func GetScoreFixedLen(edgesArr []constructdbg.DBGEdge, epi ExtPathInfo, flankRefPos int, direction uint8) int {
 	var score int
-	var extLen int
 	if direction == constructdbg.FORWARD {
-		for i, R := range mapArr {
-			begin, end := R.RefPos, R.GetRefEnd()
-			if i > 0 && begin < mapArr[i-1].GetRefEnd() {
-				begin += (mapArr[i-1].GetRefEnd() - R.RefPos) / 2
-			}
-			if i < len(mapArr)-1 && end > mapArr[i+1].RefPos {
-				end -= (end - mapArr[i+1].RefPos) / 2
-			}
-			if extLen+(end-begin) > opt.ExtLen {
-				end = opt.ExtLen - extLen + begin
-			}
-			//fmt.Printf("[GetScoreFixedLen] begin: %v, end: %v, indel: %v\n\tMD: %v\n", begin, end, indel, R.MD)
-			score += Getscore(R, begin, end)
-			extLen += end - begin
-			if extLen >= opt.ExtLen {
-				break
+		for i, _ := range epi.Path {
+			if epi.LRRecordArr[i].ID != 0 {
+				begin, end := epi.LRRecordArr[i].RefPos, epi.LRRecordArr[i].GetRefEnd()
+				pi := priorIndex(epi.LRRecordArr, i)
+				ni := nextIndex(epi.LRRecordArr, i)
+				if pi >= 0 && epi.LRRecordArr[pi].GetRefEnd() > begin {
+					begin += (epi.LRRecordArr[pi].GetRefEnd() - begin) / 2
+				}
+				if ni > i && epi.LRRecordArr[ni].RefPos < end {
+					end -= (end - epi.LRRecordArr[ni].RefPos) / 2
+				}
+				if begin > flankRefPos {
+					break
+				}
+				if end > flankRefPos {
+					end = flankRefPos
+				}
+				score += Getscore(epi.LRRecordArr[i], begin, end)
 			}
 		}
 	} else { // BACKWARD
-		for i, R := range mapArr {
-			begin, end := R.RefPos, R.GetRefEnd()
-			if i > 0 && end > mapArr[i-1].RefPos {
-				end -= (end - mapArr[i-1].RefPos) / 2
-			}
-			if i < len(mapArr)-1 && begin < mapArr[i+1].GetRefEnd() {
-				begin += (mapArr[i+1].GetRefEnd() - begin) / 2
-			}
-			if extLen+(end-begin) > opt.ExtLen {
-				begin = end - (opt.ExtLen - extLen)
-			}
-			score += Getscore(R, begin, end)
-			extLen += end - begin
-			if extLen >= opt.ExtLen {
-				break
+		for i, _ := range epi.Path {
+			if epi.LRRecordArr[i].ID != 0 {
+				begin, end := epi.LRRecordArr[i].RefPos, epi.LRRecordArr[i].GetRefEnd()
+				pi := priorIndex(epi.LRRecordArr, i)
+				ni := nextIndex(epi.LRRecordArr, i)
+				if pi >= 0 && epi.LRRecordArr[pi].RefPos < end {
+					end -= (end - epi.LRRecordArr[pi].RefPos) / 2
+				}
+				if ni > i && epi.LRRecordArr[ni].GetRefEnd() > begin {
+					begin += (epi.LRRecordArr[ni].GetRefEnd() - begin) / 2
+				}
+				if end < flankRefPos {
+					break
+				}
+				if begin < flankRefPos {
+					begin = flankRefPos
+				}
+				score += Getscore(epi.LRRecordArr[i], begin, end)
 			}
 		}
 	}
@@ -574,30 +604,37 @@ func extendPathDistinguish(edgesArr []constructdbg.DBGEdge, nd constructdbg.DBGN
 	for i, epi := range epiArr {
 		lrArrIdx := si
 		sl := searchLen
-		var mapArr []LRRecord
+		epi.LRRecordArr = make([]LRRecord, len(epi.Path))
+		//var mapArr []LRRecord
 		fmt.Printf("[extendPathDistinguish] epi: %v\n", epi)
-		for _, eID := range epi.Path {
+		for j, eID := range epi.Path {
 			sl += edgesArr[eID].GetSeqLen() - (opt.Kmer - 1)
 			idx, ok := SearchLRRecordArr(lrArr, lrArrIdx, direction, eID, sl*6/5)
 			if ok && lrArr[idx].ID == eID {
 				fmt.Printf("[extendPathDistinguish] lrArr[%v]: %v\n", idx, lrArr[idx])
 				lrArrIdx = idx
 				sl = GetFlankLen(lrArr[idx], edgesArr[eID], direction)
-				if len(mapArr) > 0 { // if has a contain edge mapped, ignore...
-					if id, ok := IsInRefRegionContain(mapArr[len(mapArr)-1], lrArr[idx]); ok {
+				if j > 0 && epi.LRRecordArr[j-1].ID != 0 { // if has a contain edge mapped, ignore...
+					if id, ok := IsInRefRegionContain(epi.LRRecordArr[j-1], lrArr[idx]); ok {
 						if id == lrArr[idx].ID {
-							mapArr[len(mapArr)-1] = lrArr[idx]
+							epi.LRRecordArr[j-1].ID = 0
+							epi.LRRecordArr[j] = lrArr[idx]
 						}
 					} else {
-						mapArr = append(mapArr, lrArr[idx])
+						epi.LRRecordArr[j] = lrArr[idx]
 					}
-
 				} else {
-					mapArr = append(mapArr, lrArr[idx])
+					epi.LRRecordArr[j] = lrArr[idx]
 				}
 			}
 		}
-		epi.Score = GetScoreFixedLen(mapArr, edgesArr, epi, opt, direction) // region special by Refence(Long Reads)
+		var flankRefPos int
+		if direction == constructdbg.FORWARD {
+			flankRefPos = lrArr[si].GetRefEnd() + opt.ExtLen
+		} else {
+			flankRefPos = lrArr[si].RefPos - opt.ExtLen
+		}
+		epi.Score = GetScoreFixedLen(edgesArr, epi, flankRefPos, direction) // region special by Refence(Long Reads)
 		epiArr[i] = epi
 	}
 
