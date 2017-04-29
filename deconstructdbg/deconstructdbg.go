@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"sort"
 
-	"github.com/biogo/hts/sam"
 	"github.com/jwaldrip/odin/cli"
 	"github.com/mudesheng/GA/constructdbg"
 	"github.com/mudesheng/GA/utils"
@@ -318,12 +317,12 @@ func DeconstructDBG(c cli.Command) {
 	uniqueNum := setDBGEdgesUniqueFlag(edgesArr, nodesArr)
 	fmt.Printf("[DeconstructDBG] unique edge number is : %v\n", uniqueNum)
 
-	// get Long reads Mapping info by bwa and samtools
-	bamfn := opt.Prefix + ".bam"
-	rc := make(chan []sam.Record, opt.NumCPU*2)
+	// get Long reads Mapping info by last
+	maffn := opt.Prefix + ".maf"
+	rc := make(chan []MAFRecord, opt.NumCPU*2)
 	wc := make(chan []constructdbg.DBG_MAX_INT, opt.NumCPU*2)
 
-	go GetSamRecord(bamfn, rc, opt.NumCPU)
+	go GetMAFRecord(maffn, rc, opt.NumCPU)
 
 	for i := 0; i < opt.NumCPU; i++ {
 		go paraFindLongReadsMappingPath(rc, wc, edgesArr, nodesArr, opt)

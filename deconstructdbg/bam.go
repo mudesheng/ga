@@ -1,9 +1,12 @@
 package deconstructdbg
 
 import (
+	"bufio"
 	"container/list"
 	"fmt"
+	"io"
 	"log"
+	"math"
 	"os"
 	"sort"
 	"strconv"
@@ -86,31 +89,22 @@ func GetSamRecord(bamfn string, rc chan []sam.Record, numCPU int) {
 }
 
 type LRRecord struct {
-	Ins, Del, Mis, Mch int // Insertion, Deletion and Mismatch base number
-	RefPos, Pos        int
-	Idty               float32
-	RefLen             int
-	MapQ               uint8
-	Strand             bool
-	ID                 constructdbg.DBG_MAX_INT
-	CIGAR              sam.Cigar
-	MD                 string
+	Ins, Del, Mis, Mch          int // Insertion, Deletion and Mismatch base number
+	RefID                       constructdbg.DBG_MAX_INT
+	Pair                        uint8 // 1 note Ref Name RefID/1, 2 note RefID/2
+	RefStart, RefConLen, RefLen int
+	Start, ConLen, Len          int
+	RefSeq, Seq                 string
+	Score                       int
+	Strand                      bool // true note reverse strand
 }
 
-func (R LRRecord) GetScore() int {
-	return R.Mch - R.Mis - R.Ins - R.Del
+func (R LRRecord) GetNM() int {
+	return R.Mis + R.Ins + R.Del
 }
 
 func (R LRRecord) GetRefEnd() int {
-	return R.RefPos + R.Mch + R.Mis + R.Del
-}
-
-func (R LRRecord) GetQryConsumeLen() int {
-	return R.Mch + R.Mis + R.Ins
-}
-
-func (R LRRecord) GetRefConsumeLen() int {
-	return R.Mch + R.Mis + R.Del
+	return R.RefStart + R.RefConLen
 }
 
 func AccumulateCigar(cigar sam.Cigar, strand bool) (Mnum, Inum, Dnum, Pos int) {
@@ -162,7 +156,7 @@ func (a LRRecordArr) Len() int {
 }
 
 func (a LRRecordArr) Less(i, j int) bool {
-	return a[i].GetScore() > a[j].GetScore()
+	return a[i].Start < a[j].Start
 }
 
 func (a LRRecordArr) Swap(i, j int) {
@@ -178,17 +172,60 @@ func (a LRRecordArr) Swap(i, j int) {
 	return refIDArr
 } */
 
-func findSeedEID(arr []LRRecord, edgesArr []constructdbg.DBGEdge) int {
-	pos := -1
-	var max int
-	for i, item := range arr {
-		if edgesArr[item.ID].GetUniqueFlag() > 0 && item.Mch > max {
-			max = item.Mch
-			pos = i
+func PairIndex(arr []LRRecord, idx int, item LRRecord) int {
+	nidx := -1
+	for i := idx; i < len(arr); i++ {
+		if arr[i].RefID == item.RefID {
+			nidx = i
+			break
 		}
 	}
 
-	return pos
+	return nidx
+}
+
+func findSeedEID(arr []LRRecord, edgesArr []constructdbg.DBGEdge) (int, int) {
+	pos := -1
+	var maxScore int
+	for i, item := range arr {
+		if edgesArr[item.RefID].GetUniqueFlag() > 0 {
+			if item.Pair > 0 {
+				pIdx := PairIndex(arr, i+1, item)
+				if pIdx >= 0 {
+					refMappingLen := edgesArr[item.RefID].GetSeqLen() - 2*item.RefLen + item.RefConLen + arr[pIdx].RefConLen
+					readMappingLen := arr[pIdx].Start + arr[pIdx].ConLen - item.Start
+					if math.Abs(float64(refMappingLen-readMappingLen)) < float64(readMappingLen/10) {
+						if maxScore < item.Score+arr[pIdx].Score {
+							pos = i
+							maxScore = item.Score + arr[pIdx].Score
+						}
+					}
+				} else {
+					if pos >= 0 {
+						if arr[pos].Pair > 0 {
+							if maxScore < item.Score {
+								pos = i
+								maxScore = item.Score
+							}
+						} else {
+							pos = i
+							maxScore = item.Score
+						}
+					} else {
+						pos = i
+						maxScore = item.Score
+					}
+				}
+			} else {
+				if pos < 0 || (pos >= 0 && arr[pos].Pair == 0 && maxScore < item.Score) {
+					pos = i
+					maxScore = item.Score
+				}
+			}
+		}
+	}
+
+	return pos, maxScore
 }
 
 /*func findMapStrand(RefID constructdbg.DBG_MAX_INT, pos int, arr []LRRecord) (strand bool) {
@@ -651,34 +688,11 @@ func extendPathDistinguish(edgesArr []constructdbg.DBGEdge, nd constructdbg.DBGN
 
 func findMostProbablePath(arr []LRRecord, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, opt Options) (extArr []constructdbg.DBG_MAX_INT) {
 	// found seed edge ID
-	/*var refIDArr []constructdbg.DBG_MAX_INT
-	var MchArr []int
-	j := -1 // MchArr index
-	for _, R := range arr {
-		if j >= 0 && R.RefID == refIDArr[j] {
-			MchArr[j] += R.Mch
-		} else {
-			refIDArr = append(refIDArr, R.RefID)
-			MchArr = append(MchArr, R.Mch)
-			j++
-		}
-	}*/
-	pos := findSeedEID(arr, edgesArr)
-	if pos < 0 || arr[pos].GetScore() < opt.Kmer {
+	pos, maxScore := findSeedEID(arr, edgesArr)
+	if pos < 0 || arr[pos].RefConLen < opt.Kmer {
 		return extArr
-		//log.Fatalf("[findMostProbablePath] findSeedEID pos: %v <= 0\n", pos)
 	}
-	//SeedEID := refIDArr[pos]
-	// find SeedEID mapping strand, start and end index of arr
-	/*strand, si, ei := findMapInfo(SeedEID, pos, arr)
-	if strand {
-		constructdbg.ReverseDBG_MAX_INTArr(refIDArr)
-		ReverseLRRcordArr(arr)
-		pos = len(refIDArr) - 1 - pos
-	}*/
 
-	// search possible path
-	//seededge := edgesArr[SeedEID]
 	fmt.Printf("[findMostProbablePath] found seed Record: %v\n", arr[pos])
 	extArr = append(extArr, arr[pos].ID)
 	nID := edgesArr[arr[pos].ID].StartNID
@@ -922,107 +936,112 @@ func findMostProbablePath(arr []LRRecord, edgesArr []constructdbg.DBGEdge, nodes
 	return extArr
 }
 
-func paraFindLongReadsMappingPath(rc chan []sam.Record, wc chan []constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, opt Options) {
+func Reverse(s string) string {
+	r := []rune(s)
+	for i, j := 0, len(r)-1; i < j; i, j = i+1, j-1 {
+		r[i], r[j] = r[j], r[i]
+	}
+	return string(r)
+}
+
+func paraFindLongReadsMappingPath(rc chan []MAFRecord, wc chan []constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, opt Options) {
 	fragmentFreq := make([]int, 100)
 	for {
 		rArr := <-rc
-		if len(rArr) <= 0 {
+		if len(rArr) == 0 {
 			var guardPath []constructdbg.DBG_MAX_INT
 			wc <- guardPath
 			break
 		}
 
-		// process sam.Record array
-		NM := sam.Tag{'N', 'M'}
-		MD := sam.Tag{'M', 'D'}
-		//SA := sam.Tag{'S', 'A'}
-		//SN := sam.Tag{'S', 'N'}
+		// process MAFRecord array
 		var arr []LRRecord
 		for _, R := range rArr {
 			var lrd LRRecord
-			//fmt.Printf("[paraFindLongReadsMappingPath] R.Ref: %v\tR.Pos: %v\tR.Start: %v\n", R.Ref, R.Pos, R.Start())
-			nm := GetAuxUint(R.AuxFields.Get(NM).Value())
-			lrd.Strand = (R.Strand() < 0)
-			lrd.Mch, lrd.Ins, lrd.Del, lrd.Pos = AccumulateCigar(R.Cigar, lrd.Strand)
-			lrd.Mis = nm - lrd.Ins - lrd.Del
-			lrd.Mch -= lrd.Mis
-			lrd.RefPos = R.Start()
-			lrd.RefLen = R.Ref.Len()
-			id, err := strconv.Atoi(strings.Split(R.Name, "/")[0])
+			sc := strings.Split(R.Arr[0], " ")[1]
+			var err error
+			lrd.Score, err = strconv.Atoi(strings.Split(sc, "=")[1])
 			if err != nil {
-				log.Fatalf("[paraFindLongReadsMappingPath] R.Name: %v convert to int error: %v\n", R.Name, err)
+				log.Fatalf("[paraFindLongReadsMappingPath] score: %v convert to int error: %v\n", sc, err)
 			}
-			lrd.ID = constructdbg.DBG_MAX_INT(id)
-			lrd.CIGAR = make(sam.Cigar, len(R.Cigar))
-			copy(lrd.CIGAR, R.Cigar)
-			//lrd.CIGAR = R.Cigar
-			//fmt.Printf("lrd.CIGAR: %v\n\tR.Cigar: %v\n", lrd.CIGAR, R.Cigar)
-			lrd.MD = R.AuxFields.Get(MD).Value().(string)
-			lrd.MapQ = uint8(R.MapQ)
-			lrd.Idty = float32(lrd.Mch) / float32(lrd.Mch+lrd.Mis+lrd.Ins+lrd.Del)
+			sa := strings.Split(R.Arr[1], " ")
+			ta := strings.Split(sa[1], "/")
+			id, err := strconv.Atoi(ta[0])
+			if err != nil {
+				log.Fatalf("[paraFindLongReadsMappingPath] Ref Name: %v convert to int error: %v\n", ta, err)
+			}
+			lrd.RefID = constructdbg.DBG_MAX_INT(id)
+			if len(ta) > 1 {
+				p, err := strconv.Atoi(ta[1])
+				if err != nil {
+					log.Fatalf("[paraFindLongReadsMappingPath] pair info: %v convert to int error: %v\n", ta, err)
+				}
+				if p != 1 && p != 2 {
+					log.Fatalf("[paraFindLongReadsMappingPath] pair: %v must == 1 or ==2\n", p)
+				}
+				lrd.Pair = uint8(p)
+			}
+			id, err = strconv.Atoi(sa[2])
+			if err != nil {
+				log.Fatalf("[paraFindLongReadsMappingPath] Ref Start position: %v convert to int error: %v\n", sa[2], err)
+			}
+			lrd.RefStart = id
+			id, err = strconv.Atoi(sa[3])
+			if err != nil {
+				log.Fatalf("[paraFindLongReadsMappingPath] Consume length : %v convert to int error: %v\n", sa[3], err)
+			}
+			lrd.RefConLen = id
+			id, err = strconv.Atoi(sa[5])
+			if err != nil {
+				log.Fatalf("[paraFindLongReadsMappingPath] Ref length : %v convert to int error: %v\n", sa[5], err)
+			}
+			lrd.RefLen = id
+			lrd.RefSeq = sa[6]
 
-			// choose the most match length
-			if len(arr) > 0 && arr[len(arr)-1].ID == lrd.ID {
-				if arr[len(arr)-1].Mch < lrd.Mch {
-					arr[len(arr)-1] = lrd
-				}
-			} else {
-				if lrd.Mch+lrd.Mis+lrd.Ins >= opt.Kmer {
-					arr = append(arr, lrd)
-				}
+			// Query parsing
+			sa = strings.Split(R.Arr[2], " ")
+			id, err = strconv.Atoi(sa[2])
+			if err != nil {
+				log.Fatalf("[paraFindLongReadsMappingPath] Query start : %v convert to int error: %v\n", sa[2], err)
+			}
+			lrd.Start = id
+			id, err = strconv.Atoi(sa[3])
+			if err != nil {
+				log.Fatalf("[paraFindLongReadsMappingPath] Query consume length : %v convert to int error: %v\n", sa[3], err)
+			}
+			lrd.ConLen = id
+			id, err = strconv.Atoi(sa[5])
+			if err != nil {
+				log.Fatalf("[paraFindLongReadsMappingPath] Query length : %v convert to int error: %v\n", sa[5], err)
+			}
+			lrd.Len = id
+			lrd.Seq = sa[6]
+			if sa[4] == "-" {
+				lrd.Strand = true
+				lrd.Start = lrd.Len - lrd.Start - lrd.ConLen
+				lrd.RefSeq = Reverse(lrd.RefSeq)
+				lrd.Seq = Reverse(lrd.Seq)
 			}
 
-			/*sa := R.AuxFields.Get(SA)
-			if sa == nil {
-				continue
-			}
-			//sa := R.AuxFields.Get(SA).Value().(string)
-			//fmt.Printf("[paraFindLongReadsMappingPath]sa: %v\n", sa.Value().(string))
-			for _, rd := range strings.Split(sa.Value().(string), ";") {
-				if len(rd) == 0 {
-					continue
-				}
-				a := strings.Split(rd, ",")
-				var t LRRecord
-				id, err := strconv.Atoi(a[0])
-				if err != nil {
-					log.Fatalf("[paraFindLongReadsMappingPath] a: %v, Ref name: %v convert to int error: %v\n", a, a[0], err)
-				}
-				t.RefID = constructdbg.DBG_MAX_INT(id)
-				if a[2] == "-" {
-					t.Strand = true
-				}
-
-				t.CIGAR, err = sam.ParseCigar([]byte(a[3]))
-				if err != nil {
-					log.Fatalf("[paraFindLongReadsMappingPath] ParseCigar : %v error: %v\n", a[3], err)
-				}
-
-				nm, err := strconv.Atoi(a[5])
-				if err != nil {
-					log.Fatalf("[paraFindLongReadsMappingPath] NM : %v convert to int error: %v\n", a[5], err)
-				}
-				t.Mch, t.Ins, t.Del, t.Pos = AccumulateCigar(t.CIGAR, t.Strand)
-				t.Mis = nm - t.Ins - t.Del
-				t.Mch -= t.Mis
-
-				RefPos, err := strconv.Atoi(a[1])
-				if err != nil {
-					log.Fatalf("[paraFindLongReadsMappingPath] Ref start position : %v convert to int error: %v\n", a[1], err)
-				}
-				if t.Strand {
-					t.RefPos = RefPos - 1 + (t.Mch + t.Mis + t.Del) - 1
-				} else {
-					t.RefPos = RefPos - 1
-				}
-				fmt.Printf("[paraFindLongReadsMappingPath]a: %v\n", a)
-				arr = append(arr, t)
-			}*/
+			arr = append(arr, lrd)
 		}
 
-		//sort.Sort(LRRecordArr(arr))
-		//IDArr := GetRefIDArr(arr)
+		// clean not whole length match
+		flankdiff := 20
+		j := 0
+		for i, t := range arr {
+			if t.RefConLen < t.RefLen*9/10 {
+				if t.Start > flankdiff+t.RefConLen/10 &&
+					(t.Len-(t.Start+t.ConLen)) > flankdiff+t.RefConLen/10 {
+					continue
+				}
+			}
+			arr[j] = t
+			j++
+		}
+		arr = arr[:j]
 
+		sort.Sort(LRRecordArr(arr))
 		// debug code
 		mapCount := make(map[constructdbg.DBG_MAX_INT]int)
 		for _, R := range arr {
@@ -1040,36 +1059,16 @@ func paraFindLongReadsMappingPath(rc chan []sam.Record, wc chan []constructdbg.D
 			}
 		}
 
-		// clean not whole length match
-		i, j := 0, 0
-		for ; i < len(arr) && j < len(arr); i++ {
-			qml := arr[i].GetQryConsumeLen()
-			maxQryLen := opt.MaxMapEdgeLen / 2
-			if edgesArr[arr[i].ID].GetSeqLen() < opt.MaxMapEdgeLen {
-				maxQryLen = edgesArr[arr[i].ID].GetSeqLen()
-			}
-			if qml >= opt.Kmer && maxQryLen-qml < 20 {
-				arr[j] = arr[i]
-				j++
-			} else if (i == 0 || i == len(arr)-1) && qml > 2*opt.Kmer {
-				if (i == 0 && arr[i].RefPos < 20) || (i == len(arr)-1 && arr[i].RefLen-(arr[i].RefPos+arr[i].GetRefConsumeLen()) < 20) {
-					arr[j] = arr[i]
-					j++
-				}
-			}
-		}
-		arr = arr[:j]
-
 		if len(arr) <= 1 {
 			continue
 		}
 
 		// debug
-		fmt.Printf("[paraFindLongReadsMappingPath] read name: %v\n", rArr[0].Ref.Name())
+		fmt.Printf("[paraFindLongReadsMappingPath] read name: %v\n", strings.Split(rArr[0].Arr[2])[1])
 		for _, rd := range arr {
 			fmt.Printf("[paraFindLongReadsMappingPath] rd: %v\n", rd)
 		}
-		fmt.Printf("[paraFindLongReadsMappingPath] read name: %v\n", rArr[0].Ref.Name())
+		fmt.Printf("[paraFindLongReadsMappingPath] read name: %v\n", strings.Split(rArr[0].Arr[2])[1])
 
 		// found most possible path
 		path := findMostProbablePath(arr, edgesArr, nodesArr, opt)
@@ -1079,5 +1078,63 @@ func paraFindLongReadsMappingPath(rc chan []sam.Record, wc chan []constructdbg.D
 	}
 	for i, v := range fragmentFreq {
 		fmt.Fprintf(os.Stderr, "%v\t%v\n", i, v)
+	}
+}
+
+type MAFRecord struct {
+	Arr [3]string
+}
+
+//type MAFRecordArr []MAFRecord
+
+func GetMAFRecord(maffn string, rc chan []MAFRecord, numCPU int) {
+	fp, err := os.Open(maffn)
+	if err != nil {
+		log.Fatalf("[GetLastRecord] open file: %s failed, err: %v\n", maffn, err)
+	}
+	defer fp.Close()
+	buffp := bufio.NewReader(fp)
+
+	var mra []MAFRecord
+	for {
+		line, err := buffp.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				rc <- mra
+				break
+			} else {
+				log.Fatalf("[GetMAFRecord] Read line: %v, err: %v\n", line, err)
+			}
+		}
+		if line[0] == '#' {
+			continue
+		}
+		line2, err := buffp.ReadString('\n')
+		if err != nil {
+			log.Fatalf("[GetMAFRecord] Read line: %v, err: %v\n", line2, err)
+		}
+		line3, err := buffp.ReadString('\n')
+		if err != nil {
+			log.Fatalf("[GetMAFRecord] Read line: %v, err: %v\n", line3, err)
+		}
+		var mafR MAFRecord
+		mafR.arr[0] = line[:len(line)-1]
+		mafR.arr[1] = line2[:len(line2)-1]
+		mafR.arr[2] = line3[:len(line3)-1]
+		if len(mra) > 0 {
+			lrID1 := strings.Split(mra[0].arr[2], " ")[1]
+			lrID2 := strings.Split(mafR.arr[2], " ")[1]
+			if lrID1 != lrID2 {
+				rc <- mra
+				var n []MAFRecord
+				mra = n
+			}
+		}
+		mra = append(mra, mafR)
+	}
+
+	for i := 0; i < numCPU; i++ {
+		var nilArr MAFRecordArr
+		rc <- nilArr
 	}
 }
