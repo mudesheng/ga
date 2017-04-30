@@ -3514,8 +3514,8 @@ func Smfy(c cli.Command) {
 
 	smfyEdgesfn := opt.Prefix + ".edges.smfy.fq"
 	StoreEdgesToFn(smfyEdgesfn, edgesArr)
-	mappingEdgefn := opt.Prefix + ".edges.mapping.fa"
-	StoreMappingEdgesToFn(mappingEdgefn, edgesArr, opt.MaxMapEdgeLen)
+	//mappingEdgefn := opt.Prefix + ".edges.mapping.fa"
+	// StoreMappingEdgesToFn(mappingEdgefn, edgesArr, opt.MaxMapEdgeLen)
 	//	adpaterEdgesfn := prefix + ".edges.adapter.fq"
 	//	StoreEdgesToFn(adpaterEdgesfn, edgesArr, true)
 	smfyNodesfn := opt.Prefix + ".nodes.smfy.Arr"
