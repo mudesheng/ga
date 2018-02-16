@@ -238,8 +238,8 @@ func SimplifyByLongReadsPath(edgesArr []constructdbg.DBGEdge, nodesArr []constru
 
 type Options struct {
 	utils.ArgsOpt
-	MaxMapEdgeLen int
-	ExtLen        int
+	//MaxMapEdgeLen int
+	ExtLen int
 }
 
 func checkArgs(c cli.Command) (opt Options, succ bool) {
@@ -261,13 +261,13 @@ func checkArgs(c cli.Command) (opt Options, succ bool) {
 		log.Fatalf("[checkArgs] argument 'WinSize': %v must between 1~100\n", c.Flag("WinSize"))
 	} */
 	var ok bool
-	opt.MaxMapEdgeLen, ok = c.Flag("MaxMapEdgeLen").Get().(int)
+	/*opt.MaxMapEdgeLen, ok = c.Flag("MaxMapEdgeLen").Get().(int)
 	if !ok {
 		log.Fatalf("[checkArgs] argument 'MaxMapEdgeLen': %v set error\n ", c.Flag("MaxMapEdgeLen").String())
 	}
 	if opt.MaxMapEdgeLen < 2000 {
 		log.Fatalf("[checkArgs] argument 'MaxMapEdgeLen': %v must bigger than 2000\n", c.Flag("MaxMapEdgeLen").String())
-	}
+	}*/
 
 	opt.ExtLen, ok = c.Flag("ExtLen").Get().(int)
 	if !ok {
@@ -288,14 +288,14 @@ func DeconstructDBG(c cli.Command) {
 		log.Fatalf("[Smfy] check global Arguments error, opt: %v\n", gOpt)
 	}
 
-	opt := Options{gOpt, 0, 0}
+	opt := Options{gOpt, 0}
 	tmp, suc := checkArgs(c)
 	if suc == false {
 		log.Fatalf("[Smfy] check Arguments error, opt: %v\n", tmp)
 	}
 	/*opt.TipMaxLen = tmp.TipMaxLen
 	opt.WinSize = tmp.WinSize*/
-	opt.MaxMapEdgeLen = tmp.MaxMapEdgeLen
+	//opt.MaxMapEdgeLen = tmp.MaxMapEdgeLen
 	opt.ExtLen = tmp.ExtLen
 	constructdbg.Kmerlen = opt.Kmer
 	fmt.Printf("Arguments: %v\n", opt)

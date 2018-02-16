@@ -3,7 +3,6 @@ package constructcf
 import (
 	"bufio"
 	"compress/gzip"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -272,11 +271,11 @@ func writeKmer(wrfn string, we chan int, wc chan ReadSeqBucket, Kmerlen, numCPU 
 		log.Fatal(err)
 	}
 	gzwriter := gzip.NewWriter(outfp)
-	defer gzwriter.Close()
-	defer outfp.Close()
 	// bufwriter := bufio.NewWriter(gzwriter)
+	// defer outfp.Close()
+	defer gzwriter.Close()
 
-	// KBntByteNum := (Kmerlen + bnt.NumBaseInByte - 1) / bnt.NumBaseInByte
+	KBntByteNum := (Kmerlen + bnt.NumBaseInByte - 1) / bnt.NumBaseInByte
 	endFlagCount := 0
 	writeKmerCount := 0
 	for {
@@ -290,20 +289,21 @@ func writeKmer(wrfn string, we chan int, wc chan ReadSeqBucket, Kmerlen, numCPU 
 				continue
 			}
 		}
-		//fmt.Printf("[writeKmer] rsb.count: %d\n", rsb.count)
+		// fmt.Printf("[writeKmer] rsb.count: %d\n", rsb.count)
 		for i := 0; i < rsb.Count; i++ {
-			err := binary.Write(gzwriter, binary.LittleEndian, rsb.ReadBuf[i].Seq)
+			n, err := gzwriter.Write(rsb.ReadBuf[i].Seq)
+			fmt.Printf("[writeKmer] Seq: %v\n", rsb.ReadBuf[i].Seq)
 			if err != nil {
 				log.Fatalf("[writeKmer] write kmer seq err: %v\n", err)
 			}
-			// if n != KBntByteNum {
-			// 	log.Fatalf("[writeKmer] n(%d) != KBntByteNum(%d)\n", n, KBntByteNum)
-			// }
+			if n != KBntByteNum {
+				log.Fatalf("[writeKmer] n(%d) != KBntByteNum(%d)\n", n, KBntByteNum)
+			}
 			writeKmerCount++
 			// gzwriter.Write([]byte("\n"))
 		}
 	}
-	// bufwriter.Flush()
+	gzwriter.Flush()
 	fmt.Printf("[writeKmer] total write kmer number is : %d\n", writeKmerCount)
 
 }

@@ -861,6 +861,36 @@ func Reverse(s string) string {
 	return string(r)
 }
 
+func SplitBySpace(s string, num int) []string {
+	arr := make([]string, num)
+	count := 0
+	for i := 0; i < len(s); {
+		if s[i] == ' ' {
+			i++
+			continue
+		}
+		if count == num-1 {
+			arr[count] = s[i:]
+			count++
+			break
+		}
+		j := i + 1
+		for ; j < len(s); j++ {
+			if s[j] == ' ' {
+				break
+			}
+		}
+		arr[count] = s[i:j]
+		i = j
+		count++
+	}
+	if count != num {
+		log.Fatalf("[SplitBySpace] found count:%v != num: %v\n", count, num)
+	}
+
+	return arr
+}
+
 func paraFindLongReadsMappingPath(rc chan []MAFRecord, wc chan []constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, opt Options) {
 	fragmentFreq := make([]int, 100)
 	for {
@@ -876,12 +906,15 @@ func paraFindLongReadsMappingPath(rc chan []MAFRecord, wc chan []constructdbg.DB
 		for _, R := range rArr {
 			var lrd LRRecord
 			sc := strings.Split(R.Arr[0], " ")[1]
+			fmt.Printf("[paraFindLongReadsMappingPath]sc: %v\n", sc)
 			var err error
 			lrd.Score, err = strconv.Atoi(strings.Split(sc, "=")[1])
 			if err != nil {
 				log.Fatalf("[paraFindLongReadsMappingPath] score: %v convert to int error: %v\n", sc, err)
 			}
-			sa := strings.Split(R.Arr[1], " ")
+			//sa := strings.Split(R.Arr[1], " ")
+			sa := SplitBySpace(R.Arr[1], 7)
+			fmt.Printf("[paraFindLongReadsMappingPath]sa: %v\n", sa)
 			//ta := strings.Split(sa[1], "/")
 			id, err := strconv.Atoi(sa[1])
 			if err != nil {
@@ -906,7 +939,9 @@ func paraFindLongReadsMappingPath(rc chan []MAFRecord, wc chan []constructdbg.DB
 			lrd.RefSeq = sa[6]
 
 			// Query parsing
-			sa = strings.Split(R.Arr[2], " ")
+			//sa = strings.Split(R.Arr[2], " ")
+			sa = SplitBySpace(R.Arr[2], 7)
+			fmt.Printf("[paraFindLongReadsMappingPath]sa: %v\n", sa)
 			id, err = strconv.Atoi(sa[2])
 			if err != nil {
 				log.Fatalf("[paraFindLongReadsMappingPath] Query start : %v convert to int error: %v\n", sa[2], err)
@@ -1013,7 +1048,7 @@ func GetMAFRecord(maffn string, rc chan []MAFRecord, numCPU int) {
 				log.Fatalf("[GetMAFRecord] Read line: %v, err: %v\n", line, err)
 			}
 		}
-		if line[0] == '#' {
+		if line[0] == '#' || line[0] == '\n' {
 			continue
 		}
 		line2, err := buffp.ReadString('\n')
@@ -1024,10 +1059,12 @@ func GetMAFRecord(maffn string, rc chan []MAFRecord, numCPU int) {
 		if err != nil {
 			log.Fatalf("[GetMAFRecord] Read line: %v, err: %v\n", line3, err)
 		}
+		//fmt.Printf("[GetMAFRecord] line: %v\n", line)
 		var mafR MAFRecord
 		mafR.Arr[0] = line[:len(line)-1]
 		mafR.Arr[1] = line2[:len(line2)-1]
 		mafR.Arr[2] = line3[:len(line3)-1]
+		fmt.Printf("[GetMAFRecord] mafR[0]: %v\n\tmafR[1]: %v\n\tmafR[2]: %v\n", mafR.Arr[0], mafR.Arr[1], mafR.Arr[2])
 		if len(mra) > 0 {
 			lrID1 := strings.Split(mra[0].Arr[2], " ")[1]
 			lrID2 := strings.Split(mafR.Arr[2], " ")[1]

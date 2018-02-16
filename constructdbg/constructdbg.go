@@ -28,7 +28,6 @@ import (
 	"github.com/biogo/biogo/io/seqio/fasta"
 	"github.com/biogo/biogo/io/seqio/fastq"
 	"github.com/biogo/biogo/seq/linear"
-	"github.com/dsnet/compress/brotli"
 	"github.com/jwaldrip/odin/cli"
 )
 
@@ -192,25 +191,35 @@ func readUniqKmer(uniqkmergzfn string, cs chan constructcf.ReadBnt, kmerlen, num
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer uniqkmergzfp.Close()
 	ukgzfp, err := gzip.NewReader(uniqkmergzfp)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer ukgzfp.Close()
 	ukbuffp := bufio.NewReader(ukgzfp)
+	defer ukgzfp.Close()
+	defer uniqkmergzfp.Close()
 	var processNumKmer int
 	// var rsb constructcf.ReadSeqBucket
 	eof := false
 	KBntByteNum := (kmerlen + bnt.NumBaseInByte - 1) / bnt.NumBaseInByte
 	for !eof {
-		//var kmer []byte
+		// var kmer []byte
 		b := make([]byte, KBntByteNum)
-		err := binary.Read(ukbuffp, binary.LittleEndian, b)
-		if err != nil {
+		n, err := ukbuffp.Read(b)
+		if n < KBntByteNum && err == nil {
+			n1, err1 := ukbuffp.Read(b[n:])
+			if err1 != nil {
+				log.Fatalf("[readUniqKmer] read kmer seq err1: %v\n", err1)
+			}
+			n += n1
+		}
+		fmt.Printf("[readUniqKmer]len(b): %v,  b: %v\n", n, b)
+		if len(b) != KBntByteNum || err != nil {
 			if err == io.EOF {
 				err = nil
 				eof = true
+			} else if len(b) != KBntByteNum {
+				log.Fatalf("[readUniqKmer] read kmer seq length: %v != KBntByteNum[%v]\n", len(b), KBntByteNum)
 			} else {
 				log.Fatalf("[readUniqKmer] read kmer seq err: %v\n", err)
 			}
@@ -225,7 +234,6 @@ func readUniqKmer(uniqkmergzfn string, cs chan constructcf.ReadBnt, kmerlen, num
 		// 	log.Fatalf("[readUniqKmer] len(rb.Seq) != kmerlen\n")
 		// } else {
 		rb.Length = kmerlen
-		// fmt.Printf("[readUniqKmer] rb: %v\n", rb)
 		// }
 		cs <- rb
 		processNumKmer += 1
@@ -1805,15 +1813,15 @@ func paraLoadNGSReads(fn string, cs chan ReadInfo, kmerLen int, we chan int) {
 		log.Fatalf("[paraLoadNGSReads] %v\n", err)
 	}
 
-	brfp, err := brotli.NewReader(fp, nil)
-	//gzfp, err := gzip.NewReader(fp)
+	// brfp, err := brotli.NewReader(fp, nil)
+	gzfp, err := gzip.NewReader(fp)
 	if err != nil {
 		log.Fatalf("[paraLoadNGSReads] %v\n", err)
 	}
-	defer brfp.Close()
-	defer fp.Close()
-	//buffp := bufio.NewReader(fp)
-	fqfp := fastq.NewReader(brfp, linear.NewQSeq("", nil, alphabet.DNA, alphabet.Sanger))
+	defer gzfp.Close()
+	// defer fp.Close()
+	// buffp := bufio.NewReader(gzfp)
+	fqfp := fastq.NewReader(gzfp, linear.NewQSeq("", nil, alphabet.DNA, alphabet.Sanger))
 	s, err := fqfp.Read()
 	var count int
 	for ; err == nil; s, err = fqfp.Read() {
@@ -1900,6 +1908,7 @@ func writeAlignToFile(wrFn string, wc chan AlignInfo, numCPU int) {
 		fp.WriteString(s)
 	}
 }
+
 func BiggerThan(kb, rb []byte) bool {
 	for i, b := range kb {
 		if b > rb[i] {
@@ -3401,7 +3410,7 @@ type Options struct {
 	TipMaxLen     int
 	WinSize       int
 	MaxNGSReadLen int
-	MaxMapEdgeLen int // max length of edge that don't need cut two flank sequence to map Long Reads
+	//MaxMapEdgeLen int // max length of edge that don't need cut two flank sequence to map Long Reads
 }
 
 func checkArgs(c cli.Command) (opt Options, succ bool) {
@@ -3429,13 +3438,13 @@ func checkArgs(c cli.Command) (opt Options, succ bool) {
 	if opt.MaxNGSReadLen < opt.Kmer+50 {
 		log.Fatalf("[checkArgs] argument 'MaxNGSReadLen': %v must bigger than K+50\n", c.Flag("MaxNGSReadLen").String())
 	}
-	opt.MaxMapEdgeLen, ok = c.Flag("MaxMapEdgeLen").Get().(int)
+	/*opt.MaxMapEdgeLen, ok = c.Flag("MaxMapEdgeLen").Get().(int)
 	if !ok {
 		log.Fatalf("[checkArgs] argument 'MaxMapEdgeLen': %v set error\n ", c.Flag("MaxMapEdgeLen").String())
 	}
 	if opt.MaxMapEdgeLen < 2000 {
 		log.Fatalf("[checkArgs] argument 'MaxMapEdgeLen': %v must bigger than 2000\n", c.Flag("MaxMapEdgeLen").String())
-	}
+	}*/
 
 	succ = true
 	return opt, succ
@@ -3449,7 +3458,7 @@ func Smfy(c cli.Command) {
 	if suc == false {
 		log.Fatalf("[Smfy] check global Arguments error, opt: %v\n", gOpt)
 	}
-	opt := Options{gOpt, 0, 0, 0, 0}
+	opt := Options{gOpt, 0, 0, 0}
 	tmp, suc := checkArgs(c)
 	if suc == false {
 		log.Fatalf("[Smfy] check Arguments error, opt: %v\n", tmp)
@@ -3457,7 +3466,7 @@ func Smfy(c cli.Command) {
 	opt.TipMaxLen = tmp.TipMaxLen
 	opt.MaxNGSReadLen = tmp.MaxNGSReadLen
 	opt.WinSize = tmp.WinSize
-	opt.MaxMapEdgeLen = tmp.MaxMapEdgeLen
+	//opt.MaxMapEdgeLen = tmp.MaxMapEdgeLen
 	fmt.Printf("Arguments: %v\n", opt)
 
 	// set package-level variable
