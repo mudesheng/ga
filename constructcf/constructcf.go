@@ -3,6 +3,7 @@ package constructcf
 import (
 	"bufio"
 	"compress/gzip"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -207,16 +208,17 @@ func GetReadBntKmer(extRBnt ReadBnt, startPos int, kmerlen int) (rbk ReadBnt) {
 }
 
 func ReverseComplet(ks ReadBnt) (rs ReadBnt) {
-	tmp := ks
+	var tmp ReadBnt
+	tmp.Length = ks.Length
 	tmp.Seq = make([]byte, len(ks.Seq))
 	copy(tmp.Seq, ks.Seq)
-	rs.Length = tmp.Length
-	rs.Seq = make([]byte, len(tmp.Seq))
+	rs.Length = ks.Length
+	rs.Seq = make([]byte, len(ks.Seq))
 	for i := tmp.Length - 1; i >= 0; i-- {
 		base := tmp.Seq[i/bnt.NumBaseInByte] & bnt.BaseMask
-		rs.Seq[(rs.Length-i-1)/bnt.NumBaseInByte] <<= bnt.NumBitsInBase
-		rs.Seq[(rs.Length-i-1)/bnt.NumBaseInByte] |= (^base & bnt.BaseMask)
 		tmp.Seq[i/bnt.NumBaseInByte] >>= bnt.NumBitsInBase
+		rs.Seq[(rs.Length-i-1)/bnt.NumBaseInByte] <<= bnt.NumBitsInBase
+		rs.Seq[(rs.Length-i-1)/bnt.NumBaseInByte] |= bnt.BntRev[base]
 	}
 	return rs
 }
@@ -275,7 +277,7 @@ func writeKmer(wrfn string, we chan int, wc chan ReadSeqBucket, Kmerlen, numCPU 
 	// defer outfp.Close()
 	defer gzwriter.Close()
 
-	KBntByteNum := (Kmerlen + bnt.NumBaseInByte - 1) / bnt.NumBaseInByte
+	// KBntByteNum := (Kmerlen + bnt.NumBaseInByte - 1) / bnt.NumBaseInByte
 	endFlagCount := 0
 	writeKmerCount := 0
 	for {
@@ -291,16 +293,15 @@ func writeKmer(wrfn string, we chan int, wc chan ReadSeqBucket, Kmerlen, numCPU 
 		}
 		// fmt.Printf("[writeKmer] rsb.count: %d\n", rsb.count)
 		for i := 0; i < rsb.Count; i++ {
-			n, err := gzwriter.Write(rsb.ReadBuf[i].Seq)
-			fmt.Printf("[writeKmer] Seq: %v\n", rsb.ReadBuf[i].Seq)
+			err := binary.Write(gzwriter, binary.LittleEndian, rsb.ReadBuf[i].Seq)
 			if err != nil {
 				log.Fatalf("[writeKmer] write kmer seq err: %v\n", err)
 			}
-			if n != KBntByteNum {
+			//fmt.Printf("[writeKmer] Seq: %v\n", rsb.ReadBuf[i].Seq)
+			/* if n != KBntByteNum {
 				log.Fatalf("[writeKmer] n(%d) != KBntByteNum(%d)\n", n, KBntByteNum)
-			}
+			} */
 			writeKmerCount++
-			// gzwriter.Write([]byte("\n"))
 		}
 	}
 	gzwriter.Flush()
@@ -357,7 +358,7 @@ func CCF(c cli.Command) {
 	opt.CFSize = tmp.CFSize
 	cfgInfo, err := ParseCfg(opt.CfgFn)
 	if err != nil {
-		log.Fatal("[CCF] ParseCfg 'C': %v err :%v\n", opt.CfgFn, err)
+		log.Fatalf("[CCF] ParseCfg 'C': %v err :%v\n", opt.CfgFn, err)
 	}
 	fmt.Println(cfgInfo)
 
