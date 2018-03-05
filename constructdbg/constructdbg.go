@@ -1567,9 +1567,9 @@ func GraphvizDBGArr(nodesArr []DBGNode, edgesArr []DBGEdge, graphfn string) {
 		if v.GetDeleteFlag() > 0 {
 			continue
 		}
-		attr := gographviz.NewAttrs()
-		attr.Add("color", "Green")
-		attr.Add("shape", "record")
+		var attr map[string]string
+		attr["color"] = "Green"
+		attr["shape"] = "record"
 		var labels string
 		//labels = "{<f0>" + strconv.Itoa(int(v.EdgeIDIncoming[0])) + "|<f1>" + strconv.Itoa(int(v.EdgeIDIncoming[1])) + "|<f2>" + strconv.Itoa(int(v.EdgeIDIncoming[2])) + "|<f3>" + strconv.Itoa(int(v.EdgeIDIncoming[3])) + "}|" + strconv.Itoa(int(v.ID)) + "|{<f0>" + strconv.Itoa(int(v.EdgeIDOutcoming[0])) + "|<f1>" + strconv.Itoa(int(v.EdgeIDOutcoming[1])) + "|<f2>" + strconv.Itoa(int(v.EdgeIDOutcoming[2])) + "|<f3>" + strconv.Itoa(int(v.EdgeIDOutcoming[3])) + "}"
 		labels = "\"{" + strconv.Itoa(int(v.EdgeIDIncoming[0])) +
@@ -1581,7 +1581,7 @@ func GraphvizDBGArr(nodesArr []DBGNode, edgesArr []DBGEdge, graphfn string) {
 			"|" + strconv.Itoa(int(v.EdgeIDOutcoming[1])) +
 			"|" + strconv.Itoa(int(v.EdgeIDOutcoming[2])) +
 			"|" + strconv.Itoa(int(v.EdgeIDOutcoming[3])) + "}\""
-		attr.Add("label", labels)
+		attr["label"] = "labels"
 		g.AddNode("G", strconv.Itoa(int(v.ID)), attr)
 	}
 	g.AddNode("G", "0", nil)
@@ -1591,12 +1591,12 @@ func GraphvizDBGArr(nodesArr []DBGNode, edgesArr []DBGEdge, graphfn string) {
 		if e.ID == 0 || e.GetDeleteFlag() > 0 {
 			continue
 		}
-		attr := gographviz.NewAttrs()
-		attr.Add("color", "Blue")
+		var attr map[string]string
+		attr["color"] = "Blue"
 		labels := "\"ID:" + strconv.Itoa(int(e.ID)) + " len:" + strconv.Itoa(len(e.Utg.Ks)) + "\""
 		//labels := strconv.Itoa(int(e.ID)) + "len" + strconv.Itoa(len(e.Utg.Ks))
 		//labels := strconv.Itoa(int(e.ID))
-		attr.Add("label", labels)
+		attr["label"] = "labels"
 		g.AddEdge(strconv.Itoa(int(e.StartNID)), strconv.Itoa(int(e.EndNID)), true, attr)
 	}
 	// output := graph.String()
