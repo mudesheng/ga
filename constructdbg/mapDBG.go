@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/mudesheng/GA/bnt"
-	"github.com/mudesheng/GA/constructcf"
-	//"github.com/mudesheng/GA/constructdbg"
+	"github.com/mudesheng/ga/bnt"
+	"github.com/mudesheng/ga/constructcf"
+	//"github.com/mudesheng/ga/constructdbg"
 	// "ga/cuckoofilter"
 	"io"
 	"log"

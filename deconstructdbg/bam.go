@@ -13,7 +13,7 @@ import (
 
 	"github.com/biogo/hts/bam"
 	"github.com/biogo/hts/sam"
-	"github.com/mudesheng/GA/constructdbg"
+	"github.com/mudesheng/ga/constructdbg"
 )
 
 func GetSamRecord(bamfn string, rc chan []sam.Record, numCPU int) {

@@ -7,8 +7,8 @@ import (
 	"sort"
 
 	"github.com/jwaldrip/odin/cli"
-	"github.com/mudesheng/GA/constructdbg"
-	"github.com/mudesheng/GA/utils"
+	"github.com/mudesheng/ga/constructdbg"
+	"github.com/mudesheng/ga/utils"
 )
 
 func addPathToPathMat(edgesArr []constructdbg.DBGEdge, eID constructdbg.DBG_MAX_INT, path constructdbg.Path) bool {

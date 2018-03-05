@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/mudesheng/GA/bnt"
-	//"github.com/mudesheng/GA/constructdbg"
+	"github.com/mudesheng/ga/bnt"
+	//"github.com/mudesheng/ga/constructdbg"
 	//"ga/constructcf"
 
 	"io"
