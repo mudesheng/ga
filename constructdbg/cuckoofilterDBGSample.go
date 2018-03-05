@@ -2,6 +2,7 @@ package constructdbg
 
 import (
 	"crypto/sha1"
+	"fmt"
 	"math/rand"
 	"reflect"
 
@@ -32,7 +33,8 @@ const KMaxCount = 512
 type CFItem uint16
 
 type DBGKmer struct {
-	Item CFItem
+	Item   CFItem
+	Strand bool
 	//Freq uint16
 	ID  DBG_MAX_INT
 	Pos uint32
@@ -250,7 +252,7 @@ func hk2uint64(hk [sha1.Size]byte) (v uint64) {
 }
 
 // return last count of kmer fingerprint and have been successed inserted
-func (cf CuckooFilter) Insert(kb []byte, id DBG_MAX_INT, pos uint32) bool {
+func (cf CuckooFilter) Insert(kb []byte, id DBG_MAX_INT, pos uint32, strand bool) bool {
 	hk := sha1.Sum(kb)
 	v := hk2uint64(hk)
 	//fmt.Printf("%v\t", v)
@@ -260,13 +262,14 @@ func (cf CuckooFilter) Insert(kb []byte, id DBG_MAX_INT, pos uint32) bool {
 	dbgK.setCFItem(uint16(fingerprint), 1)
 	dbgK.ID = id
 	dbgK.Pos = pos
+	dbgK.Strand = strand
 	//fmt.Printf("[cf.Insert]fingerprint: %v\tindex: %v\tdbgK.%v\n", fingerprint, index, dbgK)
 	//fmt.Printf(" sizeof cuckoofilter.Hash[0] : %d\n", unsafe.Sizeof(cf.Hash[0]))
 
 	return cf.Add(index, dbgK)
 }
 
-func (cf CuckooFilter) Lookup(kb, rb []byte, edgesArr []DBGEdge) (dbgK DBGKmer) {
+func (cf CuckooFilter) Lookup(kb []byte, edgesArr []DBGEdge) (dbgK DBGKmer) {
 	hk := sha1.Sum(kb)
 	v := hk2uint64(hk)
 	da := cf.Contain(v)
@@ -276,14 +279,22 @@ func (cf CuckooFilter) Lookup(kb, rb []byte, edgesArr []DBGEdge) (dbgK DBGKmer) 
 	} else if len(da) == 1 {
 		d := da[0]
 		eb := edgesArr[d.ID].Utg.Ks[d.Pos : d.Pos+uint32(cf.Kmerlen)]
-		if reflect.DeepEqual(kb, eb) || reflect.DeepEqual(rb, eb) {
+		if d.Strand == MINUS {
+			eb = GetReverseCompByteArr(eb)
+		}
+		if reflect.DeepEqual(kb, eb) {
 			dbgK = d
+		} else {
+			fmt.Printf("[cf.Lookup] found cf Item, but seq(%v) not same as read(%v)", eb, kb)
 		}
 	} else { // len(da) > 1
 		for _, d := range da {
 			//fmt.Printf("[Lookup] fingerprint: %v\td: %v\n\tedgesArr[%v]: %v\n", fingerprint, d, d.ID, edgesArr[d.ID])
 			eb := edgesArr[d.ID].Utg.Ks[d.Pos : d.Pos+uint32(cf.Kmerlen)]
-			if reflect.DeepEqual(kb, eb) || reflect.DeepEqual(rb, eb) {
+			if d.Strand == MINUS {
+				eb = GetReverseCompByteArr(eb)
+			}
+			if reflect.DeepEqual(kb, eb) {
 				dbgK = d
 				break
 			}

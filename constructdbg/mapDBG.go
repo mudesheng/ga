@@ -1192,7 +1192,7 @@ func ExtendSeedEdge(seedEdgeIndex int, NoContainMKArr []MapEdgeKmers, edgesArr [
 					// need alignment
 					var matchBase [2]int32
 					matchBase[0] = MatchSeq(readSeq, proArr[0], mks, edgesArr[proArr[0].EID].Utg.Ks, uint32(seed), direction)
-					fmt.Printf("[ExtendSeedEdge] len(readSeq): %d, len(edgeSeq)matchBase[0]: %d\n", matchBase[0])
+					//fmt.Printf("[ExtendSeedEdge] len(readSeq): %d, len(edgeSeq)matchBase[0]: %d\n", matchBase[0])
 					PrintMatch(readSeq[proArr[0].Start:proArr[0].End], edgesArr[proArr[0].EID].Utg.Ks)
 					matchBase[1] = MatchSeq(readSeq, proArr[1], mks, edgesArr[proArr[1].EID].Utg.Ks, uint32(seed), direction)
 					if matchBase[1] > matchBase[0] {
@@ -1568,14 +1568,14 @@ func MapDBG(c cli.Command) {
 	// read nodes file and transform to array mode, for more quickly access
 	smfyNodesfn := prefix + ".nodes.smfy.mmap"
 	nodeMap := NodeMapMmapReader(smfyNodesfn)
-	nodesStatfn := prefix + ".nodes.stat"
-	nodesSize := NodesStatReader(nodesStatfn)
+	DBGStatfn := prefix + ".DBG.stat"
+	nodesSize, edgesSize := DBGStatReader(DBGStatfn)
 	nodesArr := make([]DBGNode, nodesSize)
 	NodeMap2NodeArr(nodeMap, nodesArr)
 
 	// Restore edges info
-	edgesStatfn := prefix + ".edges.stat"
-	edgesSize := EdgesStatReader(edgesStatfn)
+	//edgesStatfn := prefix + ".edges.stat"
+	//edgesSize := EdgesStatReader(edgesStatfn)
 	edgesArr := make([]DBGEdge, edgesSize)
 	edgesfn := prefix + ".edges.smfy.fq"
 	LoadEdgesfqFromFn(edgesfn, edgesArr, false)

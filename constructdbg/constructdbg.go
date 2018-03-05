@@ -43,7 +43,11 @@ type DBGNode struct {
 	Flag            uint8  // from low~high, 1:Process, 2:
 }
 
-const DIN, DOUT uint8 = 1, 2
+const (
+	DIN         uint8 = 1 // note DBGNode and DBGEdge relationship
+	DOUT        uint8 = 2 // note DBGNode and DBGEdge relationship
+	PLUS, MINUS       = true, false
+)
 
 type NodeInfoByEdge struct {
 	n1, n2 DBGNode
@@ -502,7 +506,7 @@ func AddNodeToNodeMap(node DBGNode, nodeMap map[string]DBGNode, nodeID DBG_MAX_I
 	return nodeID
 }
 
-func collectAddedDBGNode(anc <-chan DBGNode, nc chan<- DBGNode, readNodeMapFinishedC <-chan int, addedFinishedC chan<- int) {
+func CollectAddedDBGNode(anc <-chan DBGNode, nc chan<- DBGNode, readNodeMapFinishedC <-chan int, addedFinishedC chan<- int) {
 	var narr []DBGNode
 loop:
 	for {
@@ -517,15 +521,16 @@ loop:
 	for _, v := range narr {
 		nc <- v
 	}
+	fmt.Printf("[CollectAddedDBGNode] added node number is: %v\n", len(narr))
 	close(nc)
 	time.Sleep(5 * time.Second)
 	addedFinishedC <- 1
 }
 
 // add new Node to the nodeMap and check node edge has been output
-func ChangeNodeMap(nodeMap map[string]DBGNode, anc chan<- DBGNode, addedFinishedC <-chan int, nIEC <-chan NodeInfoByEdge, flagNIEC chan<- NodeInfoByEdge, Kmerlen int, nodeID DBG_MAX_INT) DBG_MAX_INT {
+func ChangeNodeMap(nodeMap map[string]DBGNode, anc chan<- DBGNode, addedFinishedC <-chan int, nIEC <-chan NodeInfoByEdge, flagNIEC chan<- NodeInfoByEdge, Kmerlen int, nodeID DBG_MAX_INT) (nID DBG_MAX_INT, edgeID DBG_MAX_INT) {
 	oldNodeID := nodeID
-	edgeID := DBG_MAX_INT(2)
+	edgeID = DBG_MAX_INT(2)
 loop:
 	for {
 		select {
@@ -540,7 +545,7 @@ loop:
 					nie.Flag = false
 					fmt.Printf("[ChangeNodeMap] add edge: start node ID: %v, end node ID: %v, same as edgeID: %v\n", nie.n1.ID, nie.n2.ID, v1.EdgeIDIncoming[nie.i1])
 					flagNIEC <- nie
-					continue
+					continue loop
 				}
 			} else {
 				if v1.EdgeIDOutcoming[nie.i1] == 1 {
@@ -549,7 +554,7 @@ loop:
 					nie.Flag = false
 					fmt.Printf("[ChangeNodeMap] add edge: start node ID: %v, end node ID: %v, same as edgeID: %v\n", nie.n1.ID, nie.n2.ID, v1.EdgeIDOutcoming[nie.i1])
 					flagNIEC <- nie
-					continue
+					continue loop
 				}
 			}
 			nie.edgeID = edgeID
@@ -578,12 +583,12 @@ loop:
 					}
 				}
 				if ok {
-					nodeMap[string(tn.Seq)] = v2
+					nodeMap[string(v2.Seq)] = v2
 					nie.n2 = v2
 				} else {
 					v2.Flag = 1
 					nodeID = AddNodeToNodeMap(v2, nodeMap, nodeID)
-					fmt.Printf("[ChangeNodeMap] v2: %v\nnodeID: %v\n", v2, nodeID-1)
+					//fmt.Printf("[ChangeNodeMap] v2: %v\nnodeID: %v\n", v2, nodeID-1)
 					t := nodeMap[string(v2.Seq)]
 					nie.n2 = t
 					anc <- t
@@ -595,7 +600,8 @@ loop:
 	}
 
 	fmt.Printf("[ChangeNodeMap] added nodes number is : %d\n", nodeID-oldNodeID)
-	return nodeID
+	nID = nodeID
+	return
 }
 
 // ReadDBGNodeToChan, read DBG nodeMap and simultaneously add new node to the nodeMap
@@ -604,9 +610,10 @@ func ReadDBGNodeToChan(nodeMap map[string]DBGNode, nc chan<- DBGNode, readNodeMa
 	for _, value := range nodeMap {
 		if value.Flag == 0 {
 			nc <- value
-			value.Flag = uint8(1)
-			nodeMap[string(value.Seq)] = value
 		}
+		//value.Flag = uint8(1)
+		//nodeMap[string(value.Seq)] = value
+		//}
 	}
 
 	// notice Function ChangeNodeMap() has finished read nodeMap
@@ -727,13 +734,14 @@ func GetEdges(cf cuckoofilter.CuckooFilter, nBnt constructcf.ReadBnt, count uint
 	return
 }
 
+var mu sync.Mutex
+
 func paraGenerateDBGEdges(nc <-chan DBGNode, nIEC chan<- NodeInfoByEdge, flagNIEC <-chan NodeInfoByEdge, cf cuckoofilter.CuckooFilter, wc chan DBGEdge) {
 	for {
 		node, ok := <-nc
 		if !ok {
 			break
 		}
-
 		// read edge seq from cuckoofilter
 		var rb constructcf.ReadBnt
 		rb.Seq = node.Seq
@@ -754,14 +762,12 @@ func paraGenerateDBGEdges(nc <-chan DBGNode, nIEC chan<- NodeInfoByEdge, flagNIE
 					ks, rs = rs, ks
 				}
 				count := cf.GetCountAllowZero(ks.Seq)
-				fmt.Printf("[paraGenerateDBGEdges]nodeID: %v, in: %d, count : %v\n", node.ID, i, count)
 				if count < MIN_KMER_COUNT {
 					log.Fatalf("[paraGenerateDBGEdges] found count[%v]: < [%v], node: %v", count, MIN_KMER_COUNT, node)
 				}
 				// get edge sequence
 				edge, nd := GetEdges(cf, nBnt, uint8(count), BACKWARD, MIN_KMER_COUNT)
 				//writedEdge := false
-				fmt.Printf("[paraGenerateDBGEdges]nodeID: %v, edge: %v\nnode: %v\n", node.ID, edge, nd)
 				if len(nd.Seq) > 0 || len(edge.Utg.Ks) > 2*cf.Kmerlen {
 					var nIE NodeInfoByEdge
 					nIE.n1 = node
@@ -771,12 +777,11 @@ func paraGenerateDBGEdges(nc <-chan DBGNode, nIEC chan<- NodeInfoByEdge, flagNIE
 					nIE.c2 = DOUT
 					c := edge.Utg.Ks[cf.Kmerlen-1]
 					nIE.i2 = uint(c)
-					var mu sync.Mutex
 					mu.Lock()
-					fmt.Printf("[paraGenerateDBGEdges]nodeID: %v, Incoming nIE: %v\n", node.ID, nIE)
+					//fmt.Printf("[paraGenerateDBGEdges]nodeID: %v, Incoming nIE: %v\n", node.ID, nIE)
 					nIEC <- nIE
 					fNIE := <-flagNIEC
-					fmt.Printf("[paraGenerateDBGEdges]nodeID: %v, Incoming fNIE: %v\n", node.ID, fNIE)
+					//fmt.Printf("[paraGenerateDBGEdges]nodeID: %v, Incoming fNIE: %v\n", node.ID, fNIE)
 					mu.Unlock()
 
 					if fNIE.Flag == true {
@@ -799,12 +804,11 @@ func paraGenerateDBGEdges(nc <-chan DBGNode, nIEC chan<- NodeInfoByEdge, flagNIE
 					ks, rs = rs, ks
 				}
 				count := cf.GetCountAllowZero(ks.Seq)
-				fmt.Printf("[paraGenerateDBGEdges]nodeID: %v, out: %d, count : %v\n", node.ID, i, count)
 				if count < MIN_KMER_COUNT {
 					log.Fatalf("[paraGenerateDBGEdges] found count[%v]: < [%v], node: %v", count, MIN_KMER_COUNT, node)
 				}
 				edge, nd := GetEdges(cf, nBnt, uint8(count), FORWARD, MIN_KMER_COUNT)
-				fmt.Printf("[paraGenerateDBGEdges]nodeID: %v, edge: %v\nnode: %v\n", node.ID, edge, nd)
+				//fmt.Printf("[paraGenerateDBGEdges]nodeID: %v, edge: %v\nnode: %v\n", node.ID, edge, nd)
 				// writedEdge := false
 				if len(nd.Seq) == 0 && len(edge.Utg.Ks) <= 2*cf.Kmerlen {
 					continue
@@ -817,12 +821,11 @@ func paraGenerateDBGEdges(nc <-chan DBGNode, nIEC chan<- NodeInfoByEdge, flagNIE
 				nIE.c2 = DIN
 				c := edge.Utg.Ks[len(edge.Utg.Ks)-cf.Kmerlen]
 				nIE.i2 = uint(c)
-				var mu sync.Mutex
 				mu.Lock()
-				fmt.Printf("[paraGenerateDBGEdges]nodeID: %v, Outcoming nIE: %v\n", node.ID, nIE)
+				//fmt.Printf("[paraGenerateDBGEdges]nodeID: %v, Outcoming nIE: %v\n", node.ID, nIE)
 				nIEC <- nIE
 				fNIE := <-flagNIEC
-				fmt.Printf("[paraGenerateDBGEdges]nodeID: %v, Outcoming fNIE: %v\n", node.ID, fNIE)
+				//fmt.Printf("[paraGenerateDBGEdges]nodeID: %v, Outcoming fNIE: %v\n", node.ID, fNIE)
 				mu.Unlock()
 
 				if fNIE.Flag == true {
@@ -859,7 +862,7 @@ func WriteEdgesToFn(edgesfn string, wc chan DBGEdge) {
 			break
 		}
 		edgesNum++
-		fmt.Fprintf(edgesbuffp, ">%d\t%d\t%d\n", edgesNum, ei.StartNID, ei.EndNID)
+		fmt.Fprintf(edgesbuffp, ">%d\t%d\t%d\n", ei.ID, ei.StartNID, ei.EndNID)
 		// fmt.Fprintf(edgesgzfp, "%s\n", ei.Utg.Ks)
 		for i := 0; i < len(ei.Utg.Ks); i++ {
 			if ei.Utg.Ks[i] > 3 || ei.Utg.Ks[i] < 0 {
@@ -1036,7 +1039,7 @@ func WriteEdgesToFn(edgesfn string, wc chan DBGEdge) {
 	}
 }*/
 
-func GenerateDBGEdges(nodeMap map[string]DBGNode, cf cuckoofilter.CuckooFilter, edgesfn string, numCPU int, nodeID DBG_MAX_INT) (newNodeID DBG_MAX_INT) {
+func GenerateDBGEdges(nodeMap map[string]DBGNode, cf cuckoofilter.CuckooFilter, edgesfn string, numCPU int, nodeID DBG_MAX_INT) (newNodeID DBG_MAX_INT, edgeID DBG_MAX_INT) {
 	bufsize := 50
 	nc := make(chan DBGNode)
 	wc := make(chan DBGEdge, bufsize)
@@ -1055,10 +1058,10 @@ func GenerateDBGEdges(nodeMap map[string]DBGNode, cf cuckoofilter.CuckooFilter, 
 
 	// collect added node and pass DBGNode to the nc
 	anc := make(chan DBGNode)
-	go collectAddedDBGNode(anc, nc, readNodeMapFinishedC, addedFinishedC)
+	go CollectAddedDBGNode(anc, nc, readNodeMapFinishedC, addedFinishedC)
 
 	// Change nodeMap monitor function
-	newNodeID = ChangeNodeMap(nodeMap, anc, addedFinishedC, nIEC, flagNIEC, cf.Kmerlen, nodeID)
+	newNodeID, edgeID = ChangeNodeMap(nodeMap, anc, addedFinishedC, nIEC, flagNIEC, cf.Kmerlen, nodeID)
 
 	/* // cache the new added node Bnt info
 	var newNodeBntArr []constructcf.ReadBnt
@@ -1087,25 +1090,29 @@ func GenerateDBGEdges(nodeMap map[string]DBGNode, cf cuckoofilter.CuckooFilter, 
 	return
 }
 
-func NodesStatWriter(nodesStatfn string, newNodeID DBG_MAX_INT) {
-	nodesStatfp, err := os.Create(nodesStatfn)
+func DBGStatWriter(DBGStatfn string, newNodeID, edgeID DBG_MAX_INT) {
+	DBGStatfp, err := os.Create(DBGStatfn)
 	if err != nil {
-		log.Fatalf("[NodesStatWriter] file %s create error: %v\n", nodesStatfn, err)
+		log.Fatalf("[DBGStatWriter] file %s create error: %v\n", DBGStatfn, err)
 	}
-	defer nodesStatfp.Close()
-	fmt.Fprintf(nodesStatfp, "nodes size:\t%v\n", newNodeID)
+	defer DBGStatfp.Close()
+	fmt.Fprintf(DBGStatfp, "nodes size:\t%v\n", newNodeID)
+	fmt.Fprintf(DBGStatfp, "edges size:\t%v\n", edgeID)
 }
 
-func NodesStatReader(nodesStatfn string) (nodesSize DBG_MAX_INT) {
-	nodesStatfp, err := os.Open(nodesStatfn)
+func DBGStatReader(DBGStatfn string) (nodesSize, edgesSize DBG_MAX_INT) {
+	DBGStatfp, err := os.Open(DBGStatfn)
 	if err != nil {
-		log.Fatalf("[NodesStatReader] file %s Open error: %v\n", nodesStatfn, err)
+		log.Fatalf("[DBGStatReader] file %s Open error: %v\n", DBGStatfn, err)
 	}
-	defer nodesStatfp.Close()
-	_, err = fmt.Fscanf(nodesStatfp, "nodes size:\t%v\n", &nodesSize)
-	if err != nil {
-		log.Fatalf("[NodesStatReader] nodes size parse error: %v\n", err)
+	defer DBGStatfp.Close()
+	if _, err = fmt.Fscanf(DBGStatfp, "nodes size:\t%v\n", &nodesSize); err != nil {
+		log.Fatalf("[DBGStatReader] file: %v, nodes size parse error: %v\n", DBGStatfn, err)
 	}
+	if _, err = fmt.Fscanf(DBGStatfp, "edges size:\t%v\n", &edgesSize); err != nil {
+		log.Fatalf("[DBGStatReader] file: %v, edges size parse error: %v\n", DBGStatfn, err)
+	}
+
 	return
 }
 
@@ -1317,36 +1324,31 @@ func CDBG(c cli.Command) {
 
 	// construct Node map
 	nodeMap, nodeID := constructNodeMap(complexKmergzfn)
-	fmt.Printf("[CDBG] assgin nodeID to  : %d\n", nodeID)
+	fmt.Printf("[CDBG] assgin nodeID to : %d\n", nodeID)
 	// parallel generate edges and write to file
 	edgefn := prefix + ".edges"
-	newNodeID := GenerateDBGEdges(nodeMap, cf, edgefn, numCPU, nodeID)
-	nodesStatfn := prefix + ".nodes.stat"
-	NodesStatWriter(nodesStatfn, newNodeID)
+	newNodeID, edgeID := GenerateDBGEdges(nodeMap, cf, edgefn, numCPU, nodeID)
+	DBGStatfn := prefix + ".DBG.stat"
+	DBGStatWriter(DBGStatfn, newNodeID, edgeID)
 	// write DBG node map to the file
 	nodesfn := prefix + ".nodes.mmap"
 	NodeMapMmapWriter(nodeMap, nodesfn)
 }
 
 func ParseEdge(edgesbuffp *bufio.Reader) (edge DBGEdge, err error) {
-
-	err = nil
 	line1, err1 := edgesbuffp.ReadString('\n')
 	line2, err2 := edgesbuffp.ReadString('\n')
 	line3, err3 := edgesbuffp.ReadString('\n')
 	if err1 != nil || err2 != nil || err3 != nil {
 		if err3 == io.EOF {
-			err3 = nil
+			//err1 = nil
 			err = io.EOF
-			return
 		} else {
-			log.Fatalf("[ParseEdge] Read edge found err\nline1: %v\nline2: %v\nline3: %v\n", line1, line2, line3)
+			log.Fatalf("[ParseEdge] Read edge found err1,err2,err3: %v,%v,%v\nline1: %v\nline2: %v\nline3: %v\n", err1, err2, err3, line1, line2, line3)
 		}
 	}
-	var tmp int
-	_, err4 := fmt.Sscanf(string(line1), ">%d\t%d\t%d\n", &tmp, &edge.StartNID, &edge.EndNID)
-	if err4 != nil {
-		log.Fatalf("[ParseEdge] Sscaf line1:%s err:%v\n", line1, err4)
+	if _, err4 := fmt.Sscanf(string(line1), ">%d\t%d\t%d\n", &edge.ID, &edge.StartNID, &edge.EndNID); err4 != nil {
+		log.Fatalf("[ParseEdge] fmt.Sscaf line1:%s err:%v\n", line1, err4)
 	}
 	// _, err4 = fmt.Sscanf(string(line2), "%s\n", &edge.Utg.Ks)
 	// if err4 != nil {
@@ -1354,23 +1356,22 @@ func ParseEdge(edgesbuffp *bufio.Reader) (edge DBGEdge, err error) {
 	// }
 	// change char base to Bnt
 	sline2 := string(line2[:len(line2)-1])
-	for _, v := range sline2 {
-		edge.Utg.Ks = append(edge.Utg.Ks, bnt.Base2Bnt[v])
+	edge.Utg.Ks = make([]byte, len(sline2))
+	for i, v := range sline2 {
+		edge.Utg.Ks[i] = bnt.Base2Bnt[v]
 	}
 	sline3 := string(line3[:len(line3)-1])
-	for _, v := range sline3 {
+	edge.Utg.Kq = make([]uint8, len(sline3))
+	for i, v := range sline3 {
 		q := v - 33
-		edge.Utg.Kq = append(edge.Utg.Kq, uint8(q))
+		edge.Utg.Kq[i] = uint8(q)
 	}
 
 	return
 }
 
-func ReadEdgesFromFile(nodeMap map[string]DBGNode, edgesfn string) (edgesArr []DBGEdge) {
-	var niledge DBGEdge
-	edgesArr = append(edgesArr, niledge)
-	edgeID := DBG_MAX_INT(len(edgesArr))
-	collisionNum := 0
+func ReadEdgesFromFile(edgesfn string, edgesSize DBG_MAX_INT) (edgesArr []DBGEdge) {
+	edgesArr = make([]DBGEdge, edgesSize)
 	edgesfp, err := os.Open(edgesfn)
 	if err != nil {
 		log.Fatalf("[ReadEdgesFromFile] open file %s failed, err: %v\n", edgesfn, err)
@@ -1383,123 +1384,23 @@ func ReadEdgesFromFile(nodeMap map[string]DBGNode, edgesfn string) (edgesArr []D
 	// defer edgesgzfp.Close()
 	edgesbuffp := bufio.NewReader(edgesfp)
 
-	// var num int
+	var edgesNum int
 	for {
 		edge, err := ParseEdge(edgesbuffp)
 		// num++
 		// fmt.Printf("[ParseEdge] num of edges: %v\n", num)
 		if err == io.EOF {
+			edgesArr[edge.ID] = edge
+			edgesNum++
 			break
 		} else if err != nil {
-			log.Fatalf("[ParseEdge] parse edge err: %v\n", err)
+			log.Fatalf("[ParseEdge] file: %v, parse edge err: %v\n", edgesfn, err)
 		}
-		// if len(edgesArr) > 0 && int(edgesArr[len(edgesArr)-1].ID) != len(edgesArr) {
-		// 	log.Fatalf("[ReadEdgesFromFile] edgesArr[len(edgesArr)-1](%v) != len(edgesArr):%d\n", edgesArr[len(edgesArr)-1], len(edgesArr))
-		// }
-		collisiontag := false
-		var collisionEdgeID DBG_MAX_INT
-		// check start and end node, 1 note start, 2 note end
-		if edge.StartNID > 0 {
-			var sBnt constructcf.ReadBnt
-			//fmt.Printf("Kmerlen: %v\nedge: %v\n", Kmerlen, edge)
-			sBnt.Seq = edge.Utg.Ks[:Kmerlen-1]
-			ks1 := constructcf.GetReadBntKmer(sBnt, 0, Kmerlen-1)
-			ts1 := ks1
-			rs1 := constructcf.ReverseComplet(ks1)
-			if ks1.BiggerThan(rs1) {
-				ks1, rs1 = rs1, ks1
-			}
-			v1, ok := nodeMap[string(ks1.Seq)]
-			// fmt.Printf("[ParseEdge] v1: %v\n", v1)
-			if ok && v1.ID == edge.StartNID {
-				c := edge.Utg.Ks[Kmerlen-1]
-				if reflect.DeepEqual(ks1, ts1) {
-					// b := bnt.Base2Bnt[c]
-					if v1.EdgeIDOutcoming[c] > 0 {
-						collisiontag = true
-						collisionEdgeID = v1.EdgeIDOutcoming[c]
-					} else {
-						v1.EdgeIDOutcoming[c] = edgeID
-					}
-				} else {
-					// b := bnt.Base2Bnt[bnt.BitNtRev[c]]
-					if v1.EdgeIDIncoming[bnt.BntRev[c]] > 0 {
-						collisiontag = true
-						collisionEdgeID = v1.EdgeIDIncoming[bnt.BntRev[c]]
-					} else {
-						v1.EdgeIDIncoming[bnt.BntRev[c]] = edgeID
-					}
-				}
-				if collisiontag == false {
-					nodeMap[string(ks1.Seq)] = v1
-				}
-			} else {
-				log.Fatalf("[ReadEdgesFromFile] edge.StartNID not consistence with nodeMap\nedge: %v\nok: %v\n", edge, ok)
-			}
-
-		}
-
-		if collisiontag == false {
-			if edge.EndNID > 0 {
-				var eBnt constructcf.ReadBnt
-				eBnt.Seq = edge.Utg.Ks[len(edge.Utg.Ks)-Kmerlen+1:]
-				ks2 := constructcf.GetReadBntKmer(eBnt, 0, Kmerlen-1)
-				ts2 := ks2
-				rs2 := constructcf.ReverseComplet(ks2)
-				if ks2.BiggerThan(rs2) {
-					ks2, rs2 = rs2, ks2
-				}
-				v2, ok := nodeMap[string(ks2.Seq)]
-				// fmt.Printf("[ParseEdge] v2: %v\n", v2)
-				if ok && v2.ID == edge.EndNID {
-					c := edge.Utg.Ks[len(edge.Utg.Ks)-Kmerlen]
-					// var collisionEdgeID DBG_MAX_INT
-					if reflect.DeepEqual(ks2, ts2) {
-						// b := bnt.Base2Bnt[c]
-						if v2.EdgeIDIncoming[c] > 0 {
-							collisiontag = true
-							collisionEdgeID = v2.EdgeIDIncoming[c]
-						} else {
-							v2.EdgeIDIncoming[c] = edgeID
-						}
-					} else {
-						// b := bnt.Base2Bnt[bnt.BitNtRev[c]]
-						if v2.EdgeIDOutcoming[bnt.BntRev[c]] > 0 {
-							collisiontag = true
-							collisionEdgeID = v2.EdgeIDOutcoming[bnt.BntRev[c]]
-						} else {
-							v2.EdgeIDOutcoming[bnt.BntRev[c]] = edgeID
-						}
-					}
-					if collisiontag == false {
-						nodeMap[string(ks2.Seq)] = v2
-					} else {
-						edge.EndNID = 0
-						collisionNum++
-						fmt.Printf("v2: %v\nlen(collsionedge.Utg.Ks) = %d, collsionedge = %v\nlen(edge.Utg.Ks) = %d, edge = %v\n\n", v2, len(edgesArr[collisionEdgeID].Utg.Ks), edgesArr[collisionEdgeID], len(edge.Utg.Ks), edge)
-					}
-				} else {
-					log.Fatalf("[ReadEdgesFromFile] edge.EndNID not consistence with nodeMap\n")
-				}
-
-			}
-			edge.ID = edgeID
-			edgeID++
-			edgesArr = append(edgesArr, edge)
-			if edge.Utg.Ks[0] > 3 {
-				log.Fatalf("[ReadEdgesFromFile] edge seq need transform bnt: %v\n", edge)
-			}
-
-		} else {
-			if (edgesArr[collisionEdgeID].StartNID == edge.StartNID || edgesArr[collisionEdgeID].StartNID == edge.EndNID) && (edgesArr[collisionEdgeID].EndNID == edge.StartNID || edgesArr[collisionEdgeID].EndNID == edge.EndNID) {
-
-			} else {
-				fmt.Printf("[ReadEdgesFromFile] found collision edges, len(collsionedge.Utg.Ks) = %d, collsionedge = %v\nlen(edge.Utg.Ks) = %d, edge = %v\n\n", len(edgesArr[collisionEdgeID].Utg.Ks), edgesArr[collisionEdgeID], len(edge.Utg.Ks), edge)
-				collisionNum++
-			}
-		}
+		edgesArr[edge.ID] = edge
+		edgesNum++
 	}
-	fmt.Printf("[ReadEdgesFromFile] found collision edge number is : %d, percent: %f\n", collisionNum, float64(collisionNum)/float64((len(edgesArr)-1)))
+
+	fmt.Printf("[ReadEdgesFromFile] found edge number is : %v\n", edgesNum)
 	return
 }
 
@@ -2029,33 +1930,25 @@ func LoadEdgesfqFromFn(fn string, edgesArr []DBGEdge, qual bool) {
 // set the unique edge of edgesArr
 func SetDBGEdgesUniqueFlag(edgesArr []DBGEdge, nodesArr []DBGNode) (uniqueNum int) {
 	for i, e := range edgesArr {
-		unique := false
-		if e.ID == 0 || e.GetDeleteFlag() > 0 {
+		if e.ID < 2 || e.GetDeleteFlag() > 0 {
 			continue
 		}
 
+		var ea1, ea2 []DBG_MAX_INT
 		if e.StartNID > 0 {
 			nd := nodesArr[e.StartNID]
-			ea := GetNearEdgeIDArr(nd, e.ID)
-			if len(ea) == 1 {
-				unique = true
-			}
+			ea1 = GetNearEdgeIDArr(nd, e.ID)
 		}
-
-		if unique == false && e.EndNID > 0 {
+		if e.EndNID > 0 {
 			nd := nodesArr[e.EndNID]
-			ea := GetNearEdgeIDArr(nd, e.ID)
-			if len(ea) == 1 {
-				unique = true
-			}
+			ea2 = GetNearEdgeIDArr(nd, e.ID)
 		}
 
-		if unique {
+		if len(ea1) <= 1 && len(ea2) <= 1 {
 			edgesArr[i].SetUniqueFlag()
 			uniqueNum++
 		}
 	}
-
 	return uniqueNum
 }
 
@@ -2136,11 +2029,7 @@ func LoadNGSReads(cfgFn string, cs chan ReadInfo, numCPU, kmerLen int) {
 	fmt.Printf("[LoadNGSReads] total processed number reads : %v\n", totalNumReads)
 
 	// send map goroutinues finish signal
-	for i := 0; i < numCPU; i++ {
-		var ri ReadInfo
-		ri.ID = -1
-		cs <- ri
-	}
+	close(cs)
 }
 
 func writeAlignToFile(wrFn string, wc chan AlignInfo, numCPU int) {
@@ -2183,7 +2072,7 @@ func BiggerThan(kb, rb []byte) bool {
 
 func getCuckoofilterDBGSampleSize(edgesArr []DBGEdge, winSize, maxNGSReadLen, kmerLen int) (cfSize int64) {
 
-	for _, e := range edgesArr[1:] {
+	for _, e := range edgesArr[2:] {
 		if e.GetDeleteFlag() > 0 {
 			continue
 		}
@@ -2197,9 +2086,28 @@ func getCuckoofilterDBGSampleSize(edgesArr []DBGEdge, winSize, maxNGSReadLen, km
 	return cfSize
 }
 
-func constructCFDBGSample(cf CuckooFilter, edgesArr []DBGEdge, winSize, maxNGSReadLen int) (count int) {
+func GetMinimizer(seq []byte, kmerlen int) (minSeq []byte, pos uint32, strand bool) {
+	for i := 0; i < len(seq)-kmerlen+1; i++ {
+		kb := seq[i : i+kmerlen]
+		rb := GetReverseCompByteArr(seq)
+		st := PLUS
+		if BiggerThan(kb, rb) {
+			kb, rb = rb, kb
+			st = MINUS
+		}
+		if len(minSeq) == 0 || BiggerThan(minSeq, kb) {
+			minSeq = kb
+			pos = uint32(i)
+			strand = st
+		}
+	}
+
+	return
+}
+
+func constructCFDBGMinimizers(cf CuckooFilter, edgesArr []DBGEdge, winSize, maxNGSReadLen int) (count int) {
 	for _, e := range edgesArr {
-		if e.ID == 0 || e.GetDeleteFlag() > 0 {
+		if e.ID < 2 || e.GetDeleteFlag() > 0 {
 			continue
 		}
 		el := len(e.Utg.Ks)
@@ -2208,17 +2116,15 @@ func constructCFDBGSample(cf CuckooFilter, edgesArr []DBGEdge, winSize, maxNGSRe
 			maxLen = maxNGSReadLen
 		}
 		//fmt.Printf("[constructCFDBGSample] edge length: %v\n", len(e.Utg.Ks))
-		for j := cf.Kmerlen; j < maxLen+winSize; j += winSize {
-			if j > maxLen { // make the boundary kmer in the Samples
-				j = maxLen
+		for j := 0; j < maxLen-cf.Kmerlen+1; j += winSize {
+			z := j + cf.Kmerlen + winSize - 1
+			if z > maxLen { // make the boundary kmer in the Samples
+				z = maxLen
 			}
 			//fmt.Printf("el: %v\tmaxGNSReadLen: %v\tcf.Kmerlen: %v\tmaxLen: %v\tj: %v\t", el, maxNGSReadLen, cf.Kmerlen, maxLen, j)
-			kb := e.Utg.Ks[j-cf.Kmerlen : j]
-			rb := GetReverseCompByteArr(kb)
-			if BiggerThan(kb, rb) {
-				kb, rb = rb, kb
-			}
-			suc := cf.Insert(kb, e.ID, uint32(j-cf.Kmerlen))
+			kb, pos, strand := GetMinimizer(e.Utg.Ks[j:z], cf.Kmerlen)
+
+			suc := cf.Insert(kb, e.ID, uint32(j)+pos, strand)
 			if suc == false {
 				log.Fatalf("[constructCFDBGSample] Insert to the CuckooFilter of DBGSample false\n")
 			}
@@ -2226,16 +2132,14 @@ func constructCFDBGSample(cf CuckooFilter, edgesArr []DBGEdge, winSize, maxNGSRe
 		}
 
 		if el > 2*maxNGSReadLen-cf.Kmerlen {
-			for j := el - maxNGSReadLen + cf.Kmerlen; j < el+winSize; j += winSize {
-				if j > el { // make the boundary kmer in the Samples
-					j = el
+			for j := el - maxNGSReadLen; j < el-cf.Kmerlen+1; j += winSize {
+				z := j + cf.Kmerlen + winSize - 1
+				if z > el { // make the boundary kmer in the Samples
+					z = el
 				}
-				kb := e.Utg.Ks[j-cf.Kmerlen : j]
-				rb := GetReverseCompByteArr(kb)
-				if BiggerThan(kb, rb) {
-					kb, rb = rb, kb
-				}
-				suc := cf.Insert(kb, e.ID, uint32(j-cf.Kmerlen))
+				kb, pos, strand := GetMinimizer(e.Utg.Ks[j:z], cf.Kmerlen)
+
+				suc := cf.Insert(kb, e.ID, uint32(j)+pos, strand)
 				if suc == false {
 					log.Fatalf("[constructCFDBGSample] Insert to the CuckooFilter of DBGSample false\n")
 				}
@@ -2249,25 +2153,23 @@ func constructCFDBGSample(cf CuckooFilter, edgesArr []DBGEdge, winSize, maxNGSRe
 }
 
 // found kmer seed position in the DBG edges
-func LocateSeedKmerCF(cf CuckooFilter, ri ReadInfo, winSize int, edgesArr []DBGEdge) (dbgK DBGKmer, pos int) {
-	for i := 0; i < winSize; i++ {
-		kb := ri.Seq[i : i+cf.Kmerlen]
-		rb := GetReverseCompByteArr(kb)
-		if BiggerThan(kb, rb) {
-			kb, rb = rb, kb
-		}
-		dbgK = cf.Lookup(kb, rb, edgesArr)
-		if dbgK.GetCount() == 0 {
-			continue
-		}
-		// check correction
-		//fmt.Printf("[LocateSeedKmerCF]\n\t%v\n\t%v\n\t%v\n", kb, rb, edgesArr[dbgK.ID].Utg.Ks[dbgK.Pos:dbgK.Pos+uint32(cf.Kmerlen)])
-		pos = i
-		return dbgK, pos
+func LocateSeedKmerCF(cf CuckooFilter, ri ReadInfo, winSize int, edgesArr []DBGEdge) (dbgK DBGKmer, pos uint32, strand bool) {
+	if len(ri.Seq) < cf.Kmerlen+2*winSize {
+		fmt.Printf("[LocateSeedKmerCF] read: %v sequence length smaller than KmerLen(%v) + 2 * winSize(%v)\n", ri, cf.Kmerlen, winSize)
+	}
+	var kb []byte
+	kb, pos, strand = GetMinimizer(ri.Seq[0:cf.Kmerlen+winSize-1], cf.Kmerlen)
+	dbgK = cf.Lookup(kb, edgesArr)
+	if dbgK.GetCount() > 0 {
+		return
 	}
 
-	pos = -1
-	return dbgK, pos
+	// found the second window
+	kb, pos, strand = GetMinimizer(ri.Seq[winSize:winSize+cf.Kmerlen+winSize-1], cf.Kmerlen)
+	pos += uint32(winSize)
+	dbgK = cf.Lookup(kb, edgesArr)
+
+	return
 }
 
 const (
@@ -2287,190 +2189,305 @@ func IsInDBGNode(nd DBGNode, eID DBG_MAX_INT) bool {
 
 // parallel Map NGS reads to the DBG edges, then output alignment path for the DBG
 func paraMapNGS2DBG(cs chan ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edgesArr []DBGEdge, cf CuckooFilter, winSize int) {
-	k := cf.Kmerlen
-	var notFoundSeed int
+	var notFoundSeedNum, mapOneEdgeNum, notPerfectNum int
 	for {
-		ri := <-cs
+		ri, ok := <-cs
 		var ai AlignInfo
-		if ri.ID < 0 {
+		if !ok {
 			ai.ID = -1
 			wc <- ai
 			break
 		}
-		// found kmer seed position in the DBG edges
-		dbgK, i := LocateSeedKmerCF(cf, ri, winSize, edgesArr)
 
-		if i < 0 { // not found in the cuckoofilter
-			ReverseCompByteArr(ri.Seq)
-			dbgK, i = LocateSeedKmerCF(cf, ri, winSize, edgesArr)
-			if i < 0 {
-				notFoundSeed++
-				continue
-			}
+		// found kmer seed position in the DBG edges
+		dbgK, pos, strand := LocateSeedKmerCF(cf, ri, winSize, edgesArr)
+
+		if dbgK.GetCount() == 0 { // not found in the cuckoofilter
+			notFoundSeedNum++
+			continue
 		}
-		// check can map two edges
+
+		// check can map two or more edges
 		{
-			var plus bool
-			e := edgesArr[dbgK.ID]
-			ek := e.Utg.Ks[dbgK.Pos : dbgK.Pos+uint32(k)]
-			if reflect.DeepEqual(ri.Seq[i:i+k], ek) {
-				plus = true
-			} else if reflect.DeepEqual(ri.Seq[i:i+k], GetReverseCompByteArr(ek)) {
-				plus = false
-			} else { // not equal for the DBG edge
-				log.Fatalf("[paraMapNGS2DBG] read kmer not equal to the DBG edge\nread info: %v\nedge info: %v\n", ri.Seq[i:i+k], ek)
-			}
-			if plus {
-				if len(e.Utg.Ks)-int(dbgK.Pos) > len(ri.Seq)-i {
+			el := len(edgesArr[dbgK.ID].Utg.Ks)
+			if dbgK.Strand == strand {
+				if dbgK.Pos > pos && len(ri.Seq)-int(pos) < el-int(dbgK.Pos) {
+					mapOneEdgeNum++
 					continue
 				}
 			} else {
-				if int(dbgK.Pos) > len(ri.Seq)-(i+k) {
+				if int(pos) < el-(int(dbgK.Pos)+cf.Kmerlen) && len(ri.Seq)-(int(pos)+cf.Kmerlen) < int(dbgK.Pos) {
+					mapOneEdgeNum++
 					continue
 				}
 			}
 		}
-
-		//var output bool
-		//if dbgK.Pos > 10000 && len(edgesArr[dbgK.ID].Utg.Ks)-int(dbgK.Pos) < 450 {
-		//	fmt.Printf("[paraMapNGS2DBG] i: %v, dbgK: %v, len(edgeArr[%v]) : %v\n", i, dbgK, dbgK.ID, len(edgesArr[dbgK.ID].Utg.Ks))
-		//	output = true
-		//}
 
 		// extend map to the DBG edges
-		ai.ID = ri.ID
-		e := edgesArr[dbgK.ID]
-		var overAll bool // note if overall length match
-		for i < len(ri.Seq)-k {
-			var plus bool // if the read map to the edge plus strand
-			var n DBGNode
-			ek := e.Utg.Ks[dbgK.Pos : dbgK.Pos+uint32(k)]
-			if reflect.DeepEqual(ri.Seq[i:i+k], ek) {
-				plus = true
-			} else if reflect.DeepEqual(ri.Seq[i:i+k], GetReverseCompByteArr(ek)) {
-				plus = false
-			} else { // not equal for the DBG edge
-				log.Fatalf("[paraMapNGS2DBG] read kmer not equal to the DBG edge\nread info: %v\nedge info: %v\n", ri.Seq[i:i+k], ek)
+		{
+			ai.ID = ri.ID
+			overAll := true // note if overall length read sequence match
+			var dk DBGKmer
+			dk = dbgK
+			if dk.Strand != strand {
+				dk.Pos += uint32(cf.Kmerlen)
 			}
-			//if output {
-			//	fmt.Printf("[paraMapNGS2DBG] i : %v\tdbgK: %v\n\tread info: %v\n\tedge seq: %v\n\tedge info: ID: %v, len: %v, startNID: %v, endNID: %v\n", i, dbgK, ri.Seq[i:i+k], ek, e.ID, len(e.Utg.Ks), e.StartNID, e.EndNID)
-			//}
+			// map the start partition of read sequence
+			for i := pos - 1; i >= 0; {
+				e := edgesArr[dk.ID]
+				b := uint32(0)
+				if dk.Strand == strand {
+					if dk.Pos < pos {
+						b = pos - dk.Pos
+					}
+					j := dk.Pos - 1
+					for ; i >= b; i-- {
+						if ri.Seq[i] != e.Utg.Ks[j] {
+							overAll = false
+							break
+						}
+						j--
+					}
+				} else { // dk.Strand != strand
+					if uint32(len(e.Utg.Ks))-dk.Pos < pos {
+						b = pos - (uint32(len(e.Utg.Ks)) - dk.Pos)
+					}
+					j := dk.Pos
+					for ; i >= b; i-- {
+						if ri.Seq[i] != bnt.BntRev[e.Utg.Ks[j]] {
+							overAll = false
+							break
+						}
+						j++
+					}
+				}
 
-			x := i + k
-			if plus {
-				y := int(dbgK.Pos) + k
-				for ; y < len(e.Utg.Ks) && x < len(ri.Seq); y++ {
-					if ri.Seq[x] != e.Utg.Ks[y] {
+				if overAll == false {
+					break
+				}
+				ai.Paths = append(ai.Paths, e.ID)
+
+				if i < 0 {
+					break
+				}
+				// find next edge
+				if dk.Strand == strand {
+					if e.StartNID == 0 {
 						break
 					}
-					x++
-				}
-				//if output {
-				//	fmt.Printf("[paraMapNGS2DBG]plus i: %v,x: %v, dbgK: %v\n", i, x, dbgK)
-				//}
-				if x >= len(ri.Seq) {
-					ai.Paths = append(ai.Paths, dbgK.ID)
-					overAll = true
-					break
-				}
-				if y < len(e.Utg.Ks) {
-					break
-				}
-				ai.Paths = append(ai.Paths, dbgK.ID)
-				// set next edge info
-				if e.EndNID == 0 {
-					break
-				}
-				n = nodesArr[e.EndNID]
-				if IsInComing(n.EdgeIDIncoming, e.ID) {
-					if n.EdgeIDOutcoming[ri.Seq[x]] > 0 {
-						dbgK.ID = n.EdgeIDOutcoming[ri.Seq[x]]
+					n := nodesArr[e.StartNID]
+					if IsInComing(n.EdgeIDOutcoming, e.ID) {
+						if n.EdgeIDIncoming[ri.Seq[i]] > 1 {
+							dk.ID = n.EdgeIDIncoming[ri.Seq[i]]
+							e = edgesArr[dk.ID]
+							if e.EndNID == n.ID {
+								dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+							} else {
+								dk.Strand = !dk.Strand
+								dk.Pos = uint32(cf.Kmerlen) - 1
+							}
+						} else {
+							fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+							break
+						}
 					} else {
-						break
+						b := bnt.BntRev[ri.Seq[i]]
+						if n.EdgeIDOutcoming[b] > 1 {
+							dk.ID = n.EdgeIDOutcoming[b]
+							e = edgesArr[dk.ID]
+							if e.StartNID == n.ID {
+								dk.Strand = !dk.Strand
+								dk.Pos = uint32(cf.Kmerlen) - 1
+							} else {
+								dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+							}
+						} else {
+							fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+							break
+						}
 					}
 				} else {
-					b := bnt.BntRev[ri.Seq[x]]
-					//b := ri.Seq[x]
-					if n.EdgeIDIncoming[b] > 0 {
-						dbgK.ID = n.EdgeIDIncoming[b]
-					} else {
+					if e.EndNID == 0 {
 						break
 					}
-				}
-
-			} else { // if the strand as minus
-				y := int(dbgK.Pos) - 1
-				for ; y >= 0 && x < len(ri.Seq); y-- {
-					b := bnt.BntRev[e.Utg.Ks[y]]
-					if ri.Seq[x] != b {
-						break
-					}
-					x++
-				}
-				//if output {
-				//	fmt.Printf("[paraMapNGS2DBG]i: %v, x: %v, dbgK: %v\n", i, x, dbgK)
-				//}
-				if x >= len(ri.Seq) {
-					ai.Paths = append(ai.Paths, dbgK.ID)
-					break
-				}
-				if y >= 0 {
-					break
-				}
-				ai.Paths = append(ai.Paths, dbgK.ID)
-				// set next edge info
-				if e.StartNID == 0 {
-					break
-				}
-				n = nodesArr[e.StartNID]
-				if IsInComing(n.EdgeIDOutcoming, e.ID) {
-					//fmt.Printf("[paraMapNGS2DBG]x: %v, len(ri.Seq): %v\tri.Seq[x]: %v\n", x, len(ri.Seq), ri.Seq[x])
-					b := bnt.BntRev[ri.Seq[x]]
-					if n.EdgeIDIncoming[b] > 0 {
-						dbgK.ID = n.EdgeIDIncoming[b]
-					} else {
-						break
-					}
-				} else {
-					if n.EdgeIDOutcoming[ri.Seq[x]] > 0 {
-						dbgK.ID = n.EdgeIDOutcoming[ri.Seq[x]]
-					} else {
-						break
+					n := nodesArr[e.EndNID]
+					if IsInComing(n.EdgeIDIncoming, e.ID) {
+						b := bnt.BntRev[ri.Seq[i]]
+						if n.EdgeIDOutcoming[b] > 1 {
+							dk.ID = n.EdgeIDOutcoming[b]
+							e = edgesArr[dk.ID]
+							if e.StartNID == n.ID {
+								dk.Pos = uint32(cf.Kmerlen) - 1
+							} else {
+								dk.Strand = !dk.Strand
+								dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+							}
+						} else {
+							fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+							break
+						}
+					} else { // e.ID in the n.EdgeIDOutcoming
+						if n.EdgeIDIncoming[ri.Seq[i]] > 1 {
+							dk.ID = n.EdgeIDIncoming[ri.Seq[i]]
+							e = edgesArr[dk.ID]
+							if e.EndNID == n.ID {
+								dk.Strand = !dk.Strand
+								dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+							} else {
+								dk.Pos = uint32(cf.Kmerlen) - 1
+							}
+						} else {
+							fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+							break
+						}
 					}
 				}
 			}
 
-			e = edgesArr[dbgK.ID]
-			if e.StartNID == n.ID {
-				dbgK.Pos = 0
-			} else {
-				dbgK.Pos = uint32(len(e.Utg.Ks) - k)
-			}
-			i = x - k + 1
-		}
+			ai.Paths = ReverseDBG_MAX_INTArr(ai.Paths)
+			ai.Paths = append(ai.Paths, dbgK.ID)
+			// map the end partition of read sequence
+			{
 
-		// write to output
-		//if output {
-		//	fmt.Printf("i: %v\tai: %v\n", i+k, ai)
-		//}
-		if overAll && len(ai.Paths) > 1 {
-			wc <- ai
+			}
+
+			if !overAll {
+				notPerfectNum++
+			}
+
+			// write to output
+			if overAll && len(ai.Paths) > 1 {
+				wc <- ai
+			}
 		}
 	}
-	fmt.Printf("[paraMapNGS2DBG] not found seed reads number is : %v\n", notFoundSeed)
+	fmt.Printf("[paraMapNGS2DBG] not found seed reads number is : %v\n", notFoundSeedNum)
+	fmt.Printf("[paraMapNGS2DBG] map one edge reads number is : %v\n", mapOneEdgeNum)
+	fmt.Printf("[paraMapNGS2DBG] not perfect mapping reads number is : %v\n", notPerfectNum)
+
+	/*ai.ID = ri.ID
+	e := edgesArr[dbgK.ID]
+	var overAll bool // note if overall length match
+	for i < len(ri.Seq)-k {
+		var plus bool // if the read map to the edge plus strand
+		var n DBGNode
+		ek := e.Utg.Ks[dbgK.Pos : dbgK.Pos+uint32(k)]
+		if reflect.DeepEqual(ri.Seq[i:i+k], ek) {
+			plus = true
+		} else if reflect.DeepEqual(ri.Seq[i:i+k], GetReverseCompByteArr(ek)) {
+			plus = false
+		} else { // not equal for the DBG edge
+			log.Fatalf("[paraMapNGS2DBG] read kmer not equal to the DBG edge\nread info: %v\nedge info: %v\n", ri.Seq[i:i+k], ek)
+		}
+		//if output {
+		//	fmt.Printf("[paraMapNGS2DBG] i : %v\tdbgK: %v\n\tread info: %v\n\tedge seq: %v\n\tedge info: ID: %v, len: %v, startNID: %v, endNID: %v\n", i, dbgK, ri.Seq[i:i+k], ek, e.ID, len(e.Utg.Ks), e.StartNID, e.EndNID)
+		//}
+
+		x := i + k
+		if plus {
+			y := int(dbgK.Pos) + k
+			for ; y < len(e.Utg.Ks) && x < len(ri.Seq); y++ {
+				if ri.Seq[x] != e.Utg.Ks[y] {
+					break
+				}
+				x++
+			}
+			//if output {
+			//	fmt.Printf("[paraMapNGS2DBG]plus i: %v,x: %v, dbgK: %v\n", i, x, dbgK)
+			//}
+			if x >= len(ri.Seq) {
+				ai.Paths = append(ai.Paths, dbgK.ID)
+				overAll = true
+				break
+			}
+			if y < len(e.Utg.Ks) {
+				break
+			}
+			ai.Paths = append(ai.Paths, dbgK.ID)
+			// set next edge info
+			if e.EndNID == 0 {
+				break
+			}
+			n = nodesArr[e.EndNID]
+			if IsInComing(n.EdgeIDIncoming, e.ID) {
+				if n.EdgeIDOutcoming[ri.Seq[x]] > 0 {
+					dbgK.ID = n.EdgeIDOutcoming[ri.Seq[x]]
+				} else {
+					break
+				}
+			} else {
+				b := bnt.BntRev[ri.Seq[x]]
+				//b := ri.Seq[x]
+				if n.EdgeIDIncoming[b] > 0 {
+					dbgK.ID = n.EdgeIDIncoming[b]
+				} else {
+					break
+				}
+			}
+
+		} else { // if the strand as minus
+			y := int(dbgK.Pos) - 1
+			for ; y >= 0 && x < len(ri.Seq); y-- {
+				b := bnt.BntRev[e.Utg.Ks[y]]
+				if ri.Seq[x] != b {
+					break
+				}
+				x++
+			}
+			//if output {
+			//	fmt.Printf("[paraMapNGS2DBG]i: %v, x: %v, dbgK: %v\n", i, x, dbgK)
+			//}
+			if x >= len(ri.Seq) {
+				ai.Paths = append(ai.Paths, dbgK.ID)
+				break
+			}
+			if y >= 0 {
+				break
+			}
+			ai.Paths = append(ai.Paths, dbgK.ID)
+			// set next edge info
+			if e.StartNID == 0 {
+				break
+			}
+			n = nodesArr[e.StartNID]
+			if IsInComing(n.EdgeIDOutcoming, e.ID) {
+				//fmt.Printf("[paraMapNGS2DBG]x: %v, len(ri.Seq): %v\tri.Seq[x]: %v\n", x, len(ri.Seq), ri.Seq[x])
+				b := bnt.BntRev[ri.Seq[x]]
+				if n.EdgeIDIncoming[b] > 0 {
+					dbgK.ID = n.EdgeIDIncoming[b]
+				} else {
+					break
+				}
+			} else {
+				if n.EdgeIDOutcoming[ri.Seq[x]] > 0 {
+					dbgK.ID = n.EdgeIDOutcoming[ri.Seq[x]]
+				} else {
+					break
+				}
+			}
+		}
+
+		e = edgesArr[dbgK.ID]
+		if e.StartNID == n.ID {
+			dbgK.Pos = 0
+		} else {
+			dbgK.Pos = uint32(len(e.Utg.Ks) - k)
+		}
+		i = x - k + 1
+	} */
 }
 
 func MapNGS2DBG(opt Options, nodesArr []DBGNode, edgesArr []DBGEdge, wrFn string) {
 	// construct cuckoofilter of DBG sample
 	cfSize := getCuckoofilterDBGSampleSize(edgesArr, opt.WinSize, opt.MaxNGSReadLen, opt.Kmer)
 	fmt.Printf("[MapNGS2DBG] cfSize: %v\n", cfSize)
-	cf := MakeCuckooFilter(uint64(cfSize*10/9), opt.Kmer)
+	cf := MakeCuckooFilter(uint64(cfSize*3/2), opt.Kmer)
 	fmt.Printf("[MapNGS2DBG] cf.numItems: %v\n", cf.numItems)
-	count := constructCFDBGSample(cf, edgesArr, opt.WinSize, opt.MaxNGSReadLen)
+	count := constructCFDBGMinimizers(cf, edgesArr, opt.WinSize, opt.MaxNGSReadLen)
 	fmt.Printf("[MapNGS2DBG]construct Smaple of DBG edges cuckoofilter number is : %v\n", count)
-	if cfSize != int64(count) {
-		log.Fatalf("[MapNGS2DBG]cfSize : %v != count : %v, please check\n", cfSize, count)
-	}
+	//if cfSize != int64(count) {
+	//	log.Fatalf("[MapNGS2DBG]cfSize : %v != count : %v, please check\n", cfSize, count)
+	//}
 
 	numCPU := opt.NumCPU
 	runtime.GOMAXPROCS(numCPU + 2)
@@ -3736,19 +3753,19 @@ func Smfy(c cli.Command) {
 	// read nodes file and transform to array mode for more quckly access
 	nodesfn := opt.Prefix + ".nodes.mmap"
 	nodeMap := NodeMapMmapReader(nodesfn)
-	nodesStatfn := opt.Prefix + ".nodes.stat"
-	nodesSize := NodesStatReader(nodesStatfn)
+	DBGStatfn := opt.Prefix + ".DBG.stat"
+	nodesSize, edgesSize := DBGStatReader(DBGStatfn)
 	//nodesSize := len(nodeMap)
-	fmt.Printf("[Smfy] len(nodeMap): %v\n", nodesSize)
+	fmt.Printf("[Smfy] len(nodeMap): %v, length of edge array: %v\n", nodesSize, edgesSize)
 	// read edges file
 	edgesfn := opt.Prefix + ".edges"
-	edgesArr := ReadEdgesFromFile(nodeMap, edgesfn)
+	edgesArr := ReadEdgesFromFile(edgesfn, edgesSize)
 	gfn1 := opt.Prefix + ".beforeSmfyDBG.dot"
 	GraphvizDBG(nodeMap, edgesArr, gfn1)
 
-	SmfyDBG(nodeMap, edgesArr, opt)
-	gfn := opt.Prefix + ".smfyDBG.dot"
-	GraphvizDBG(nodeMap, edgesArr, gfn)
+	//SmfyDBG(nodeMap, edgesArr, opt)
+	//gfn := opt.Prefix + ".smfyDBG.dot"
+	//GraphvizDBG(nodeMap, edgesArr, gfn)
 	// reconstruct consistence De Bruijn Graph
 	// ReconstructConsistenceDBG(nodeMap, edgesArr)
 

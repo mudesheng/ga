@@ -882,7 +882,7 @@ func IsDirectionUniqueEdge(edge DBGEdge, node DBGNode) bool {
 		// log.Fatalf("[IsDirectionUniqueEdge] direction set error\nnode:%v\nedge:%v\n", node, edge)
 	}
 
-	return false
+	//return false
 }
 
 func IsUniqueEdge(edge DBGEdge, nodesArr []DBGNode) bool {
@@ -2858,7 +2858,7 @@ func FSpath(c cli.Command) {
 	k := c.Parent().Flag("K").String()
 	var err error = nil
 	Kmerlen, err = strconv.Atoi(k)
-	Kmerlen = Kmerlen
+	// Kmerlen = kmerlen
 	if err != nil {
 		log.Fatalf("[Fpath] argument: %s set error: %v\n", k, err)
 	}
@@ -2870,14 +2870,14 @@ func FSpath(c cli.Command) {
 	// read nodes file and transform to array mode, for more quickly access
 	smfyNodesfn := prefix + ".nodes.smfy.mmap"
 	nodeMap := NodeMapMmapReader(smfyNodesfn)
-	nodesStatfn := prefix + ".nodes.stat"
-	nodesSize := NodesStatReader(nodesStatfn)
+	DBGStatfn := prefix + ".DBG.stat"
+	nodesSize, edgesSize := DBGStatReader(DBGStatfn)
 	nodesArr := make([]DBGNode, nodesSize)
 	NodeMap2NodeArr(nodeMap, nodesArr)
 	nodeMap = nil
 	// Restore edges info
-	edgesStatfn := prefix + ".edges.stat"
-	edgesSize := EdgesStatReader(edgesStatfn)
+	//edgesStatfn := prefix + ".edges.stat"
+	//edgesSize := EdgesStatReader(edgesStatfn)
 	edgesArr := make([]DBGEdge, edgesSize)
 	edgesfn := prefix + ".edges.smfy.fq"
 	LoadEdgesfqFromFn(edgesfn, edgesArr, false)
@@ -5632,7 +5632,7 @@ func Fpath(c cli.Command) {
 	k := c.Parent().Flag("K").String()
 	var err error = nil
 	Kmerlen, err = strconv.Atoi(k)
-	Kmerlen = Kmerlen
+	//Kmerlen = Kmerlen
 	if err != nil {
 		log.Fatalf("[Fpath] argument: %s set error: %v\n", k, err)
 	}
@@ -5642,16 +5642,16 @@ func Fpath(c cli.Command) {
 	}
 	prefix := c.Parent().Flag("p").String()
 	// read nodes file and transform to array mode, for more quickly access
-	nodesStatfn := prefix + ".nodes.stat"
-	nodesSize := NodesStatReader(nodesStatfn)
+	DBGStatfn := prefix + ".DBG.stat"
+	nodesSize, edgesSize := DBGStatReader(DBGStatfn)
 	nodesArr := make([]DBGNode, nodesSize)
 	smfyNodesfn := prefix + ".nodes.smfy.Arr"
 	nodesArr = NodesArrReader(smfyNodesfn)
 	// NodeMap2NodeArr(nodeMap, nodesArr)
 
 	// Restore edges info
-	edgesStatfn := prefix + ".edges.stat"
-	edgesSize := EdgesStatReader(edgesStatfn)
+	//edgesStatfn := prefix + ".edges.stat"
+	//edgesSize := EdgesStatReader(edgesStatfn)
 	edgesArr := make([]DBGEdge, edgesSize)
 	edgesfn := prefix + ".edges.smfy.fq"
 	LoadEdgesfqFromFn(edgesfn, edgesArr, true)
