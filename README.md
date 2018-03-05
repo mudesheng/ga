@@ -1,4 +1,4 @@
-GA
+ga
 ==
 
 Graph Assembler

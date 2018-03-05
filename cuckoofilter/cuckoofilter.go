@@ -16,7 +16,7 @@ import (
 	"log"
 	"os"
 	//"log"
-	//"sync/atomic"
+
 	//"strings"
 	"encoding/gob"
 	// "syscall"
@@ -35,7 +35,10 @@ const BucketSize = 4
 const MaxLoad = 0.95
 const KMaxCount = 512
 
-//func CompareAndSwapUint16(addr *uint16, old uint16, new uint16) (swapped bool)
+func CompareAndSwapUint16(addr *uint16, old uint16, new uint16) (swapped bool) {
+	a := (*C.uint16_t)(addr)
+	return C.CompareAndSwapUint16(a, C.uint16_t(old), C.uint16_t(new)) == C.uint16_t(old)
+}
 
 type CFItem uint16
 
@@ -69,12 +72,13 @@ func upperpower2(x uint64) uint64 {
 	return x
 }
 
+// "MakeCuckooFilter is for construct Cuckoo Filter"
 func MakeCuckooFilter(maxNumKeys uint64, kmerLen int) (cf CuckooFilter) {
 	numBuckets := upperpower2(maxNumKeys) / BucketSize
-	frac := float64(maxNumKeys / numBuckets / BucketSize)
+	/*frac := float64(maxNumKeys) / numBuckets / BucketSize
 	if frac > MaxLoad {
 		numBuckets <<= 1
-	}
+	} */
 
 	cf.Hash = make([]Bucket, numBuckets)
 	cf.numItems = numBuckets * BucketSize
@@ -144,7 +148,8 @@ func (cfi *CFItem) AddCount() (int, uint64, bool) {
 		if count < MAX_C {
 			nc := oc
 			nc.setCount(count + 1)
-			if C.CompareAndSwapUint16((*C.uint16_t)(cfi), C.uint16_t(oc), C.uint16_t(nc)) == C.uint16_t(oc) {
+			a := (*uint16)(cfi)
+			if CompareAndSwapUint16(a, uint16(oc), uint16(nc)) {
 				return int(count), 0, true
 			}
 		} else {
@@ -155,8 +160,7 @@ func (cfi *CFItem) AddCount() (int, uint64, bool) {
 
 func (b Bucket) Contain(fingerprint uint16) bool {
 	for _, item := range b.Bkt {
-		fp := item.GetFinger()
-		if fp == fingerprint {
+		if item.GetCount() > 0 && item.GetFinger() == fingerprint {
 			return true
 		}
 	}
@@ -164,22 +168,25 @@ func (b Bucket) Contain(fingerprint uint16) bool {
 	return false
 }
 
-func (b *Bucket) AddBucket(fp uint64, kickout bool) (int, uint64, bool) {
-	cfi := combineCFItem(fp, 1)
+// return kickout CFItem and bool if successed added and new added fingerprint count before added
+func (b *Bucket) AddBucket(cfi CFItem, kickout bool) (CFItem, bool, int) {
 	for i := 0; i < BucketSize; i++ {
 		//fmt.Printf("i: %d\n", i)
 		for {
 			oi := b.Bkt[i]
 			if oi.GetCount() == 0 {
-				addr := (*C.uint16_t)(&b.Bkt[i])
-				if C.CompareAndSwapUint16(addr, C.uint16_t(oi), C.uint16_t(cfi)) == C.uint16_t(oi) {
+				a := (*uint16)(&b.Bkt[i])
+				if CompareAndSwapUint16(a, uint16(oi), uint16(cfi)) {
+					//addr := (*C.uint16_t)(&b.Bkt[i])
+					//C.CompareAndSwapUint16(addr, C.uint16_t(oi), C.uint16_t(cfi)) == C.uint16_t(oi) {
 					//fmt.Printf("[AddBucket]cfi.finger: %v, i: %d, finger: %v\n", cfi.GetFinger(), i, b.Bkt[i].GetFinger())
 					countItems++
-					return 0, 0, true
+					return CFItem(0), true, 0
 				}
 			} else {
-				if b.Bkt[i].EqualFP(cfi) {
-					return b.Bkt[i].AddCount()
+				if oi.GetCount() > 0 && b.Bkt[i].EqualFP(cfi) {
+					oc, _, _ := b.Bkt[i].AddCount()
+					return CFItem(0), true, oc
 				} else {
 					break
 				}
@@ -193,41 +200,38 @@ func (b *Bucket) AddBucket(fp uint64, kickout bool) (int, uint64, bool) {
 
 	//fmt.Printf("kikcout: %t", kickout)
 	if kickout {
-		ci := fp & CMASK
-		oldfinger := b.Bkt[ci].GetFinger()
+		ci := cfi.GetFinger() & CMASK
+		old := b.Bkt[ci]
 		b.Bkt[ci] = cfi
-		return 0, uint64(oldfinger), false
+		return old, true, 0
 	} else {
-		return 0, 0, false
+		return CFItem(0), false, 0
 	}
 }
 
-// return last count of kmer and if successed added
-func (cf CuckooFilter) Add(index uint64, fingerprint uint64) (int, bool) {
+// return if successed added
+func (cf CuckooFilter) Add(index uint64, fingerprint uint64) (oldcount int, succ bool) {
 	ci := index
-	oldcount := -1
-	cfinger := fingerprint
+	cfi := combineCFItem(fingerprint, 1)
 	for count := 0; count < KMaxCount; count++ {
 		kickout := count > 0
 		b := &cf.Hash[ci]
-		tc, oldfinger, added := b.AddBucket(cfinger, kickout)
-		if added == true {
-			if oldcount == -1 {
-				oldcount = tc
-			}
-			return oldcount, true
+		old, added, oc := b.AddBucket(cfi, kickout)
+		if count <= 1 { // add the new fingerprint, set oldcount
+			oldcount = oc
 		}
-		if kickout {
-			if oldcount == -1 {
-				oldcount = tc
-			}
-			cfinger = oldfinger
+		if added == true && old == 0 {
+			succ = true
+			return oldcount, succ
+		}
+		if old.GetCount() > 0 {
+			cfi = old
 		}
 		//fmt.Printf("cycle : %d\n", count)
 
-		ci = cf.AltIndex(ci, cfinger)
+		ci = cf.AltIndex(ci, uint64(cfi.GetFinger()))
 	}
-	return -1, false
+	return oldcount, succ
 }
 
 func hk2uint64(hk [sha1.Size]byte) (v uint64) {

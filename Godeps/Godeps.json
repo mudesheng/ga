@@ -1,0 +1,114 @@
+{
+	"ImportPath": "github.com/mudesheng/ga",
+	"GoVersion": "go1.8",
+	"GodepVersion": "v79",
+	"Packages": [
+		"./..."
+	],
+	"Deps": [
+		{
+			"ImportPath": "github.com/awalterschulze/gographviz",
+			"Comment": "v1.1-2-g7a068d7",
+			"Rev": "7a068d76c6b596c75f755c13d27d8928d44bd45c"
+		},
+		{
+			"ImportPath": "github.com/awalterschulze/gographviz/ast",
+			"Comment": "v1.1-2-g7a068d7",
+			"Rev": "7a068d76c6b596c75f755c13d27d8928d44bd45c"
+		},
+		{
+			"ImportPath": "github.com/awalterschulze/gographviz/internal/errors",
+			"Comment": "v1.1-2-g7a068d7",
+			"Rev": "7a068d76c6b596c75f755c13d27d8928d44bd45c"
+		},
+		{
+			"ImportPath": "github.com/awalterschulze/gographviz/internal/lexer",
+			"Comment": "v1.1-2-g7a068d7",
+			"Rev": "7a068d76c6b596c75f755c13d27d8928d44bd45c"
+		},
+		{
+			"ImportPath": "github.com/awalterschulze/gographviz/internal/parser",
+			"Comment": "v1.1-2-g7a068d7",
+			"Rev": "7a068d76c6b596c75f755c13d27d8928d44bd45c"
+		},
+		{
+			"ImportPath": "github.com/awalterschulze/gographviz/internal/token",
+			"Comment": "v1.1-2-g7a068d7",
+			"Rev": "7a068d76c6b596c75f755c13d27d8928d44bd45c"
+		},
+		{
+			"ImportPath": "github.com/biogo/biogo/alphabet",
+			"Comment": "v1.0.1-1-gb0397cd",
+			"Rev": "b0397cd1dac13275c105f6af3e3b1f7a6279e8c9"
+		},
+		{
+			"ImportPath": "github.com/biogo/biogo/feat",
+			"Comment": "v1.0.1-1-gb0397cd",
+			"Rev": "b0397cd1dac13275c105f6af3e3b1f7a6279e8c9"
+		},
+		{
+			"ImportPath": "github.com/biogo/biogo/io/seqio",
+			"Comment": "v1.0.1-1-gb0397cd",
+			"Rev": "b0397cd1dac13275c105f6af3e3b1f7a6279e8c9"
+		},
+		{
+			"ImportPath": "github.com/biogo/biogo/io/seqio/fasta",
+			"Comment": "v1.0.1-1-gb0397cd",
+			"Rev": "b0397cd1dac13275c105f6af3e3b1f7a6279e8c9"
+		},
+		{
+			"ImportPath": "github.com/biogo/biogo/io/seqio/fastq",
+			"Comment": "v1.0.1-1-gb0397cd",
+			"Rev": "b0397cd1dac13275c105f6af3e3b1f7a6279e8c9"
+		},
+		{
+			"ImportPath": "github.com/biogo/biogo/seq",
+			"Comment": "v1.0.1-1-gb0397cd",
+			"Rev": "b0397cd1dac13275c105f6af3e3b1f7a6279e8c9"
+		},
+		{
+			"ImportPath": "github.com/biogo/biogo/seq/linear",
+			"Comment": "v1.0.1-1-gb0397cd",
+			"Rev": "b0397cd1dac13275c105f6af3e3b1f7a6279e8c9"
+		},
+		{
+			"ImportPath": "github.com/biogo/hts/bam",
+			"Comment": "v1.0.1-2-ga19f56e",
+			"Rev": "a19f56e744d183b33995e495f7697666bfa96bc4"
+		},
+		{
+			"ImportPath": "github.com/biogo/hts/bgzf",
+			"Comment": "v1.0.1-2-ga19f56e",
+			"Rev": "a19f56e744d183b33995e495f7697666bfa96bc4"
+		},
+		{
+			"ImportPath": "github.com/biogo/hts/bgzf/index",
+			"Comment": "v1.0.1-2-ga19f56e",
+			"Rev": "a19f56e744d183b33995e495f7697666bfa96bc4"
+		},
+		{
+			"ImportPath": "github.com/biogo/hts/internal",
+			"Comment": "v1.0.1-2-ga19f56e",
+			"Rev": "a19f56e744d183b33995e495f7697666bfa96bc4"
+		},
+		{
+			"ImportPath": "github.com/biogo/hts/sam",
+			"Comment": "v1.0.1-2-ga19f56e",
+			"Rev": "a19f56e744d183b33995e495f7697666bfa96bc4"
+		},
+		{
+			"ImportPath": "github.com/dsnet/compress/internal/cgo/brotli",
+			"Rev": "b9aab3c6a04eef14c56384b4ad065e7b73438862"
+		},
+		{
+			"ImportPath": "github.com/jwaldrip/odin/cli",
+			"Comment": "v1.8.0-15-gb8c12af",
+			"Rev": "b8c12af39231bcc456d7c9083f3e43157068aebc"
+		},
+		{
+			"ImportPath": "github.com/jwaldrip/odin/cli/values",
+			"Comment": "v1.8.0-15-gb8c12af",
+			"Rev": "b8c12af39231bcc456d7c9083f3e43157068aebc"
+		}
+	]
+}

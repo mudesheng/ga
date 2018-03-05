@@ -1,0 +1,16 @@
+{
+  "uploadOnSave": false,
+  "useAtomicWrites": true,
+  "deleteLocal": false,
+  "hostname": "58.250.202.5",
+  "port": "22",
+  "target": "/home/mds/Test/Damapper/E.coli/ga",
+  "ignore": [
+    ".remote-sync.json",
+    ".git/**"
+  ],
+  "username": "mds",
+  "keyfile": "/Users/mds/.ssh/id_rsa",
+  "watch": [],
+  "transport": "scp"
+}

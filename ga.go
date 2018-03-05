@@ -1,18 +1,22 @@
 package main
 
-import _ "net/http/pprof"
 import (
-	//	"GA/cuckoofilter"
-	"ga/constructcf"
-	"ga/constructdbg"
-	"ga/findPath"
-	"ga/mapDBG"
 	"log"
 	"net/http"
-	// "strconv"
-	//	"fmt"
+	_ "net/http/pprof"
+
+	"github.com/mudesheng/ga/constructcf"
+	//"./constructdbg"
+	//"./findPath"
+
 	"github.com/jwaldrip/odin/cli"
+	"github.com/mudesheng/ga/constructdbg"
+	"github.com/mudesheng/ga/deconstructdbg"
 )
+
+//"./mapDBG"
+// "strconv"
+//	"fmt"
 
 const Kmerdef = 203
 
@@ -43,31 +47,42 @@ func init() {
 	}
 	cdbg := app.DefineSubCommand("cdbg", "construct De bruijn Graph", constructdbg.CDBG)
 	{
-		cdbg.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
+		cdbg.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length(-K * 2)")
 	}
 
-	smfy := app.DefineSubCommand("smfy", "construct De bruijn Graph", constructdbg.Smfy)
+	smfy := app.DefineSubCommand("smfy", "find Illumina reads path and simplify De bruijn Graph", constructdbg.Smfy)
 	{
-		smfy.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
+		smfy.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length(-K * 2)")
+		smfy.DefineIntFlag("WinSize", 10, "th size of sliding window for DBG edge Sample")
+		smfy.DefineIntFlag("MaxNGSReadLen", 550, "Max NGS Read Length")
+		//smfy.DefineIntFlag("MaxMapEdgeLen", 2000, "Max Edge length for mapping Long Reads")
+	}
+	decontdbg := app.DefineSubCommand("decdbg", "deconstruct DBG using Long Reads Mapping info", deconstructdbg.DeconstructDBG)
+	{
+		decontdbg.DefineIntFlag("MinCov", 2, "Mininum coverage by long reads")
+		//decontdbg.DefineIntFlag("MaxMapEdgeLen", 2000, "Max Edge length for mapping Long Reads, must same as 'smfy' step")
+		decontdbg.DefineIntFlag("ExtLen", 1000, "Extend Path length for distingush most probable path")
+		//deconstructdbg.DefineIntFlag("WinSize", 10, "th size of sliding window for DBG edge Sample")
+		//deconstructdbg.DefineIntFlag("MaxNGSReadLen", 550, "Max NGS Read Length")
 	}
 	// mapping long read to the DBG
-	mapDBG := app.DefineSubCommand("mapDBG", "mapping long read to the DBG", mapDBG.MapDBG)
+	mapDBG := app.DefineSubCommand("mapDBG", "mapping long read to the DBG", constructdbg.MapDBG)
 	{
 		mapDBG.DefineIntFlag("Seed", 15, "the seek length(must <=16)")
 		mapDBG.DefineIntFlag("Width", 5, "band width for found min kmer")
 	}
 	// find short read mapping
-	fspath := app.DefineSubCommand("fspath", "Parse short read path", findPath.FSpath)
+	fspath := app.DefineSubCommand("fspath", "Parse short read path", constructdbg.FSpath)
 	{
 		fspath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
 	// find long read mapping
-	flpath := app.DefineSubCommand("flpath", "Parse long read path", findPath.FLpath)
+	flpath := app.DefineSubCommand("flpath", "Parse long read path", constructdbg.FLpath)
 	{
 		flpath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
 	// merge find short and long read mapping path
-	fpath := app.DefineSubCommand("fpath", "Merge Parse short and long read path", findPath.Fpath)
+	fpath := app.DefineSubCommand("fpath", "Merge Parse short and long read path", constructdbg.Fpath)
 	{
 		fpath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
