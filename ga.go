@@ -5,13 +5,13 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 
-	"github.com/mudesheng/GA/constructcf"
+	"github.com/mudesheng/ga/constructcf"
 	//"./constructdbg"
 	//"./findPath"
 
 	"github.com/jwaldrip/odin/cli"
-	"github.com/mudesheng/GA/constructdbg"
-	"github.com/mudesheng/GA/deconstructdbg"
+	"github.com/mudesheng/ga/constructdbg"
+	"github.com/mudesheng/ga/deconstructdbg"
 )
 
 //"./mapDBG"

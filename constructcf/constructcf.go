@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mudesheng/GA/bnt"
-	"github.com/mudesheng/GA/cuckoofilter"
-	"github.com/mudesheng/GA/utils"
+	"github.com/mudesheng/ga/bnt"
+	"github.com/mudesheng/ga/cuckoofilter"
+	"github.com/mudesheng/ga/utils"
 
-	//"github.com/mudesheng/GA/bnt"
+	//"github.com/mudesheng/ga/bnt"
 	"github.com/jwaldrip/odin/cli"
 )
 
