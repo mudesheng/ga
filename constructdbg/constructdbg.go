@@ -1581,7 +1581,7 @@ func GraphvizDBGArr(nodesArr []DBGNode, edgesArr []DBGEdge, graphfn string) {
 			"|" + strconv.Itoa(int(v.EdgeIDOutcoming[1])) +
 			"|" + strconv.Itoa(int(v.EdgeIDOutcoming[2])) +
 			"|" + strconv.Itoa(int(v.EdgeIDOutcoming[3])) + "}\""
-		attr["label"] = "labels"
+		attr["label"] = labels
 		g.AddNode("G", strconv.Itoa(int(v.ID)), attr)
 	}
 	g.AddNode("G", "0", nil)
@@ -1596,7 +1596,7 @@ func GraphvizDBGArr(nodesArr []DBGNode, edgesArr []DBGEdge, graphfn string) {
 		labels := "\"ID:" + strconv.Itoa(int(e.ID)) + " len:" + strconv.Itoa(len(e.Utg.Ks)) + "\""
 		//labels := strconv.Itoa(int(e.ID)) + "len" + strconv.Itoa(len(e.Utg.Ks))
 		//labels := strconv.Itoa(int(e.ID))
-		attr["label"] = "labels"
+		attr["label"] = labels
 		g.AddEdge(strconv.Itoa(int(e.StartNID)), strconv.Itoa(int(e.EndNID)), true, attr)
 	}
 	// output := graph.String()

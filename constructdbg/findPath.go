@@ -2824,12 +2824,12 @@ func GraphvizDBG(nodeMap map[string]DBGNode, edgesArr []DBGEdge, graphfn string)
 	g.SetDir(true)
 	g.SetStrict(false)
 	for _, v := range nodeMap {
-		attr := gographviz.NewAttrs()
-		attr.Add("color", "Green")
-		attr.Add("shape", "record")
+		var attr map[string]string
+		attr["color"] = "Green"
+		attr["shape"] = "record"
 		var labels string
 		labels = "\"{" + strconv.Itoa(int(v.EdgeIDIncoming[0])) + "|" + strconv.Itoa(int(v.EdgeIDIncoming[1])) + "|" + strconv.Itoa(int(v.EdgeIDIncoming[2])) + "|" + strconv.Itoa(int(v.EdgeIDIncoming[3])) + "}|" + strconv.Itoa(int(v.ID)) + "|{" + strconv.Itoa(int(v.EdgeIDOutcoming[0])) + "|" + strconv.Itoa(int(v.EdgeIDOutcoming[1])) + "|" + strconv.Itoa(int(v.EdgeIDOutcoming[2])) + "|" + strconv.Itoa(int(v.EdgeIDOutcoming[3])) + "}\""
-		attr.Add("label", labels)
+		attr["label"] = labels
 		g.AddNode("G", strconv.Itoa(int(v.ID)), attr)
 	}
 	g.AddNode("G", "0", nil)
@@ -2839,10 +2839,10 @@ func GraphvizDBG(nodeMap map[string]DBGNode, edgesArr []DBGEdge, graphfn string)
 		if e.ID == 0 || e.GetDeleteFlag() > 0 {
 			continue
 		}
-		attr := gographviz.NewAttrs()
-		attr.Add("color", "Blue")
+		var attr map[string]string
+		attr["color"] = "Blue"
 		labels := "\"ID:" + strconv.Itoa(int(e.ID)) + " len:" + strconv.Itoa(len(e.Utg.Ks)) + "\""
-		attr.Add("label", labels)
+		attr["label"] = labels
 		g.AddEdge(strconv.Itoa(int(e.StartNID)), strconv.Itoa(int(e.EndNID)), true, attr)
 	}
 	// output := graph.String()
