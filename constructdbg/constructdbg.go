@@ -1567,7 +1567,7 @@ func GraphvizDBGArr(nodesArr []DBGNode, edgesArr []DBGEdge, graphfn string) {
 		if v.GetDeleteFlag() > 0 {
 			continue
 		}
-		var attr map[string]string
+		attr := make(map[string]string)
 		attr["color"] = "Green"
 		attr["shape"] = "record"
 		var labels string
@@ -1591,7 +1591,7 @@ func GraphvizDBGArr(nodesArr []DBGNode, edgesArr []DBGEdge, graphfn string) {
 		if e.ID == 0 || e.GetDeleteFlag() > 0 {
 			continue
 		}
-		var attr map[string]string
+		attr := make(map[string]string)
 		attr["color"] = "Blue"
 		labels := "\"ID:" + strconv.Itoa(int(e.ID)) + " len:" + strconv.Itoa(len(e.Utg.Ks)) + "\""
 		//labels := strconv.Itoa(int(e.ID)) + "len" + strconv.Itoa(len(e.Utg.Ks))
@@ -2227,132 +2227,259 @@ func paraMapNGS2DBG(cs chan ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edg
 		{
 			ai.ID = ri.ID
 			overAll := true // note if overall length read sequence match
-			var dk DBGKmer
-			dk = dbgK
-			if dk.Strand != strand {
-				dk.Pos += uint32(cf.Kmerlen)
-			}
 			// map the start partition of read sequence
-			for i := pos - 1; i >= 0; {
-				e := edgesArr[dk.ID]
-				b := uint32(0)
-				if dk.Strand == strand {
-					if dk.Pos < pos {
-						b = pos - dk.Pos
-					}
-					j := dk.Pos - 1
-					for ; i >= b; i-- {
-						if ri.Seq[i] != e.Utg.Ks[j] {
-							overAll = false
-							break
+			{
+				dk := dbgK
+				rpos := int(pos)
+				if dk.Strand != strand {
+					dk.Pos += uint32(cf.Kmerlen)
+				}
+				for i := rpos - 1; i >= 0; {
+					e := edgesArr[dk.ID]
+					b := 0
+					if dk.Strand == strand {
+						if int(dk.Pos) < rpos {
+							b = rpos - int(dk.Pos)
 						}
-						j--
-					}
-				} else { // dk.Strand != strand
-					if uint32(len(e.Utg.Ks))-dk.Pos < pos {
-						b = pos - (uint32(len(e.Utg.Ks)) - dk.Pos)
-					}
-					j := dk.Pos
-					for ; i >= b; i-- {
-						if ri.Seq[i] != bnt.BntRev[e.Utg.Ks[j]] {
-							overAll = false
-							break
+						j := int(dk.Pos) - 1
+						for ; i >= b; i-- {
+							fmt.Printf("[paraMapNGS2DBG] i: %v, j: %v, dk.Pos: %v, pos: %v, b: %v\n", i, j, dk.Pos, rpos, b)
+							if ri.Seq[i] != e.Utg.Ks[j] {
+								overAll = false
+								break
+							}
+							j--
 						}
-						j++
+					} else { // dk.Strand != strand
+						if len(e.Utg.Ks)-int(dk.Pos) < rpos {
+							b = rpos - (len(e.Utg.Ks) - int(dk.Pos))
+						}
+						j := int(dk.Pos)
+						for ; i >= b; i-- {
+							fmt.Printf("[paraMapNGS2DBG] i: %v, j: %v, dk.Pos: %v, pos: %v, b: %v\n", i, j, dk.Pos, rpos, b)
+							if ri.Seq[i] != bnt.BntRev[e.Utg.Ks[j]] {
+								overAll = false
+								break
+							}
+							j++
+						}
 					}
-				}
 
-				if overAll == false {
-					break
-				}
-				ai.Paths = append(ai.Paths, e.ID)
-
-				if i < 0 {
-					break
-				}
-				// find next edge
-				if dk.Strand == strand {
-					if e.StartNID == 0 {
+					if overAll == false {
 						break
 					}
-					n := nodesArr[e.StartNID]
-					if IsInComing(n.EdgeIDOutcoming, e.ID) {
-						if n.EdgeIDIncoming[ri.Seq[i]] > 1 {
-							dk.ID = n.EdgeIDIncoming[ri.Seq[i]]
-							e = edgesArr[dk.ID]
-							if e.EndNID == n.ID {
-								dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+					ai.Paths = append(ai.Paths, e.ID)
+
+					if i < 0 {
+						break
+					}
+					// find next edge
+					rpos = i + 1
+					if dk.Strand == strand {
+						if e.StartNID == 0 {
+							break
+						}
+						n := nodesArr[e.StartNID]
+						if IsInComing(n.EdgeIDOutcoming, e.ID) {
+							if n.EdgeIDIncoming[ri.Seq[i]] > 1 {
+								dk.ID = n.EdgeIDIncoming[ri.Seq[i]]
+								e = edgesArr[dk.ID]
+								if e.EndNID == n.ID {
+									dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+								} else {
+									dk.Strand = !dk.Strand
+									dk.Pos = uint32(cf.Kmerlen) - 1
+								}
 							} else {
-								dk.Strand = !dk.Strand
-								dk.Pos = uint32(cf.Kmerlen) - 1
+								fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+								break
 							}
 						} else {
-							fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
-							break
+							b := bnt.BntRev[ri.Seq[i]]
+							if n.EdgeIDOutcoming[b] > 1 {
+								dk.ID = n.EdgeIDOutcoming[b]
+								e = edgesArr[dk.ID]
+								if e.StartNID == n.ID {
+									dk.Strand = !dk.Strand
+									dk.Pos = uint32(cf.Kmerlen) - 1
+								} else {
+									dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+								}
+							} else {
+								fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+								break
+							}
 						}
 					} else {
-						b := bnt.BntRev[ri.Seq[i]]
-						if n.EdgeIDOutcoming[b] > 1 {
-							dk.ID = n.EdgeIDOutcoming[b]
-							e = edgesArr[dk.ID]
-							if e.StartNID == n.ID {
-								dk.Strand = !dk.Strand
-								dk.Pos = uint32(cf.Kmerlen) - 1
-							} else {
-								dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
-							}
-						} else {
-							fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+						if e.EndNID == 0 {
 							break
 						}
-					}
-				} else {
-					if e.EndNID == 0 {
-						break
-					}
-					n := nodesArr[e.EndNID]
-					if IsInComing(n.EdgeIDIncoming, e.ID) {
-						b := bnt.BntRev[ri.Seq[i]]
-						if n.EdgeIDOutcoming[b] > 1 {
-							dk.ID = n.EdgeIDOutcoming[b]
-							e = edgesArr[dk.ID]
-							if e.StartNID == n.ID {
-								dk.Pos = uint32(cf.Kmerlen) - 1
+						n := nodesArr[e.EndNID]
+						if IsInComing(n.EdgeIDIncoming, e.ID) {
+							b := bnt.BntRev[ri.Seq[i]]
+							if n.EdgeIDOutcoming[b] > 1 {
+								dk.ID = n.EdgeIDOutcoming[b]
+								e = edgesArr[dk.ID]
+								if e.StartNID == n.ID {
+									dk.Pos = uint32(cf.Kmerlen) - 1
+								} else {
+									dk.Strand = !dk.Strand
+									dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+								}
 							} else {
-								dk.Strand = !dk.Strand
-								dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+								fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+								break
 							}
-						} else {
-							fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
-							break
-						}
-					} else { // e.ID in the n.EdgeIDOutcoming
-						if n.EdgeIDIncoming[ri.Seq[i]] > 1 {
-							dk.ID = n.EdgeIDIncoming[ri.Seq[i]]
-							e = edgesArr[dk.ID]
-							if e.EndNID == n.ID {
-								dk.Strand = !dk.Strand
-								dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+						} else { // e.ID in the n.EdgeIDOutcoming
+							if n.EdgeIDIncoming[ri.Seq[i]] > 1 {
+								dk.ID = n.EdgeIDIncoming[ri.Seq[i]]
+								e = edgesArr[dk.ID]
+								if e.EndNID == n.ID {
+									dk.Strand = !dk.Strand
+									dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+								} else {
+									dk.Pos = uint32(cf.Kmerlen) - 1
+								}
 							} else {
-								dk.Pos = uint32(cf.Kmerlen) - 1
+								fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+								break
 							}
-						} else {
-							fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
-							break
 						}
 					}
 				}
 			}
 
 			ai.Paths = ReverseDBG_MAX_INTArr(ai.Paths)
-			ai.Paths = append(ai.Paths, dbgK.ID)
 			// map the end partition of read sequence
+			var path []DBG_MAX_INT
 			{
+				dk := dbgK
+				rpos := int(pos) + cf.Kmerlen
+				if dk.Strand == strand {
+					dk.Pos += uint32(cf.Kmerlen)
+				}
+				for i := rpos; i < len(ri.Seq); {
+					e := edgesArr[dk.ID]
+					b := len(ri.Seq)
+					if dk.Strand == strand {
+						if len(e.Utg.Ks)-dk.Pos < len(ri.Seq)-rpos {
+							b = rpos + (len(e.Utg.Ks) - dk.Pos)
+						}
+						j := int(dk.Pos)
+						for ; i < b; i++ {
+							if ri.Seq[i] != e.Utg.Ks[j] {
+								overAll = false
+								break
+							}
+							j++
+						}
+					} else { // dbgK.Strand != strand
+						if len(ri.Seq)-rpos > dk.Pos {
+							b = rpos + dk.Pos
+						}
+						j := int(dk.Pos) - 1
+						for ; i < b; i++ {
+							if ri.Seq[i] != bnt.BntRev[e.Utg.Ks[j]] {
+								overAll = false
+								break
+							}
+							j--
+						}
+					}
 
+					if overAll == false {
+						break
+					}
+					path = append(path, e.ID)
+
+					if i == len(ri.Seq) {
+						break
+					}
+
+					// find next edge
+					rpos = i
+					if dk.Strand == strand {
+						if e.EndNID == 0 {
+							break
+						}
+						n := nodesArr[e.EndNID]
+						if IsInComing(n.EdgeIDIncoming, e.ID) {
+							if n.EdgeIDOutcoming[ri.Seq[i]] > 1 {
+								dk.ID = n.EdgeIDOutcoming[ri.Seq[i]]
+								e = edgesArr[dk.ID]
+								if e.StartNID == n.ID {
+									dk.Pos = uint32(cf.Kmerlen) - 1
+								} else {
+									dk.Strand = !dk.Strand
+									dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+								}
+							} else {
+								fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+								break
+							}
+						} else { // e.ID in the n.EdgeIDOutcoming
+							base := bnt.BntRev[ri.Seq[i]]
+							if n.EdgeIDIncoming[base] > 1 {
+								dk.ID = n.EdgeIDIncoming[base]
+								e = edgesArr[dk.ID]
+								if e.EndNID == n.ID {
+									dk.Strand = !dk.Strand
+									dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+								} else {
+									dk.Pos = uint32(cf.Kmerlen) - 1
+								}
+							} else {
+								fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+								break
+							}
+						}
+					} else { // dk.Strand != strand
+						if e.StartNID == 0 {
+							break
+						}
+						n := nodesArr[e.StartNID]
+						if IsInComing(n.EdgeIDOutcoming, e.ID) {
+							base := bnt.BntRev[ri.Seq[i]]
+							if n.EdgeIDIncoming[base] > 1 {
+								dk.ID = n.EdgeIDIncoming[base]
+								e = edgesArr[dk.ID]
+								if e.EndNID == n.ID {
+									dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+								} else {
+									dk.Strand = !dk.Strand
+									dk.Pos = uint32(cf.Kmerlen - 1)
+								}
+							} else {
+								fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+								break
+							}
+						} else { // e.ID in the n.EdgeIDIncoming
+							if n.EdgeIDOutcoming[ri.Seq[i]] > 1 {
+								dk.ID = n.EdgeIDOutcoming[ri.Seq[i]]
+								e = edgesArr[dk.ID]
+								if e.StartNID == n.ID {
+									dk.Strand = !dk.Strand
+									dk.Pos = uint32(cf.Kmerlen - 1)
+								} else {
+									dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+								}
+							} else {
+								fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+								break
+							}
+						}
+					}
+				}
 			}
 
 			if !overAll {
 				notPerfectNum++
+			}
+
+			if ai.Paths[len(ai.Paths)-1] == path[0] {
+				ai.Paths = append(ai.Paths, path[1:]...)
+			} else {
+				ai.Paths = append(ai.Paths, path...)
 			}
 
 			// write to output
@@ -2495,7 +2622,7 @@ func MapNGS2DBG(opt Options, nodesArr []DBGNode, edgesArr []DBGEdge, wrFn string
 	cs := make(chan ReadInfo, bufSize)
 	wc := make(chan AlignInfo, bufSize)
 	defer close(wc)
-	defer close(cs)
+	//defer close(cs)
 
 	// Load NGS read from cfg
 	fn := opt.CfgFn

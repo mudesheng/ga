@@ -285,7 +285,7 @@ func (cf CuckooFilter) Lookup(kb []byte, edgesArr []DBGEdge) (dbgK DBGKmer) {
 		if reflect.DeepEqual(kb, eb) {
 			dbgK = d
 		} else {
-			fmt.Printf("[cf.Lookup] found cf Item, but seq(%v) not same as read(%v)", eb, kb)
+			fmt.Printf("[cf.Lookup] found cf Item, but seq(%v) not same as read(%v)\n", eb, kb)
 		}
 	} else { // len(da) > 1
 		for _, d := range da {

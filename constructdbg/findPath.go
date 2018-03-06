@@ -2824,7 +2824,7 @@ func GraphvizDBG(nodeMap map[string]DBGNode, edgesArr []DBGEdge, graphfn string)
 	g.SetDir(true)
 	g.SetStrict(false)
 	for _, v := range nodeMap {
-		var attr map[string]string
+		attr := make(map[string]string)
 		attr["color"] = "Green"
 		attr["shape"] = "record"
 		var labels string
@@ -2839,7 +2839,7 @@ func GraphvizDBG(nodeMap map[string]DBGNode, edgesArr []DBGEdge, graphfn string)
 		if e.ID == 0 || e.GetDeleteFlag() > 0 {
 			continue
 		}
-		var attr map[string]string
+		attr := make(map[string]string)
 		attr["color"] = "Blue"
 		labels := "\"ID:" + strconv.Itoa(int(e.ID)) + " len:" + strconv.Itoa(len(e.Utg.Ks)) + "\""
 		attr["label"] = labels
