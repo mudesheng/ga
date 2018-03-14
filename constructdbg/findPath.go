@@ -6,7 +6,7 @@ import (
 	//"compress/gzip"
 	//"encoding/binary"
 	//"encoding/gob"
-	"container/list"
+
 	"fmt"
 	"reflect"
 
@@ -2458,7 +2458,7 @@ func FindMaxUnqiuePath(edgesArr []DBGEdge, nodesArr []DBGNode) [][2][]DBG_MAX_IN
 	}*/
 }
 
-func FindMaxLongReadsUnqiuePath(edgesArr []DBGEdge, nodesArr []DBGNode) {
+/*func FindMaxLongReadsUnqiuePath(edgesArr []DBGEdge, nodesArr []DBGNode) {
 	// merge all cross edge paths to the PathMat
 	for _, e := range edgesArr {
 		if e.ID == 0 || len(e.Utg.Ks) >= MAX_LONG_READ_LEN {
@@ -2728,7 +2728,7 @@ func FindMaxLongReadsUnqiuePath(edgesArr []DBGEdge, nodesArr []DBGNode) {
 		}
 	}
 
-	/*for i, e := range edgesArr {
+	for i, e := range edgesArr {
 		// edge has been processed and  Unique
 		if e.GetProcessFlag() > 0 {
 			continue
@@ -2756,8 +2756,8 @@ func FindMaxLongReadsUnqiuePath(edgesArr []DBGEdge, nodesArr []DBGNode) {
 				}
 			}
 		}
-	}*/
-}
+	}
+}*/
 
 func IsComingInNode(node DBGNode, eID DBG_MAX_INT) bool {
 	for i := 0; i < bnt.BaseTypeNum; i++ {

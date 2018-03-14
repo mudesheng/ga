@@ -269,34 +269,39 @@ func (cf CuckooFilter) Insert(kb []byte, id DBG_MAX_INT, pos uint32, strand bool
 	return cf.Add(index, dbgK)
 }
 
-func (cf CuckooFilter) Lookup(kb []byte, edgesArr []DBGEdge) (dbgK DBGKmer) {
+func (cf CuckooFilter) Lookup(kb []byte, edgesArr []DBGEdge) (dbgK DBGKmer, count int) {
 	hk := sha1.Sum(kb)
 	v := hk2uint64(hk)
 	da := cf.Contain(v)
 	//fmt.Printf("[cf.Lookup] da: %v\n", da)
 	if len(da) == 0 {
-		return dbgK
+		return
 	} else if len(da) == 1 {
 		d := da[0]
 		eb := edgesArr[d.ID].Utg.Ks[d.Pos : d.Pos+uint32(cf.Kmerlen)]
 		if d.Strand == MINUS {
 			eb = GetReverseCompByteArr(eb)
 		}
+		//fmt.Printf("[cf.Lookup]\n\tkb: %v\n\teb: %v\n", kb, eb)
 		if reflect.DeepEqual(kb, eb) {
 			dbgK = d
+			count++
 		} else {
 			fmt.Printf("[cf.Lookup] found cf Item, but seq(%v) not same as read(%v)\n", eb, kb)
 		}
 	} else { // len(da) > 1
+		// count := 0
+		//fmt.Printf("[cf.Lookup]\n\tkb: %v\n", kb)
 		for _, d := range da {
-			//fmt.Printf("[Lookup] fingerprint: %v\td: %v\n\tedgesArr[%v]: %v\n", fingerprint, d, d.ID, edgesArr[d.ID])
+			//fmt.Printf("[Lookup] fingerprint: %v\td: %v\n\tedgesArr[%v]: %v\n", d.GetFinger(), d, d.ID, edgesArr[d.ID])
 			eb := edgesArr[d.ID].Utg.Ks[d.Pos : d.Pos+uint32(cf.Kmerlen)]
 			if d.Strand == MINUS {
 				eb = GetReverseCompByteArr(eb)
 			}
+			//fmt.Printf("\teb: %v\n", eb)
 			if reflect.DeepEqual(kb, eb) {
 				dbgK = d
-				break
+				count++
 			}
 		}
 	}
@@ -308,7 +313,7 @@ func (cf CuckooFilter) Lookup(kb []byte, edgesArr []DBGEdge) (dbgK DBGKmer) {
 		}
 	} */
 
-	return dbgK
+	return
 }
 
 /*func (cf CuckooFilter) GetCount(kb []byte) uint16 {

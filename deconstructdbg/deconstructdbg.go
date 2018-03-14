@@ -26,17 +26,18 @@ func addPathToPathMat(edgesArr []constructdbg.DBGEdge, eID constructdbg.DBG_MAX_
 	return false
 }
 
-func WriteLongPathToDBG(wc chan []constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, numCPU int) {
+func WriteLongPathToDBG(wc chan [2][]constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, numCPU int) {
 	var finishNum int
 	for {
-		p := <-wc
+		tmp := <-wc
+		fmt.Printf("[WriteLongPathToDBG] path: %v\n", tmp)
+		p := tmp[0]
 		if len(p) == 0 {
 			finishNum++
 			if finishNum == numCPU {
 				break
 			}
 		}
-
 		// write path to the DBG
 		// all long reads path store this pathArr, and store index of pathArr to the edge PathMat[1]
 		if len(p) > 2 {
@@ -62,7 +63,7 @@ func WriteLongPathToDBG(wc chan []constructdbg.DBG_MAX_INT, edgesArr []construct
 }
 
 // set the unique edge of edgesArr
-func setDBGEdgesUniqueFlag(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode) (uniqueNum int) {
+/*func setDBGEdgesUniqueFlag(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode) (uniqueNum int) {
 	for i, e := range edgesArr {
 		unique := true
 		if e.ID == 0 || e.GetDeleteFlag() > 0 {
@@ -92,7 +93,7 @@ func setDBGEdgesUniqueFlag(edgesArr []constructdbg.DBGEdge, nodesArr []construct
 	}
 
 	return uniqueNum
-}
+}*/
 
 type IdxLen struct {
 	Idx    constructdbg.DBG_MAX_INT
@@ -226,20 +227,24 @@ func findMaxPath(sortedEIDIdxArr []IdxLen, edgesArr []constructdbg.DBGEdge, node
 func SimplifyByLongReadsPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, opt Options) {
 
 	//cleanNGSPath(edgesArr)
-	constructdbg.MergePathMat(edgesArr, nodesArr)
+	constructdbg.MergePathMat(edgesArr, nodesArr, 2)
 
 	sortedEIDIdxArr := sortIdxByUniqueEdgeLen(edgesArr)
 	pathArr := findMaxPath(sortedEIDIdxArr, edgesArr, nodesArr)
 	// constuct map edge ID to the path
-	IDMapPath := constructdbg.ConstructIDMapPath(pathArr)
+	//IDMapPath := constructdbg.ConstructIDMapPath(pathArr)
 	constructdbg.DeleteJoinPathArrEnd(edgesArr, pathArr)
-	pathArr = constructdbg.ReconstructDBG(edgesArr, nodesArr, pathArr, IDMapPath)
+	//pathArr = constructdbg.ReconstructDBG(edgesArr, nodesArr, pathArr, IDMapPath)
 }
 
 type Options struct {
 	utils.ArgsOpt
 	//MaxMapEdgeLen int
-	ExtLen int
+	MinCov        int
+	WinSize       int
+	MaxNGSReadLen int
+	MinMapFreq    int
+	ExtLen        int
 }
 
 func checkArgs(c cli.Command) (opt Options, succ bool) {
@@ -268,6 +273,35 @@ func checkArgs(c cli.Command) (opt Options, succ bool) {
 	if opt.MaxMapEdgeLen < 2000 {
 		log.Fatalf("[checkArgs] argument 'MaxMapEdgeLen': %v must bigger than 2000\n", c.Flag("MaxMapEdgeLen").String())
 	}*/
+	opt.MinCov, ok = c.Flag("MinCov").Get().(int)
+	if !ok {
+		log.Fatalf("[checkArgs] argument 'MinCov': %v set error\n ", c.Flag("MinCov").String())
+	}
+	if opt.MinCov < 2 || opt.MinCov > 10 {
+		log.Fatalf("[checkArgs] argument 'MinCov': %v must between 2~10\n", c.Flag("MinCov"))
+	}
+	opt.WinSize, ok = c.Flag("WinSize").Get().(int)
+	if !ok {
+		log.Fatalf("[checkArgs] argument 'WinSize': %v set error\n ", c.Flag("WinSize").String())
+	}
+	if opt.WinSize < 1 || opt.WinSize > 100 {
+		log.Fatalf("[checkArgs] argument 'WinSize': %v must between 1~100\n", c.Flag("WinSize"))
+	}
+	opt.MaxNGSReadLen, ok = c.Flag("MaxNGSReadLen").Get().(int)
+	if !ok {
+		log.Fatalf("[checkArgs] argument 'MaxNGSReadLen': %v set error\n ", c.Flag("MaxNGSReadLen").String())
+	}
+	if opt.MaxNGSReadLen < opt.Kmer+50 {
+		log.Fatalf("[checkArgs] argument 'MaxNGSReadLen': %v must bigger than K+50\n", c.Flag("MaxNGSReadLen").String())
+	}
+
+	opt.MinMapFreq, ok = c.Flag("MinMapFreq").Get().(int)
+	if !ok {
+		log.Fatalf("[checkArgs] argument 'MinMapFreq': %v set error\n ", c.Flag("MinMapFreq").String())
+	}
+	if opt.MinMapFreq < 2 && opt.MinMapFreq >= 10 {
+		log.Fatalf("[checkArgs] argument 'MinMapFreq': %v must 2 <= MinMapFreq < 10\n", c.Flag("MinMapFreq").String())
+	}
 
 	opt.ExtLen, ok = c.Flag("ExtLen").Get().(int)
 	if !ok {
@@ -288,13 +322,16 @@ func DeconstructDBG(c cli.Command) {
 		log.Fatalf("[Smfy] check global Arguments error, opt: %v\n", gOpt)
 	}
 
-	opt := Options{gOpt, 0}
+	opt := Options{gOpt, 0, 0, 0, 0, 0}
 	tmp, suc := checkArgs(c)
 	if suc == false {
 		log.Fatalf("[Smfy] check Arguments error, opt: %v\n", tmp)
 	}
-	/*opt.TipMaxLen = tmp.TipMaxLen
-	opt.WinSize = tmp.WinSize*/
+	//opt.TipMaxLen = tmp.TipMaxLen
+	opt.MinCov = tmp.MinCov
+	opt.WinSize = tmp.WinSize
+	opt.MaxNGSReadLen = tmp.MaxNGSReadLen
+	opt.MinMapFreq = tmp.MinMapFreq
 	//opt.MaxMapEdgeLen = tmp.MaxMapEdgeLen
 	opt.ExtLen = tmp.ExtLen
 	constructdbg.Kmerlen = opt.Kmer
@@ -314,15 +351,30 @@ func DeconstructDBG(c cli.Command) {
 
 	constructdbg.CheckInterConnectivity(edgesArr, nodesArr)
 
-	uniqueNum := setDBGEdgesUniqueFlag(edgesArr, nodesArr)
+	uniqueNum := constructdbg.SetDBGEdgesUniqueFlag(edgesArr, nodesArr)
 	fmt.Printf("[DeconstructDBG] unique edge number is : %v\n", uniqueNum)
 
-	// get Long reads Mapping info by last
-	maffn := opt.Prefix + ".maf"
-	rc := make(chan []MAFRecord, opt.NumCPU*2)
-	wc := make(chan []constructdbg.DBG_MAX_INT, opt.NumCPU*2)
+	// remap NGS reads to the new samplify DBG
+	var copt constructdbg.Options
+	copt.Kmer = opt.Kmer
+	copt.NumCPU = opt.NumCPU
+	copt.WinSize = opt.WinSize
+	copt.MaxNGSReadLen = opt.MaxNGSReadLen
+	copt.CfgFn = opt.CfgFn
+	wrFn := opt.Prefix + ".decdbg.NGSAlignment"
+	constructdbg.MapNGS2DBG(copt, nodesArr, edgesArr, wrFn)
+	constructdbg.AddPathToDBGEdge(edgesArr, wrFn)
+	constructdbg.MergePathMat(edgesArr, nodesArr, opt.MinMapFreq)
 
-	go GetMAFRecord(maffn, rc, opt.NumCPU)
+	// get ont reads mapping info by minimap2
+	//paffn := opt.Prefix + ".paf"
+
+	// get ont Long reads Mapping info by minimap2, must use ont or other Long reads as reference, and smfy edges as query
+	paffn := opt.Prefix + ".paf"
+	rc := make(chan [][]string, opt.NumCPU)
+	wc := make(chan [2][]constructdbg.DBG_MAX_INT, opt.NumCPU)
+
+	go GetPAFRecord(paffn, rc, opt.NumCPU)
 
 	for i := 0; i < opt.NumCPU; i++ {
 		go paraFindLongReadsMappingPath(rc, wc, edgesArr, nodesArr, opt)

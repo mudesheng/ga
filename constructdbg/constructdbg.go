@@ -3,7 +3,6 @@ package constructdbg
 import (
 	"bufio"
 	"compress/gzip"
-	"container/list"
 	"encoding/binary"
 	"encoding/gob"
 	"fmt"
@@ -170,6 +169,10 @@ func (e *DBGEdge) GetUniqueFlag() uint8 {
 
 func (e *DBGEdge) SetUniqueFlag() {
 	e.Flag = e.Flag | 0x4
+}
+
+func (e *DBGEdge) ResetUniqueFlag() {
+	e.Flag = e.Flag & 0xFB
 }
 
 func (e *DBGEdge) SetProcessFlag() {
@@ -506,7 +509,7 @@ func AddNodeToNodeMap(node DBGNode, nodeMap map[string]DBGNode, nodeID DBG_MAX_I
 	return nodeID
 }
 
-func CollectAddedDBGNode(anc <-chan DBGNode, nc chan<- DBGNode, readNodeMapFinishedC <-chan int, addedFinishedC chan<- int) {
+func CollectAddedDBGNode(anc <-chan DBGNode, nc chan<- DBGNode, readNodeMapFinishedC <-chan int) {
 	var narr []DBGNode
 loop:
 	for {
@@ -518,23 +521,30 @@ loop:
 		}
 	}
 
-	for _, v := range narr {
-		nc <- v
+	for j := 0; j < 2; j++ {
+		for i := 0; i < len(narr); i++ {
+			select {
+			case nd := <-anc:
+				narr = append(narr, nd)
+			}
+			nc <- narr[i]
+		}
+		if j == 0 {
+			time.Sleep(2 * time.Second)
+		}
 	}
 	fmt.Printf("[CollectAddedDBGNode] added node number is: %v\n", len(narr))
 	close(nc)
-	time.Sleep(5 * time.Second)
-	addedFinishedC <- 1
 }
 
 // add new Node to the nodeMap and check node edge has been output
-func ChangeNodeMap(nodeMap map[string]DBGNode, anc chan<- DBGNode, addedFinishedC <-chan int, nIEC <-chan NodeInfoByEdge, flagNIEC chan<- NodeInfoByEdge, Kmerlen int, nodeID DBG_MAX_INT) (nID DBG_MAX_INT, edgeID DBG_MAX_INT) {
+func ChangeNodeMap(nodeMap map[string]DBGNode, anc chan<- DBGNode, finishedC <-chan int, nIEC <-chan NodeInfoByEdge, flagNIEC chan<- NodeInfoByEdge, Kmerlen int, nodeID DBG_MAX_INT) (nID DBG_MAX_INT, edgeID DBG_MAX_INT) {
 	oldNodeID := nodeID
 	edgeID = DBG_MAX_INT(2)
 loop:
 	for {
 		select {
-		case <-addedFinishedC:
+		case <-finishedC:
 			break loop
 		case nie := <-nIEC:
 			v1 := nodeMap[string(nie.n1.Seq)]
@@ -605,7 +615,7 @@ loop:
 }
 
 // ReadDBGNodeToChan, read DBG nodeMap and simultaneously add new node to the nodeMap
-func ReadDBGNodeToChan(nodeMap map[string]DBGNode, nc chan<- DBGNode, readNodeMapFinished chan<- int, numCPU int) {
+func ReadDBGNodeToChan(nodeMap map[string]DBGNode, nc chan<- DBGNode, readNodeMapFinished chan<- int) {
 
 	for _, value := range nodeMap {
 		if value.Flag == 0 {
@@ -740,6 +750,8 @@ func paraGenerateDBGEdges(nc <-chan DBGNode, nIEC chan<- NodeInfoByEdge, flagNIE
 	for {
 		node, ok := <-nc
 		if !ok {
+			var e DBGEdge
+			wc <- e
 			break
 		}
 		// read edge seq from cuckoofilter
@@ -840,18 +852,18 @@ func paraGenerateDBGEdges(nc <-chan DBGNode, nIEC chan<- NodeInfoByEdge, flagNIE
 }
 
 // write edges seq to the file
-func WriteEdgesToFn(edgesfn string, wc chan DBGEdge) {
+func WriteEdgesToFn(edgesfn string, wc <-chan DBGEdge, numCPU int, finishC chan<- int) {
 	edgesNum := 0
 	edgesfp, err := os.Create(edgesfn)
 	if err != nil {
 		log.Fatalf("[WriteEdgesToFn] Open file %s failed: %v\n", edgesfn, err)
 	}
 	edgesbuffp := bufio.NewWriter(edgesfp)
-	defer edgesbuffp.Flush()
 	defer edgesfp.Close()
 
 	// edgesgzfp := gzip.NewWriter(edgesbuffp)
 	// defer edgesgzfp.Close()
+	finishNum := 0
 	for {
 		ei := <-wc
 		if len(ei.Utg.Ks) == 0 {
@@ -859,7 +871,12 @@ func WriteEdgesToFn(edgesfn string, wc chan DBGEdge) {
 				log.Fatalf("[WriteEdgesToFn] err edge: %v\n", ei)
 			}
 			fmt.Printf("[WriteEdgesToFn] end edge: %v\n", ei)
-			break
+			finishNum++
+			if finishNum == numCPU {
+				finishC <- 1
+				break
+			}
+			continue
 		}
 		edgesNum++
 		fmt.Fprintf(edgesbuffp, ">%d\t%d\t%d\n", ei.ID, ei.StartNID, ei.EndNID)
@@ -881,6 +898,7 @@ func WriteEdgesToFn(edgesfn string, wc chan DBGEdge) {
 		fmt.Fprintf(edgesbuffp, "\n")
 		// fmt.Printf("[WriteEdgesToFn] edge: %v\n", ei)
 	}
+	edgesbuffp.Flush()
 
 	fmt.Printf("[WriteEdgesToFn] the writed file edges number is %d\n", edgesNum)
 }
@@ -1044,24 +1062,24 @@ func GenerateDBGEdges(nodeMap map[string]DBGNode, cf cuckoofilter.CuckooFilter, 
 	nc := make(chan DBGNode)
 	wc := make(chan DBGEdge, bufsize)
 	readNodeMapFinishedC := make(chan int)
-	addedFinishedC := make(chan int)
+	finishedC := make(chan int)
 	nIEC := make(chan NodeInfoByEdge)
 	flagNIEC := make(chan NodeInfoByEdge)
 	// Read DBGNode to the nc
-	go ReadDBGNodeToChan(nodeMap, nc, readNodeMapFinishedC, numCPU)
+	go ReadDBGNodeToChan(nodeMap, nc, readNodeMapFinishedC)
 	// parallel construct edges from cuckoofilter
 	for i := 0; i < numCPU; i++ {
 		go paraGenerateDBGEdges(nc, nIEC, flagNIEC, cf, wc)
 	}
 	// write edges Seq to the file
-	go WriteEdgesToFn(edgesfn, wc)
+	go WriteEdgesToFn(edgesfn, wc, numCPU, finishedC)
 
 	// collect added node and pass DBGNode to the nc
 	anc := make(chan DBGNode)
-	go CollectAddedDBGNode(anc, nc, readNodeMapFinishedC, addedFinishedC)
+	go CollectAddedDBGNode(anc, nc, readNodeMapFinishedC)
 
 	// Change nodeMap monitor function
-	newNodeID, edgeID = ChangeNodeMap(nodeMap, anc, addedFinishedC, nIEC, flagNIEC, cf.Kmerlen, nodeID)
+	newNodeID, edgeID = ChangeNodeMap(nodeMap, anc, finishedC, nIEC, flagNIEC, cf.Kmerlen, nodeID)
 
 	/* // cache the new added node Bnt info
 	var newNodeBntArr []constructcf.ReadBnt
@@ -1340,11 +1358,12 @@ func ParseEdge(edgesbuffp *bufio.Reader) (edge DBGEdge, err error) {
 	line2, err2 := edgesbuffp.ReadString('\n')
 	line3, err3 := edgesbuffp.ReadString('\n')
 	if err1 != nil || err2 != nil || err3 != nil {
-		if err3 == io.EOF {
+		if err1 == io.EOF {
 			//err1 = nil
 			err = io.EOF
+			return
 		} else {
-			log.Fatalf("[ParseEdge] Read edge found err1,err2,err3: %v,%v,%v\nline1: %v\nline2: %v\nline3: %v\n", err1, err2, err3, line1, line2, line3)
+			log.Fatalf("[ParseEdge] Read edge found err1,err2,err3: %v,%v,%v\n\tline1: %v\n\tline2: %v\n\tline3: %v\n", err1, err2, err3, line1, line2, line3)
 		}
 	}
 	if _, err4 := fmt.Sscanf(string(line1), ">%d\t%d\t%d\n", &edge.ID, &edge.StartNID, &edge.EndNID); err4 != nil {
@@ -1365,6 +1384,9 @@ func ParseEdge(edgesbuffp *bufio.Reader) (edge DBGEdge, err error) {
 	for i, v := range sline3 {
 		q := v - 33
 		edge.Utg.Kq[i] = uint8(q)
+	}
+	if len(edge.Utg.Ks) != len(edge.Utg.Kq) {
+		log.Fatalf("[ParseEdge] len(edge.Utg.Ks): %v != len(edge.Utg.Kq): %v\n", len(edge.Utg.Ks), len(edge.Utg.Ks))
 	}
 
 	return
@@ -1388,10 +1410,8 @@ func ReadEdgesFromFile(edgesfn string, edgesSize DBG_MAX_INT) (edgesArr []DBGEdg
 	for {
 		edge, err := ParseEdge(edgesbuffp)
 		// num++
-		// fmt.Printf("[ParseEdge] num of edges: %v\n", num)
+		//fmt.Printf("[ParseEdge] edge.ID: %v\n", edge.ID)
 		if err == io.EOF {
-			edgesArr[edge.ID] = edge
-			edgesNum++
 			break
 		} else if err != nil {
 			log.Fatalf("[ParseEdge] file: %v, parse edge err: %v\n", edgesfn, err)
@@ -1404,10 +1424,12 @@ func ReadEdgesFromFile(edgesfn string, edgesSize DBG_MAX_INT) (edgesArr []DBGEdg
 	return
 }
 
-func RCEdge(edgesArr []DBGEdge, eid DBG_MAX_INT) {
-	edgesArr[eid].StartNID, edgesArr[eid].EndNID = edgesArr[eid].EndNID, edgesArr[eid].StartNID
-	ReverseCompByteArr(edgesArr[eid].Utg.Ks)
-	ReverseUint8Arr(edgesArr[eid].Utg.Kq)
+func GetRCUnitig(u Unitig) (ru Unitig) {
+	ru.Ks = GetReverseCompByteArr(u.Ks)
+	ru.Kq = make([]uint8, len(u.Kq))
+	copy(ru.Kq, u.Kq)
+	ReverseUint8Arr(ru.Kq)
+	return
 }
 
 func RevNode(node DBGNode) DBGNode {
@@ -1426,7 +1448,7 @@ func RevNode(node DBGNode) DBGNode {
 	return rnode
 }
 
-func ReconstructConsistenceDBG(nodeMap map[string]DBGNode, edgesArr []DBGEdge) {
+/*func ReconstructConsistenceDBG(nodeMap map[string]DBGNode, edgesArr []DBGEdge) {
 	for k, v := range nodeMap {
 		stk := list.New()
 		if v.GetProcessFlag() == 0 {
@@ -1548,7 +1570,7 @@ func ReconstructConsistenceDBG(nodeMap map[string]DBGNode, edgesArr []DBGEdge) {
 			}
 		}
 	}
-}
+}*/
 
 /*func Coming2String(coming [bnt.BaseTypeNum]DBG_MAX_INT) (cs string) {
 	for _, v := range coming {
@@ -1619,7 +1641,33 @@ func GetEdgeIDComing(coming [bnt.BaseTypeNum]DBG_MAX_INT) (num int, edgeID DBG_M
 	return
 }
 
-func ConcatEdges(edgesArr []DBGEdge, inID, outID, dstID DBG_MAX_INT) {
+func ConcatEdges(u1, u2 Unitig, kmerlen int) (u Unitig) {
+	u.Ks = make([]byte, len(u1.Ks)+len(u2.Ks)-(kmerlen-1))
+	u.Kq = make([]uint8, len(u1.Kq)+len(u2.Kq)-(kmerlen-1))
+
+	if !reflect.DeepEqual(u1.Ks[len(u1.Ks)-kmerlen+1:], u2.Ks[:kmerlen-1]) {
+		log.Fatalf("[ConcatEdges] u1: %v, u2: %v can not concatenatable\n", u1.Ks[len(u1.Ks)-kmerlen+1:], u2.Ks[:kmerlen-1])
+	}
+	if len(u1.Ks) != len(u1.Kq) {
+		log.Fatalf("[ConcatEdges] len(u1.Ks): %v != len(u1.Kq): %v\n", len(u1.Ks), len(u1.Kq))
+	}
+	if len(u2.Ks) != len(u2.Kq) {
+		log.Fatalf("[ConcatEdges] len(u2.Ks): %v != len(u2.Kq): %v\n", len(u2.Ks), len(u2.Kq))
+	}
+
+	copy(u.Ks[:len(u1.Ks)], u1.Ks)
+	copy(u.Ks[len(u1.Ks):], u2.Ks[kmerlen-1:])
+
+	copy(u.Kq[:len(u1.Kq)], u1.Kq)
+	for i := 0; i < kmerlen-1; i++ {
+		u.Kq[len(u1.Kq)-(kmerlen-1)+i] += u2.Kq[i]
+	}
+	copy(u.Kq[len(u1.Kq):], u2.Kq[kmerlen-1:])
+
+	return
+}
+
+/*func ConcatEdges(edgesArr []DBGEdge, inID, outID, dstID DBG_MAX_INT) {
 	// check if is connective
 	var inBnt, outBnt constructcf.ReadBnt
 	fmt.Printf("[ConcatEdges] inID: %d, outID: %d, dstID: %d\nedgesArr[inID]:%v\nedgesArr[outID]:%v\n", inID, outID, dstID, edgesArr[inID], edgesArr[outID])
@@ -1659,7 +1707,7 @@ func ConcatEdges(edgesArr []DBGEdge, inID, outID, dstID DBG_MAX_INT) {
 		// DeleteEdgeID(nodesArr, edgesArr[outID].StartNID, outID)
 		edgesArr[outID].StartNID = edgesArr[inID].StartNID
 	}
-}
+}*/
 
 func substituteEdgeID(nodeMap map[string]DBGNode, nodekey []byte, srcID, dstID DBG_MAX_INT) bool {
 	var nkB constructcf.ReadBnt
@@ -1695,15 +1743,57 @@ func substituteEdgeID(nodeMap map[string]DBGNode, nodekey []byte, srcID, dstID D
 
 }
 
-func SmfyDBG(nodeMap map[string]DBGNode, edgesArr []DBGEdge, opt Options) {
+/*func ChangeIDMapPathAndJoinPathArr(IDMapPath map[DBG_MAX_INT]uint32, joinPathArr []Path, e1, e2 DBGEdge, v DBGNode) []Path {
+	var p, p1, p2 Path
+	if idx, ok := IDMapPath[e1.ID]; ok {
+		p1.IDArr = append(p1.IDArr, joinPathArr[idx].IDArr...)
+		joinPathArr[idx].IDArr = nil
+	} else {
+		p1.IDArr = append(p1.IDArr, e1.ID)
+	}
 
+	if idx, ok := IDMapPath[e2.ID]; ok {
+		p2.IDArr = append(p2.IDArr, joinPathArr[idx].IDArr...)
+		joinPathArr[idx].IDArr = nil
+	} else {
+		p2.IDArr = append(p2.IDArr, e2.ID)
+	}
+
+	if e1.EndNID == v.ID {
+		p.IDArr = append(p.IDArr, p1.IDArr...)
+		tp := p2
+		if e2.EndNID == v.ID {
+			tp.IDArr = GetReverseDBG_MAX_INTArr(p2.IDArr)
+		}
+		p.IDArr = append(p.IDArr, tp.IDArr...)
+	} else {
+		tp := p2
+		if e2.StartNID == v.ID {
+			tp.IDArr = GetReverseDBG_MAX_INTArr(p2.IDArr)
+		}
+		p.IDArr = append(p.IDArr, tp.IDArr...)
+		p.IDArr = append(p.IDArr, p1.IDArr...)
+	}
+	joinPathArr = append(joinPathArr, p)
+	ni := uint32(len(joinPathArr)-1)
+	IDMapPath[e1.ID] = ni
+	IDMapPath[p.IDArr[0]]
+
+	return joinPathArr
+} */
+
+func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt Options) {
+	kmerlen := opt.Kmer
 	deleteNodeNum, deleteEdgeNum := 0, 0
 	longTipsEdgesNum := 0
-	for k, v := range nodeMap {
+	for i, v := range nodesArr {
+		if i < 1 || v.GetDeleteFlag() > 0 {
+			continue
+		}
 		inNum, inID := GetEdgeIDComing(v.EdgeIDIncoming)
 		outNum, outID := GetEdgeIDComing(v.EdgeIDOutcoming)
 		if inNum == 0 && outNum == 0 {
-			delete(nodeMap, k)
+			nodesArr[i].SetDeleteFlag()
 			deleteNodeNum++
 		} else if inNum+outNum == 1 {
 			longTipsEdgesNum++
@@ -1716,31 +1806,65 @@ func SmfyDBG(nodeMap map[string]DBGNode, edgesArr []DBGEdge, opt Options) {
 			} else {
 				edgesArr[id].EndNID = 0
 			}
-			delete(nodeMap, k)
+			nodesArr[i].SetDeleteFlag()
 			deleteNodeNum++
 		} else if inNum == 1 && outNum == 1 && inID != outID { // prevent cycle ring
 			e1 := edgesArr[inID]
 			e2 := edgesArr[outID]
 			//fmt.Printf("[SmfyDBG] e1: %v\n\te2: %v\n\tnd: %v\n", e1, e2, v)
-			if e1.StartNID == v.ID {
-				RCEdge(edgesArr, inID)
-			}
-			if e2.EndNID == v.ID {
-				RCEdge(edgesArr, outID)
-			}
-			ConcatEdges(edgesArr, inID, outID, inID)
-			// edgesArr[inID].EndNID = edgesArr[outID].EndNID
-			edgesArr[outID].SetDeleteFlag()
-			edgesArr[outID].ID = 0
-			deleteEdgeNum++
-			if edgesArr[outID].EndNID > 0 {
-				if substituteEdgeID(nodeMap, edgesArr[inID].Utg.Ks[len(edgesArr[inID].Utg.Ks)-Kmerlen+1:], outID, inID) == false {
-					log.Fatalf("[SmfyDBG] substituteEdgeID failed\n")
+			u1, u2 := e1.Utg, e2.Utg
+			if e1.EndNID == v.ID {
+				nID := e2.EndNID
+				if e2.StartNID != v.ID {
+					u2 = GetRCUnitig(u2)
+					nID = e2.StartNID
+				}
+				edgesArr[inID].Utg = ConcatEdges(u1, u2, kmerlen)
+				edgesArr[inID].EndNID = nID
+				if nID > 0 && !SubstituteEdgeID(nodesArr, nID, e2.ID, e1.ID) {
+					log.Fatalf("[SmfyDBG] e2.ID: %v substitute by e1.ID: %v failed, node: %v\n", e2.ID, e1.ID, nodesArr[nID])
+				}
+			} else {
+				nID := e2.StartNID
+				if e2.EndNID != v.ID {
+					u2 = GetRCUnitig(u2)
+					nID = e2.EndNID
+				}
+				edgesArr[inID].Utg = ConcatEdges(u2, u1, kmerlen)
+				edgesArr[inID].StartNID = nID
+				if nID > 0 && !SubstituteEdgeID(nodesArr, nID, e2.ID, e1.ID) {
+					log.Fatalf("[SmfyDBG] e2.ID: %v substitute by e1.ID: %v failed, node: %v\n", e2.ID, e1.ID, nodesArr[nID])
 				}
 			}
-			//fmt.Printf("[SmfyDBG] e1: %v\n\te2: %v\n\tnd: %v\n", edgesArr[inID], edgesArr[outID], v)
-			delete(nodeMap, k)
+
+			edgesArr[outID].SetDeleteFlag()
+			deleteEdgeNum++
+			nodesArr[v.ID].SetDeleteFlag()
 			deleteNodeNum++
+		}
+	}
+
+	// delete maybe short repeat edge than small than opt.MaxNGSReadLen
+	for i, e := range edgesArr {
+		if i < 2 || e.GetDeleteFlag() > 0 {
+			continue
+		}
+
+		if e.StartNID == 0 && e.EndNID == 0 && len(e.Utg.Ks) < opt.MaxNGSReadLen {
+			edgesArr[i].SetDeleteFlag()
+			deleteEdgeNum++
+		}
+		// remove samll cycle maybe repeat
+		if e.StartNID > 0 && e.StartNID == e.EndNID && len(e.Utg.Ks) < opt.MaxNGSReadLen {
+			v := nodesArr[e.StartNID]
+			inNum, inID := GetEdgeIDComing(v.EdgeIDIncoming)
+			outNum, outID := GetEdgeIDComing(v.EdgeIDOutcoming)
+			if inNum == outNum && inID == outID {
+				edgesArr[i].SetDeleteFlag()
+				deleteEdgeNum++
+				nodesArr[v.ID].SetDeleteFlag()
+				deleteNodeNum++
+			}
 		}
 	}
 
@@ -1817,12 +1941,12 @@ func StoreEdgesToFn(edgesfn string, edgesArr []DBGEdge) {
 			qs := transform2QSeq(v.Utg)
 			seq.AppendQLetters(qs...)
 			var path string
-			if len(v.PathMat) > 0 && len(v.PathMat[0].IDArr) > 1 {
+			/*if len(v.PathMat) > 0 && len(v.PathMat[0].IDArr) > 1 {
 				for _, id := range v.PathMat[0].IDArr {
 					path += strconv.Itoa(int(id)) + "-"
 				}
 				path = path[:len(path)-1]
-			}
+			}*/
 			ans := strconv.Itoa(int(v.StartNID)) + "\t" + strconv.Itoa(int(v.EndNID)) + "\tpath:" + path + "\tlen:" + strconv.Itoa(seq.Len())
 			seq.Annotation.SetDescription(ans)
 			_, err := fqfp.Write(seq)
@@ -2089,7 +2213,7 @@ func getCuckoofilterDBGSampleSize(edgesArr []DBGEdge, winSize, maxNGSReadLen, km
 func GetMinimizer(seq []byte, kmerlen int) (minSeq []byte, pos uint32, strand bool) {
 	for i := 0; i < len(seq)-kmerlen+1; i++ {
 		kb := seq[i : i+kmerlen]
-		rb := GetReverseCompByteArr(seq)
+		rb := GetReverseCompByteArr(kb)
 		st := PLUS
 		if BiggerThan(kb, rb) {
 			kb, rb = rb, kb
@@ -2158,16 +2282,44 @@ func LocateSeedKmerCF(cf CuckooFilter, ri ReadInfo, winSize int, edgesArr []DBGE
 		fmt.Printf("[LocateSeedKmerCF] read: %v sequence length smaller than KmerLen(%v) + 2 * winSize(%v)\n", ri, cf.Kmerlen, winSize)
 	}
 	var kb []byte
-	kb, pos, strand = GetMinimizer(ri.Seq[0:cf.Kmerlen+winSize-1], cf.Kmerlen)
-	dbgK = cf.Lookup(kb, edgesArr)
-	if dbgK.GetCount() > 0 {
-		return
+	count := 0
+	for i := 0; i < 2; i++ {
+		kb, pos, strand = GetMinimizer(ri.Seq[i*winSize:i*winSize+cf.Kmerlen+winSize-1], cf.Kmerlen)
+		dbgK, count = cf.Lookup(kb, edgesArr)
+		pos += uint32(i * winSize)
+		if count == 1 && dbgK.GetCount() > 0 {
+			return
+		}
+		if count > 1 {
+			//fmt.Printf("[LocateSeedKmerCF] found seed count: %v\n", count)
+			dbgK.setCFItem(0, 0)
+			break
+		}
 	}
 
-	// found the second window
+	// search seed by read end partition
+	/*if count > 1 {
+		count = 0
+		for i := 0; i < 2; i++ {
+			startP := len(ri.Seq) - cf.Kmerlen - winSize + 1 - i*winSize
+			kb, pos, strand = GetMinimizer(ri.Seq[startP:len(ri.Seq)-i*winSize], cf.Kmerlen)
+			dbgK, count = cf.Lookup(kb, edgesArr)
+			pos += uint32(startP)
+			if count == 1 && dbgK.GetCount() > 0 {
+				fmt.Printf("[LocateSeedKmerCF] found seed count: %v\n", count)
+				return
+			}
+			if count > 1 {
+				dbgK.setCFItem(0, 0)
+				break
+			}
+		}
+	} */
+
+	/*// found the second window
 	kb, pos, strand = GetMinimizer(ri.Seq[winSize:winSize+cf.Kmerlen+winSize-1], cf.Kmerlen)
 	pos += uint32(winSize)
-	dbgK = cf.Lookup(kb, edgesArr)
+	dbgK = cf.Lookup(kb, edgesArr)*/
 
 	return
 }
@@ -2243,7 +2395,7 @@ func paraMapNGS2DBG(cs chan ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edg
 						}
 						j := int(dk.Pos) - 1
 						for ; i >= b; i-- {
-							fmt.Printf("[paraMapNGS2DBG] i: %v, j: %v, dk.Pos: %v, pos: %v, b: %v\n", i, j, dk.Pos, rpos, b)
+							//fmt.Printf("[paraMapNGS2DBG] i: %v, j: %v, dk.Pos: %v, pos: %v, b: %v\n", i, j, dk.Pos, rpos, b)
 							if ri.Seq[i] != e.Utg.Ks[j] {
 								overAll = false
 								break
@@ -2256,7 +2408,7 @@ func paraMapNGS2DBG(cs chan ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edg
 						}
 						j := int(dk.Pos)
 						for ; i >= b; i-- {
-							fmt.Printf("[paraMapNGS2DBG] i: %v, j: %v, dk.Pos: %v, pos: %v, b: %v\n", i, j, dk.Pos, rpos, b)
+							//fmt.Printf("[paraMapNGS2DBG] i: %v, j: %v, dk.Pos: %v, pos: %v, b: %v\n", i, j, dk.Pos, rpos, b)
 							if ri.Seq[i] != bnt.BntRev[e.Utg.Ks[j]] {
 								overAll = false
 								break
@@ -2265,7 +2417,8 @@ func paraMapNGS2DBG(cs chan ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edg
 						}
 					}
 
-					if overAll == false {
+					if !overAll {
+						fmt.Printf("[paraMapNGS2DBG]not perfect start i: %v,edge ID: %v,len(e.Utg.Ks):%v,  dk.Pos: %v, pos: %v, b: %v\n", i, dk.ID, len(e.Utg.Ks), dk.Pos, rpos, b)
 						break
 					}
 					ai.Paths = append(ai.Paths, e.ID)
@@ -2348,7 +2501,10 @@ func paraMapNGS2DBG(cs chan ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edg
 					}
 				}
 			}
-
+			if !overAll {
+				notPerfectNum++
+				continue
+			}
 			ai.Paths = ReverseDBG_MAX_INTArr(ai.Paths)
 			// map the end partition of read sequence
 			var path []DBG_MAX_INT
@@ -2362,11 +2518,12 @@ func paraMapNGS2DBG(cs chan ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edg
 					e := edgesArr[dk.ID]
 					b := len(ri.Seq)
 					if dk.Strand == strand {
-						if len(e.Utg.Ks)-dk.Pos < len(ri.Seq)-rpos {
-							b = rpos + (len(e.Utg.Ks) - dk.Pos)
+						if len(e.Utg.Ks)-int(dk.Pos) < len(ri.Seq)-rpos {
+							b = rpos + (len(e.Utg.Ks) - int(dk.Pos))
 						}
 						j := int(dk.Pos)
 						for ; i < b; i++ {
+							//fmt.Printf("[paraMapNGS2DBG] i: %v, j: %v, dk.Pos: %v, pos: %v, b: %v\n", i, j, dk.Pos, rpos, b)
 							if ri.Seq[i] != e.Utg.Ks[j] {
 								overAll = false
 								break
@@ -2374,11 +2531,12 @@ func paraMapNGS2DBG(cs chan ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edg
 							j++
 						}
 					} else { // dbgK.Strand != strand
-						if len(ri.Seq)-rpos > dk.Pos {
-							b = rpos + dk.Pos
+						if len(ri.Seq)-rpos > int(dk.Pos) {
+							b = rpos + int(dk.Pos)
 						}
 						j := int(dk.Pos) - 1
 						for ; i < b; i++ {
+							//fmt.Printf("[paraMapNGS2DBG] i: %v, j: %v, dk.Pos: %v, pos: %v, b: %v\n", i, j, dk.Pos, rpos, b)
 							if ri.Seq[i] != bnt.BntRev[e.Utg.Ks[j]] {
 								overAll = false
 								break
@@ -2388,6 +2546,7 @@ func paraMapNGS2DBG(cs chan ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edg
 					}
 
 					if overAll == false {
+						fmt.Printf("[paraMapNGS2DBG]not perfect end i: %v,edge ID: %v,len(e.Utg.Ks): %v,  dk.Pos: %v, pos: %v, b: %v\n", i, dk.ID, len(e.Utg.Ks), dk.Pos, rpos, b)
 						break
 					}
 					path = append(path, e.ID)
@@ -2473,10 +2632,12 @@ func paraMapNGS2DBG(cs chan ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edg
 			}
 
 			if !overAll {
+				//fmt.Printf("[paraMapNGS2DBG] ", a)
 				notPerfectNum++
+				continue
 			}
 
-			if ai.Paths[len(ai.Paths)-1] == path[0] {
+			if len(ai.Paths) > 0 && len(path) > 0 && ai.Paths[len(ai.Paths)-1] == path[0] {
 				ai.Paths = append(ai.Paths, path[1:]...)
 			} else {
 				ai.Paths = append(ai.Paths, path...)
@@ -2608,7 +2769,7 @@ func MapNGS2DBG(opt Options, nodesArr []DBGNode, edgesArr []DBGEdge, wrFn string
 	// construct cuckoofilter of DBG sample
 	cfSize := getCuckoofilterDBGSampleSize(edgesArr, opt.WinSize, opt.MaxNGSReadLen, opt.Kmer)
 	fmt.Printf("[MapNGS2DBG] cfSize: %v\n", cfSize)
-	cf := MakeCuckooFilter(uint64(cfSize*3/2), opt.Kmer)
+	cf := MakeCuckooFilter(uint64(cfSize*3), opt.Kmer)
 	fmt.Printf("[MapNGS2DBG] cf.numItems: %v\n", cf.numItems)
 	count := constructCFDBGMinimizers(cf, edgesArr, opt.WinSize, opt.MaxNGSReadLen)
 	fmt.Printf("[MapNGS2DBG]construct Smaple of DBG edges cuckoofilter number is : %v\n", count)
@@ -2680,7 +2841,7 @@ func AddPathToDBGEdge(edgesArr []DBGEdge, mapNGSFn string) {
 	}
 
 	// at last edge average coverage = (start position coverage depth +  end position coverage depth)/2
-	for i := 1; i < len(edgesArr); i++ {
+	for i := 2; i < len(edgesArr); i++ {
 		edgesArr[i].CovD /= 2
 	}
 
@@ -2772,94 +2933,97 @@ func FreqNumInDBG_MAX_INTArr(arr []DBG_MAX_INT, eID DBG_MAX_INT) (count int) {
 }
 
 // merge DBGEdge's pathMat
-func MergePathMat(edgesArr []DBGEdge, nodesArr []DBGNode) {
+func MergePathMat(edgesArr []DBGEdge, nodesArr []DBGNode, minMapFreq int) {
 	for i, e := range edgesArr {
 		//if e.GetUniqueFlag() > 0 {
 		//	fmt.Printf("[MergePathMat]unique edge : %v\n", e)
 		//}
-		if e.ID == 0 || e.GetDeleteFlag() > 0 || len(e.PathMat) == 0 || e.GetUniqueFlag() == 0 {
+		if i < 2 || e.GetDeleteFlag() > 0 || len(e.PathMat) == 0 || e.GetUniqueFlag() == 0 {
 			continue
 		}
 
 		// debug code
 		if e.PathMat[0].Freq == 0 {
-			var p Path
-			edgesArr[i].PathMat[0] = p
+			log.Fatalf("[MergePathMat] e.ID: %v PathMat[0]: %v\n", e.ID, e.PathMat[0])
 		}
 
-		if len(e.PathMat) == 1 {
-			CheckPathDirection(edgesArr, nodesArr, e.ID)
+		// check if is a node cycle edge
+		if e.StartNID == e.EndNID {
+			edgesArr[e.ID].ResetUniqueFlag()
 			continue
 		}
-		// check if is a node cycle edge
-		//if e.StartNID == e.EndNID {
-		//
-		//}
 
-		var consisPM [2]Path
-		var SecondEID DBG_MAX_INT // if a two edges cycle, store e.EndNID second Edge
-		if e.StartNID > 0 {
-			ea := GetNearEdgeIDArr(nodesArr[e.StartNID], e.ID)
-			if len(ea) == 1 {
-				// check if a two edges cycle
-				if e.EndNID > 0 {
-					ea1 := GetNearEdgeIDArr(nodesArr[e.EndNID], e.ID)
-					if len(ea1) == 1 && ea1[0] == ea[0] {
-						a1 := GetOtherEArr(nodesArr[e.StartNID], e.ID)
-						a2 := GetOtherEArr(nodesArr[e.EndNID], e.ID)
-						if len(a1) == 1 && len(a2) == 1 {
-							ea[0] = a2[0]
-							SecondEID = a1[0]
-							fmt.Printf("[MergePathMat]two edges cycle, a1: %v, a2: %v\n", a1, a2)
-							//for j := 0; j < len(e.PathMat); j++ {
-							//	fmt.Printf("[MergePathMat] edgesArr[%v].PathMat[%v]: %v\n", i, j, e.PathMat[j])
-							//}
+		CheckPathDirection(edgesArr, nodesArr, e.ID)
+		if len(e.PathMat) == 1 {
+			continue
+		}
+
+		// merge process
+		var leftMax, rightMax int
+		for _, p := range e.PathMat {
+			idx := IndexEID(p.IDArr, e.ID)
+			if idx > leftMax {
+				leftMax = idx
+			}
+			if len(p.IDArr)-idx > rightMax {
+				rightMax = len(p.IDArr) - idx
+			}
+		}
+		al := leftMax + rightMax
+		// copy e.PathMat to the pm
+		pm := make([]Path, len(e.PathMat))
+		for j, p := range e.PathMat {
+			t := make([]DBG_MAX_INT, al)
+			idx := IndexEID(p.IDArr, e.ID)
+			copy(t[leftMax-idx:], p.IDArr)
+			pm[j].Freq = p.Freq
+			pm[j].IDArr = t
+		}
+
+		// alignment PathMat
+		/*for j, p := range pm {
+			fmt.Printf("[MergePathMat] pm[%v]: %v\n", j, p)
+		} */
+
+		// find consis Path
+		var path Path
+		suc := true // note found consis Path
+		for j := 0; j < al; j++ {
+			var freq int
+			var id DBG_MAX_INT
+			for k := 0; k < len(pm); k++ {
+				if pm[k].IDArr[j] > 0 {
+					if id == 0 {
+						id = pm[k].IDArr[j]
+						freq = pm[k].Freq
+					} else {
+						if id == pm[k].IDArr[j] {
+							freq += pm[k].Freq
+						} else {
+							suc = false
+							break
 						}
 					}
 				}
-
-				ca := FindConsisPath(ea[0], e)
-				if len(ca.IDArr) > 1 {
-					consisPM[0] = ca
+			}
+			if freq >= minMapFreq {
+				path.IDArr = append(path.IDArr, id)
+				if path.Freq == 0 {
+					path.Freq = freq
+				} else if path.Freq > freq {
+					path.Freq = freq
 				}
 			}
 		}
 
-		if e.EndNID > 0 {
-			ea := GetNearEdgeIDArr(nodesArr[e.EndNID], e.ID)
-			if len(ea) == 1 {
-				if SecondEID > 0 {
-					ea[0] = SecondEID
-				}
-				ca := FindConsisPath(ea[0], e)
-				if len(ca.IDArr) > 1 {
-					consisPM[1] = ca
-				}
-			}
-		}
-
-		var mP Path // merge Path
-		if len(consisPM[0].IDArr) > 1 {
-			mP.IDArr = GetReverseDBG_MAX_INTArr(consisPM[0].IDArr)
-			mP.Freq = consisPM[0].Freq
-		}
-		if len(consisPM[1].IDArr) > 1 {
-			if len(mP.IDArr) > 0 {
-				mP.IDArr = append(mP.IDArr, consisPM[1].IDArr[1:]...)
-				if mP.Freq > consisPM[1].Freq {
-					mP.Freq = consisPM[1].Freq
-				}
-			} else {
-				mP = consisPM[1]
-			}
-		}
-		if len(mP.IDArr) > 1 && FreqNumInDBG_MAX_INTArr(mP.IDArr, e.ID) == 1 {
-			edgesArr[i].PathMat = []Path{mP}
-			CheckPathDirection(edgesArr, nodesArr, e.ID)
+		if suc {
+			var pm []Path
+			pm = append(pm, path)
+			edgesArr[i].PathMat = pm
+			fmt.Printf("[MergePathMat] edge ID: %v, merge path: %v\n", e.ID, edgesArr[i].PathMat)
 		} else {
 			edgesArr[i].PathMat = nil
 		}
-		//fmt.Printf("[MergePathMat] mergePath[%v]: %v\nedge: %v\n", i, edgesArr[i].PathMat, e)
 	}
 }
 
@@ -2878,6 +3042,124 @@ func IsTwoEdgesCyclePath(edgesArr []DBGEdge, nodesArr []DBGNode, eID DBG_MAX_INT
 }
 
 func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge) (maxP Path) {
+	var p Path
+	p.IDArr = make([]DBG_MAX_INT, len(e.PathMat[0].IDArr))
+	copy(p.IDArr, e.PathMat[0].IDArr)
+	p.Freq = e.PathMat[0].Freq
+	idx := IndexEID(p.IDArr, e.ID)
+	mutualArr := []DBG_MAX_INT{e.ID}
+	fmt.Printf("[ExtendPath] e.ID: %v,e.PathMat[0]: %v\n", e.ID, e.PathMat[0])
+	// found left partition path
+	for i := idx - 1; i >= 0; {
+		e2 := edgesArr[p.IDArr[i]]
+		if e2.GetUniqueFlag() == 0 || len(e2.PathMat) != 1 {
+			i--
+			continue
+		}
+		p2 := e2.PathMat[0]
+		eID1 := mutualArr[len(mutualArr)-1]
+		e1 := edgesArr[eID1]
+		j1 := IndexEID(p2.IDArr, e1.ID)
+		j2 := IndexEID(p2.IDArr, e2.ID)
+		if j1 < j2 {
+			p2.IDArr = GetReverseDBG_MAX_INTArr(p2.IDArr)
+			j1 = IndexEID(p2.IDArr, e1.ID)
+			j2 = IndexEID(p2.IDArr, e2.ID)
+		}
+		fmt.Printf("[ExtendPath] eID1: %v, eID2: %v, p: %v, p2: %v\n", e1.ID, e2.ID, p, p2)
+		k1 := IndexEID(p.IDArr, e1.ID)
+		if j1 >= k1 {
+			if reflect.DeepEqual(p2.IDArr[j1-k1:], p.IDArr[:len(p2.IDArr)-(j1-k1)]) {
+				mutualArr = append(mutualArr, e2.ID)
+				na := make([]DBG_MAX_INT, len(p.IDArr)+j1-k1)
+				copy(na[:j1], p2.IDArr[:j1])
+				copy(na[j1:], p.IDArr[k1:])
+				p.IDArr = na
+				if p2.Freq < p.Freq {
+					p.Freq = p2.Freq
+				}
+				idx = IndexEID(p.IDArr, e2.ID)
+				i = idx - 1
+			} else {
+				i--
+			}
+		} else {
+			i--
+		}
+	}
+
+	ReverseDBG_MAX_INTArr(mutualArr)
+	idx = IndexEID(p.IDArr, e.ID)
+	// find right path
+	for i := idx + 1; i < len(p.IDArr); {
+		e2 := edgesArr[p.IDArr[i]]
+		if e2.GetUniqueFlag() == 0 || len(e2.PathMat) != 1 {
+			i++
+			continue
+		}
+		p2 := e2.PathMat[0]
+		eID1 := mutualArr[len(mutualArr)-1]
+		e1 := edgesArr[eID1]
+		j1 := IndexEID(p2.IDArr, e1.ID)
+		j2 := IndexEID(p2.IDArr, e2.ID)
+		if j2 < j1 {
+			p2.IDArr = GetReverseDBG_MAX_INTArr(p2.IDArr)
+			j1 = IndexEID(p2.IDArr, e1.ID)
+			j2 = IndexEID(p2.IDArr, e2.ID)
+		}
+		fmt.Printf("[ExtendPath] eID1: %v, eID2: %v, p: %v, p2: %v\n", e1.ID, e2.ID, p, p2)
+		k1 := IndexEID(p.IDArr, e1.ID)
+		if len(p2.IDArr)-j1 >= len(p.IDArr)-k1 {
+			if reflect.DeepEqual(p.IDArr[k1-j1:], p2.IDArr[:len(p.IDArr)-(k1-j1)]) {
+				mutualArr = append(mutualArr, e2.ID)
+				if len(p2.IDArr)-j1 > len(p.IDArr)-k1 {
+					p.IDArr = append(p.IDArr, p2.IDArr[j1+(len(p.IDArr)-k1):]...)
+				}
+				if p2.Freq < p.Freq {
+					p.Freq = p2.Freq
+				}
+				idx = IndexEID(p.IDArr, e2.ID)
+				i = idx + 1
+			} else {
+				i++
+			}
+		} else {
+			i++
+		}
+	}
+
+	if len(mutualArr) <= 1 {
+		edgesArr[e.ID].SetProcessFlag()
+		return
+	}
+
+	// set maxP and process DBG
+	i1 := IndexEID(p.IDArr, mutualArr[0])
+	i2 := IndexEID(p.IDArr, mutualArr[len(mutualArr)-1])
+	maxP.IDArr = p.IDArr[i1 : i2+1]
+	maxP.Freq = p.Freq
+
+	/*// set maxP paths subsequence by edge direction
+	ce := edgesArr[maxP.IDArr[0]]
+	if ce.StartNID > 0 {
+		ea := GetNearEdgeIDArr(nodesArr[ce.StartNID], maxP.IDArr[0])
+		if IsInDBG_MAX_INTArr(ea, maxP.IDArr[1]) {
+			maxP.IDArr = GetReverseDBG_MAX_INTArr(maxP.IDArr)
+		}
+	}*/
+
+	edgesArr[mutualArr[0]].SetProcessFlag()
+	for _, id := range mutualArr[1:] {
+		edgesArr[id].SetDeleteFlag()
+		edgesArr[id].SetProcessFlag()
+	}
+	//fmt.Printf("[ExtendPath] mutualArr: %v\n", mutualArr)
+	fmt.Printf("[ExtendPath] maxP: %v\n", maxP)
+
+	return
+}
+
+/* func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge) (maxP Path) {
 	maxP.IDArr = append(maxP.IDArr, e.PathMat[0].IDArr...)
 	maxP.Freq = e.PathMat[0].Freq
 	mutualArr := []DBG_MAX_INT{e.ID}
@@ -3000,10 +3282,10 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge) (maxP Path) {
 			maxP.Freq = 0
 			return maxP
 		}
-		/*var np Path
-		np.IDArr = append(np.IDArr, maxP.IDArr[:p1+1]...)
-		np.IDArr = append(np.IDArr, maxP.IDArr[p2+1:]...)
-		np.Freq = maxP.Freq */
+		//var np Path
+		//np.IDArr = append(np.IDArr, maxP.IDArr[:p1+1]...)
+		//np.IDArr = append(np.IDArr, maxP.IDArr[p2+1:]...)
+		//np.Freq = maxP.Freq
 		var np Path
 		np.IDArr = append(np.IDArr, maxP.IDArr...)
 		np.Freq = maxP.Freq
@@ -3022,21 +3304,19 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge) (maxP Path) {
 	}
 
 	return maxP
-}
+} */
 
 // find maximum path
-func findMaxPath(edgesArr []DBGEdge, nodesArr []DBGNode) (pathArr []Path) {
+func findMaxPath(edgesArr []DBGEdge, nodesArr []DBGNode, minMapFreq int) (pathArr []Path) {
 	for i, e := range edgesArr {
-		if e.ID == 0 || e.GetDeleteFlag() > 0 || e.GetProcessFlag() > 0 || e.GetUniqueFlag() == 0 || len(e.PathMat) == 0 || IsTwoEdgesCyclePath(edgesArr, nodesArr, e.ID) {
+		if i < 2 || e.GetDeleteFlag() > 0 || e.GetProcessFlag() > 0 || e.GetUniqueFlag() == 0 || len(e.PathMat) != 1 {
 			continue
 		}
 
-		// debug code
-		if len(e.PathMat) != 1 {
-			log.Fatalf("[findMaxPath] edgesArr[%v].PathMat: %v\t != 1\n", i, e.PathMat)
-		}
-		if e.PathMat[0].Freq == 0 || len(e.PathMat[0].IDArr) < 2 {
-			log.Fatalf("[findMaxPath] edgesArr[%v].PathMat: %v\t not contain useful info\n", i, e.PathMat)
+		p := e.PathMat[0]
+		if p.Freq < minMapFreq || len(p.IDArr) < 2 {
+			continue
+			//log.Fatalf("[findMaxPath] edgesArr[%v].PathMat: %v\t not contain useful info\n", i, p)
 		}
 
 		maxP := ExtendPath(edgesArr, nodesArr, e)
@@ -3106,10 +3386,10 @@ func GetLinkPathArr(nodesArr []DBGNode, edgesArr []DBGEdge, nID DBG_MAX_INT) (p 
 	return p
 }
 
-func CascadePath(p Path, edgesArr []DBGEdge, nodesArr []DBGNode) {
+func CascadePath(p Path, edgesArr []DBGEdge, nodesArr []DBGNode, kmerlen int) {
 	p0 := edgesArr[p.IDArr[0]]
 	p1 := edgesArr[p.IDArr[1]]
-	eStartNID, eEndNID := p0.StartNID, p0.EndNID
+	//eStartNID, eEndNID := p0.StartNID, p0.EndNID
 	var direction uint8
 	nID := GetLinkNodeID(p0, p1)
 	if nID == p0.EndNID {
@@ -3118,10 +3398,11 @@ func CascadePath(p Path, edgesArr []DBGEdge, nodesArr []DBGNode) {
 		direction = BACKWARD
 	}
 	lastEID := p0.ID
+	strand := true
 	for _, eID := range p.IDArr[1:] {
 		p0 = edgesArr[p0.ID]
 		p1 = edgesArr[eID]
-		fmt.Printf("[CascadePath]p0: %v\n\tp1: %v\n", p0, p1)
+		//fmt.Printf("[CascadePath]p0.ID: %v\n\tp1.ID: %v, lastEID: %v, strand: %v, nID: %v\n", p0.ID, p1.ID, lastEID, strand,nID)
 		//inID, outID := p0.ID, p1.ID
 		//if direction == BACKWARD { inID, outID = outID, inID }
 		//if IsInComing(nodesArr[nID].EdgeIDOutcoming, p1.ID) ==false &&  IsInComing(nodesArr[nID].EdgeIDIncoming, p1.ID) {
@@ -3130,45 +3411,73 @@ func CascadePath(p Path, edgesArr []DBGEdge, nodesArr []DBGNode) {
 		if direction == BACKWARD {
 			if IsInComing(nodesArr[nID].EdgeIDOutcoming, lastEID) {
 				if IsInComing(nodesArr[nID].EdgeIDIncoming, p1.ID) {
-					if p1.EndNID != nID {
-						RCEdge(edgesArr, p1.ID)
+					if edgesArr[lastEID].StartNID == nID {
+						if p1.EndNID != nID {
+							strand = !strand
+						}
+					} else {
+						if p1.StartNID != nID {
+							strand = !strand
+						}
 					}
 				} else {
 					log.Fatalf("[CascadePath] nodesArr[%v]: %v\n\t, nID set error\n", nID, nodesArr[nID])
 				}
 			} else {
 				if IsInComing(nodesArr[nID].EdgeIDOutcoming, p1.ID) {
-					if p1.EndNID != nID {
-						RCEdge(edgesArr, p1.ID)
+					if edgesArr[lastEID].EndNID == nID {
+						if p1.StartNID != nID {
+							strand = !strand
+						}
+					} else {
+						if p1.EndNID != nID {
+							strand = !strand
+						}
 					}
 				} else {
-					log.Fatalf("[CascadePath] nodesArr[%v]: %v\n\t, nID set error\n", nID, nodesArr[nID])
+					log.Fatalf("[CascadePath]BACKWARD nodesArr[%v]: %v\n\t, nID set error\n", nID, nodesArr[nID])
 				}
 			}
+			if !strand {
+				p1.Utg = GetRCUnitig(p1.Utg)
+			}
+			fmt.Printf("[CascadePath]p0.ID: %v, p1.ID: %v, lastEID: %v, strand: %v, nID: Incoming: %v, Outcoming: %v\n", p0.ID, p1.ID, lastEID, strand, nodesArr[nID].EdgeIDIncoming, nodesArr[nID].EdgeIDOutcoming)
+			edgesArr[p0.ID].Utg = ConcatEdges(p1.Utg, p0.Utg, kmerlen)
 		} else {
 			if IsInComing(nodesArr[nID].EdgeIDIncoming, lastEID) {
 				if IsInComing(nodesArr[nID].EdgeIDOutcoming, p1.ID) {
-					if p1.StartNID != nID {
-						RCEdge(edgesArr, p1.ID)
+					if edgesArr[lastEID].EndNID == nID {
+						if p1.StartNID != nID {
+							strand = !strand
+						}
+					} else {
+						if p1.EndNID != nID {
+							strand = !strand
+						}
 					}
 				} else {
-					log.Fatalf("[CascadePath] nodesArr[%v]: %v\n\t, nID set error\n", nID, nodesArr[nID])
+					log.Fatalf("[CascadePath] nodesArr[%v]: %v, nID set error\n", nID, nodesArr[nID])
 				}
 			} else {
 				if IsInComing(nodesArr[nID].EdgeIDIncoming, p1.ID) {
-					if p1.StartNID != nID {
-						RCEdge(edgesArr, p1.ID)
+					if edgesArr[lastEID].StartNID == nID {
+						if p1.EndNID != nID {
+							strand = !strand
+						}
+					} else {
+						if p1.StartNID != nID {
+							strand = !strand
+						}
 					}
 				} else {
 					log.Fatalf("[CascadePath] nodesArr[%v]: %v\n\t, nID set error\n", nID, nodesArr[nID])
 				}
 			}
-		}
-		p0, p1 = edgesArr[p0.ID], edgesArr[p1.ID]
-		if direction == FORWARD {
-			ConcatEdges(edgesArr, p0.ID, p1.ID, p0.ID)
-		} else {
-			ConcatEdges(edgesArr, p1.ID, p0.ID, p0.ID)
+			if !strand {
+				p1.Utg = GetRCUnitig(p1.Utg)
+			}
+			fmt.Printf("[CascadePath]FORWARD p0.ID: %v, p1.ID: %v, lastEID: %v, strand: %v, nID: Incoming: %v, Outcoming: %v\n", p0.ID, p1.ID, lastEID, strand, nodesArr[nID].EdgeIDIncoming, nodesArr[nID].EdgeIDOutcoming)
+			edgesArr[p0.ID].Utg = ConcatEdges(p0.Utg, p1.Utg, kmerlen)
 		}
 
 		if nID == edgesArr[p1.ID].StartNID {
@@ -3179,31 +3488,39 @@ func CascadePath(p Path, edgesArr []DBGEdge, nodesArr []DBGNode) {
 		lastEID = p1.ID
 	}
 
-	// clean old node EdgeIDcoming
-	me := edgesArr[p0.ID]
-	if eStartNID > 0 && me.StartNID != eStartNID && !SubstituteEdgeID(nodesArr, eStartNID, me.ID, 0) {
-		log.Fatalf("[ReconstructDBG] SubsitututeEdgeID for Merged edge error, node: %v\n\tedge:%v\n", nodesArr[eStartNID], me)
-	}
-	if eEndNID > 0 && me.EndNID != eEndNID && !SubstituteEdgeID(nodesArr, eEndNID, me.ID, 0) {
-		log.Fatalf("[ReconstructDBG] SubsitututeEdgeID for Merged edge error, node: %v\n\tedge:%v\n", nodesArr[eEndNID], me)
+	if direction == FORWARD {
+		if !SubstituteEdgeID(nodesArr, p0.EndNID, p0.ID, 0) {
+			log.Fatalf("[ReconstructDBG] SubsitututeEdgeID for Merged edge error, node: %v\n\tedge:%v\n", nodesArr[p0.EndNID], p0)
+		}
+		if !SubstituteEdgeID(nodesArr, nID, p1.ID, p0.ID) {
+			log.Fatalf("[ReconstructDBG] SubsitututeEdgeID for Merged edge error, node: %v\n\tedge:%v\n", nodesArr[nID], p1)
+		}
+		edgesArr[p0.ID].EndNID = nID
+	} else {
+		if !SubstituteEdgeID(nodesArr, p0.StartNID, p0.ID, 0) {
+			log.Fatalf("[ReconstructDBG] SubsitututeEdgeID for Merged edge error, node: %v\n\tedge:%v\n", nodesArr[p0.StartNID], p0)
+		}
+		if !SubstituteEdgeID(nodesArr, nID, p1.ID, p0.ID) {
+			log.Fatalf("[ReconstructDBG] SubsitututeEdgeID for Merged edge error, node: %v\n\tedge:%v\n", nodesArr[nID], p1)
+		}
+		edgesArr[p0.ID].StartNID = nID
 	}
 }
 
 // reset the nodesArr EdgeIDIncoming and EdgeIDOutcoming
 func ResetDeleteEdgeIncoming(edgesArr []DBGEdge, nodesArr []DBGNode) {
-	for i, e := range edgesArr {
-		if e.ID == 0 {
+	for _, e := range edgesArr {
+		if e.ID < 2 || e.GetDeleteFlag() == 0 {
 			continue
 		}
-		if e.GetDeleteFlag() > 0 {
-			fmt.Printf("[ResetDeleteEdgeIncoming] deleted edge:%v\n", e)
-			if e.StartNID > 0 && !SubstituteEdgeID(nodesArr, e.StartNID, e.ID, 0) {
-				log.Fatalf("[ResetDeleteEdgeIncoming] SubsitututeEdgeID for deleted edge error, nodesArr[%v]: %v\n\tedge:%v\n\tedge len: %v\n", e.StartNID, nodesArr[e.StartNID], e, e.GetSeqLen())
-			}
-			if e.EndNID > 0 && !SubstituteEdgeID(nodesArr, e.EndNID, e.ID, 0) {
-				log.Fatalf("[ResetDeleteEdgeIncoming] SubsitututeEdgeID for deleted edge error, nodesArr[%v]: %v\n\tedge:%v\n\tedge len: %v\n", e.EndNID, nodesArr[e.EndNID], e, e.GetSeqLen())
-			}
-			edgesArr[i].ID = 0
+		fmt.Printf("[ResetDeleteEdgeIncoming] deleted edge:%v\n", e)
+		if e.StartNID > 0 {
+			SubstituteEdgeID(nodesArr, e.StartNID, e.ID, 0)
+			//log.Fatalf("[ResetDeleteEdgeIncoming] SubsitututeEdgeID for deleted edge error, nodesArr[%v]: %v\n\tedge:%v\n\tedge len: %v\n", e.StartNID, nodesArr[e.StartNID], e, e.GetSeqLen())
+		}
+		if e.EndNID > 0 {
+			SubstituteEdgeID(nodesArr, e.EndNID, e.ID, 0)
+			//log.Fatalf("[ResetDeleteEdgeIncoming] SubsitututeEdgeID for deleted edge error, nodesArr[%v]: %v\n\tedge:%v\n\tedge len: %v\n", e.EndNID, nodesArr[e.EndNID], e, e.GetSeqLen())
 		}
 	}
 }
@@ -3290,7 +3607,6 @@ func ResetNodeEdgecoming(edgesArr []DBGEdge, nodesArr []DBGNode) {
 				}
 			}
 		}
-
 	}
 }
 
@@ -3362,7 +3678,7 @@ func CleanEdgesArr(edgesArr []DBGEdge, nodesArr []DBGNode) (deleteNodeNum, delet
 	return deleteNodeNum, deleteEdgeNum
 }
 
-func ReconstructDBG(edgesArr []DBGEdge, nodesArr []DBGNode, joinPathArr []Path, IDMapPath map[DBG_MAX_INT]uint32) []Path {
+func ReconstructDBG(edgesArr []DBGEdge, nodesArr []DBGNode, joinPathArr []Path, kmerlen int) {
 	// join path that unique path
 	for _, p := range joinPathArr {
 		if len(p.IDArr) <= 1 {
@@ -3371,82 +3687,83 @@ func ReconstructDBG(edgesArr []DBGEdge, nodesArr []DBGNode, joinPathArr []Path, 
 		fmt.Printf("[ReconstructDBG] p: %v\n", p)
 		//if IsTwoEdgeCyclePath(path) { joinPathArr[i].IDArr = }
 
-		CascadePath(p, edgesArr, nodesArr)
-
+		CascadePath(p, edgesArr, nodesArr, kmerlen)
 	}
-
-	fmt.Printf("[ReconstructDBG] finished joinPathArr reconstruct\n")
-	fmt.Printf("[ReconstructDBG] edgesArr[%v]: %v\n", 481, edgesArr[481])
-
-	// reset the nodesArr EdgeIDIncoming and EdgeIDOutcoming
+	// Reset delete edges coming DBGNodes
 	ResetDeleteEdgeIncoming(edgesArr, nodesArr)
-	fmt.Printf("[ReconstructDBG] after ResetDeleteEdgeIncoming edgesArr[%v]: %v\n", 481, edgesArr[481])
-	ResetMergedEdgeNID(edgesArr, nodesArr, joinPathArr, IDMapPath)
-	fmt.Printf("[ReconstructDBG] after ResetMergedEdgeNID edgesArr[%v]: %v\n", 481, edgesArr[481])
 
-	// simplify DBG
-	//var deleteNodeNum, deleteEdgeNum int
-	// clean edgesArr
-	deleteNodeNum, deleteEdgeNum := CleanEdgesArr(edgesArr, nodesArr)
-	fmt.Printf("[ReconstructDBG] after CleanEdgesArr edgesArr[%v]: %v\n", 481, edgesArr[481])
-	// clean nodesArr
-	// initial nodesArr procesed Flag
-	InitialDBGNodeProcessFlag(nodesArr)
+	/*
+		fmt.Printf("[ReconstructDBG] finished joinPathArr reconstruct\n")
+		fmt.Printf("[ReconstructDBG] edgesArr[%v]: %v\n", 481, edgesArr[481])
 
-	for i, nd := range nodesArr {
-		if nd.ID == 0 || nd.GetDeleteFlag() > 0 || nd.GetProcessFlag() > 0 {
-			continue
-		}
-		inNum, inID := GetEdgeIDComing(nd.EdgeIDIncoming)
-		outNum, outID := GetEdgeIDComing(nd.EdgeIDOutcoming)
-		if inNum == 0 && outNum == 0 {
-			nodesArr[i].SetDeleteFlag()
-			nodesArr[i].ID = 0
-			deleteNodeNum++
-		} else if inNum+outNum == 1 {
-			id := inID
-			if outNum == 1 {
-				id = outID
-			}
-			if edgesArr[id].StartNID == nd.ID {
-				edgesArr[id].StartNID = 0
-			} else {
-				edgesArr[id].EndNID = 0
-			}
-			deleteNodeNum++
-		} else if inNum == 1 && outNum == 1 && inID != outID { // prevent cycle ring
-			if edgesArr[inID].StartNID != nd.ID && edgesArr[inID].EndNID != nd.ID {
-				edgesArr[inID].SetDeleteFlag()
-				fmt.Printf("[ReconstructDBG] clean nodesArr deleted edge, edgesArr[%v]: %v\n\tnd: %v\n", inID, edgesArr[inID], nd)
-				fmt.Printf("[ReconstructDBG] clean nodesArr deleted edge, edgesArr[%v]: %v\n", outID, edgesArr[outID])
+		// reset the nodesArr EdgeIDIncoming and EdgeIDOutcoming
+		ResetDeleteEdgeIncoming(edgesArr, nodesArr)
+		fmt.Printf("[ReconstructDBG] after ResetDeleteEdgeIncoming edgesArr[%v]: %v\n", 481, edgesArr[481])
+		ResetMergedEdgeNID(edgesArr, nodesArr, joinPathArr, IDMapPath)
+		fmt.Printf("[ReconstructDBG] after ResetMergedEdgeNID edgesArr[%v]: %v\n", 481, edgesArr[481])
+
+		// simplify DBG
+		//var deleteNodeNum, deleteEdgeNum int
+		// clean edgesArr
+		deleteNodeNum, deleteEdgeNum := CleanEdgesArr(edgesArr, nodesArr)
+		fmt.Printf("[ReconstructDBG] after CleanEdgesArr edgesArr[%v]: %v\n", 481, edgesArr[481])
+		// clean nodesArr
+		// initial nodesArr procesed Flag
+		InitialDBGNodeProcessFlag(nodesArr)
+
+		for i, nd := range nodesArr {
+			if nd.ID == 0 || nd.GetDeleteFlag() > 0 || nd.GetProcessFlag() > 0 {
 				continue
 			}
-			if edgesArr[outID].StartNID != nd.ID && edgesArr[outID].EndNID != nd.ID {
-				edgesArr[outID].SetDeleteFlag()
-				fmt.Printf("[ReconstructDBG] clean nodesArr deleted edge, edgesArr[%v]: %v\n\tnd: %v\n", inID, edgesArr[inID], nd)
-				fmt.Printf("[ReconstructDBG] clean nodesArr deleted edge, edgesArr[%v]: %v\n", outID, edgesArr[outID])
-				continue
-			}
-			path := GetLinkPathArr(nodesArr, edgesArr, nd.ID)
-			joinPathArr = ResetIDMapPath(IDMapPath, joinPathArr, path)
-			fmt.Printf("[ReconstructDBG]clean nodesArr path: %v\n", path)
+			inNum, inID := GetEdgeIDComing(nd.EdgeIDIncoming)
+			outNum, outID := GetEdgeIDComing(nd.EdgeIDOutcoming)
+			if inNum == 0 && outNum == 0 {
+				nodesArr[i].SetDeleteFlag()
+				nodesArr[i].ID = 0
+				deleteNodeNum++
+			} else if inNum+outNum == 1 {
+				id := inID
+				if outNum == 1 {
+					id = outID
+				}
+				if edgesArr[id].StartNID == nd.ID {
+					edgesArr[id].StartNID = 0
+				} else {
+					edgesArr[id].EndNID = 0
+				}
+				deleteNodeNum++
+			} else if inNum == 1 && outNum == 1 && inID != outID { // prevent cycle ring
+				if edgesArr[inID].StartNID != nd.ID && edgesArr[inID].EndNID != nd.ID {
+					edgesArr[inID].SetDeleteFlag()
+					fmt.Printf("[ReconstructDBG] clean nodesArr deleted edge, edgesArr[%v]: %v\n\tnd: %v\n", inID, edgesArr[inID], nd)
+					fmt.Printf("[ReconstructDBG] clean nodesArr deleted edge, edgesArr[%v]: %v\n", outID, edgesArr[outID])
+					continue
+				}
+				if edgesArr[outID].StartNID != nd.ID && edgesArr[outID].EndNID != nd.ID {
+					edgesArr[outID].SetDeleteFlag()
+					fmt.Printf("[ReconstructDBG] clean nodesArr deleted edge, edgesArr[%v]: %v\n\tnd: %v\n", inID, edgesArr[inID], nd)
+					fmt.Printf("[ReconstructDBG] clean nodesArr deleted edge, edgesArr[%v]: %v\n", outID, edgesArr[outID])
+					continue
+				}
+				path := GetLinkPathArr(nodesArr, edgesArr, nd.ID)
+				joinPathArr = ResetIDMapPath(IDMapPath, joinPathArr, path)
+				fmt.Printf("[ReconstructDBG]clean nodesArr path: %v\n", path)
 
-			for _, eID := range path.IDArr[1:] {
-				edgesArr[eID].SetDeleteFlag()
+				for _, eID := range path.IDArr[1:] {
+					edgesArr[eID].SetDeleteFlag()
+				}
+				// join path
+				CascadePath(path, edgesArr, nodesArr)
 			}
-			// join path
-			CascadePath(path, edgesArr, nodesArr)
 		}
-	}
 
-	// reset the nodesArr EdgeIDIncoming and EdgeIDOutcoming
-	ResetDeleteEdgeIncoming(edgesArr, nodesArr)
-	ResetMergedEdgeNID(edgesArr, nodesArr, joinPathArr, IDMapPath)
-	ResetNodeEdgecoming(edgesArr, nodesArr)
+		// reset the nodesArr EdgeIDIncoming and EdgeIDOutcoming
+		ResetDeleteEdgeIncoming(edgesArr, nodesArr)
+		ResetMergedEdgeNID(edgesArr, nodesArr, joinPathArr, IDMapPath)
+		ResetNodeEdgecoming(edgesArr, nodesArr)
 
-	fmt.Printf("[ReconstructDBG] delete edge number is : %v\n\tdelete node number is : %v\n\tmerge edge path number is : %v\n", deleteEdgeNum, deleteNodeNum, len(joinPathArr))
-
-	return joinPathArr
+		fmt.Printf("[ReconstructDBG] delete edge number is : %v\n\tdelete node number is : %v\n\tmerge edge path number is : %v\n", deleteEdgeNum, deleteNodeNum, len(joinPathArr))
+	*/
 }
 
 func findPathOverlap(jp Path, pathArr []DBG_MAX_INT, edgesArr []DBGEdge) (id DBG_MAX_INT, num int) {
@@ -3518,20 +3835,27 @@ func CheckPathDirection(edgesArr []DBGEdge, nodesArr []DBGNode, eID DBG_MAX_INT)
 	if e.EndNID > 0 {
 		ea2 = GetNearEdgeIDArr(nodesArr[e.EndNID], eID)
 	}
-	idx := IndexEID(e.PathMat[0].IDArr, eID)
-	step := 1
-	if len(ea1) == 1 && len(ea2) == 1 && ea1[0] == ea2[0] { // found two edge cycle
-		ea1 = GetOtherEArr(nodesArr[e.EndNID], eID)
-		ea2 = GetOtherEArr(nodesArr[e.StartNID], eID)
-		step = 2
+
+	// found two edge cycle
+	if len(ea1) == 1 && len(ea2) == 1 && ea1[0] == ea2[0] {
+		edgesArr[ea1[0]].ResetUniqueFlag()
+		return
 	}
-	if idx >= step && IsInDBG_MAX_INTArr(ea2, e.PathMat[0].IDArr[idx-step]) {
-		ReverseDBG_MAX_INTArr(edgesArr[eID].PathMat[0].IDArr)
+
+	for i, p := range e.PathMat {
+		idx := IndexEID(p.IDArr, eID)
+		if idx < len(p.IDArr)-1 {
+			if IsInDBG_MAX_INTArr(ea1, p.IDArr[idx+1]) {
+				ReverseDBG_MAX_INTArr(edgesArr[eID].PathMat[i].IDArr)
+			}
+		} else {
+			if IsInDBG_MAX_INTArr(ea2, p.IDArr[idx-1]) {
+				ReverseDBG_MAX_INTArr(edgesArr[eID].PathMat[i].IDArr)
+			}
+		}
 	}
-	if idx < len(e.PathMat[0].IDArr)-step && IsInDBG_MAX_INTArr(ea1, e.PathMat[0].IDArr[idx+step]) {
-		ReverseDBG_MAX_INTArr(edgesArr[eID].PathMat[0].IDArr)
-	}
-	fmt.Printf("[CheckPathDirection] ea1: %v, ea2: %v, PathMat: %v\n", ea1, ea2, edgesArr[eID].PathMat[0])
+
+	//fmt.Printf("[CheckPathDirection] ea1: %v, ea2: %v, PathMat: %v\n", ea1, ea2, edgesArr[eID].PathMat)
 
 }
 
@@ -3708,38 +4032,39 @@ func ConstructIDMapPath(joinPathArr []Path) map[DBG_MAX_INT]uint32 {
 	IDMapPath := make(map[DBG_MAX_INT]uint32)
 	for i, p := range joinPathArr {
 		sc := [2]DBG_MAX_INT{p.IDArr[0], p.IDArr[len(p.IDArr)-1]}
-		for j, id := range sc {
+		for _, id := range sc {
 			if idx, ok := IDMapPath[id]; ok {
 				a := joinPathArr[idx]
-
-				fmt.Printf("[ConstructIDMapPath] path: %v collison with : %v\n", a, p)
-				a1, a2 := p, a
-				if len(a.IDArr) > len(p.IDArr) {
-					a1, a2 = a, p
-				}
-				if IsContainBoundaryArr(a1.IDArr, a2.IDArr) {
-					if len(a1.IDArr) > len(a.IDArr) {
-						fmt.Printf("[ConstructIDMapPath] delete : %v\n", joinPathArr[idx])
-						delete(IDMapPath, joinPathArr[idx].IDArr[0])
-						delete(IDMapPath, joinPathArr[idx].IDArr[len(joinPathArr[idx].IDArr)-1])
-						joinPathArr[idx].IDArr = nil
-						joinPathArr[idx].Freq = 0
-						IDMapPath[id] = uint32(i)
-					} else {
-						joinPathArr[i].IDArr = nil
-						joinPathArr[i].Freq = 0
-						if j == 0 {
-							break
-						} else {
-							delete(IDMapPath, sc[0])
-						}
-					}
-				} else {
-					log.Fatalf("[ConstructIDMapPath] path: %v collison with : %v\n", a, p)
-				}
+				log.Fatalf("[ConstructIDMapPath] path: %v collison with : %v\n", a, p)
 			} else {
 				IDMapPath[id] = uint32(i)
 			}
+			/*fmt.Printf("[ConstructIDMapPath] path: %v collison with : %v\n", a, p)
+			a1, a2 := p, a
+			if len(a.IDArr) > len(p.IDArr) {
+				a1, a2 = a, p
+			}
+			if IsContainBoundaryArr(a1.IDArr, a2.IDArr) {
+				if len(a1.IDArr) > len(a.IDArr) {
+					fmt.Printf("[ConstructIDMapPath] delete : %v\n", joinPathArr[idx])
+					delete(IDMapPath, joinPathArr[idx].IDArr[0])
+					delete(IDMapPath, joinPathArr[idx].IDArr[len(joinPathArr[idx].IDArr)-1])
+					joinPathArr[idx].IDArr = nil
+					joinPathArr[idx].Freq = 0
+					IDMapPath[id] = uint32(i)
+				} else {
+					joinPathArr[i].IDArr = nil
+					joinPathArr[i].Freq = 0
+					if j == 0 {
+						break
+					} else {
+						delete(IDMapPath, sc[0])
+					}
+				}
+			} else {
+				log.Fatalf("[ConstructIDMapPath] path: %v collison with : %v\n", a, p)
+			} */
+
 		}
 	}
 
@@ -3760,31 +4085,34 @@ func SimplifyByNGS(opt Options, nodesArr []DBGNode, edgesArr []DBGEdge, mapNGSFn
 	AddPathToDBGEdge(edgesArr, mapNGSFn)
 
 	// merge pathMat
-	MergePathMat(edgesArr, nodesArr)
+	MergePathMat(edgesArr, nodesArr, opt.MinMapFreq)
 
 	// find maximum path
-	joinPathArr := findMaxPath(edgesArr, nodesArr)
+	joinPathArr := findMaxPath(edgesArr, nodesArr, opt.MinMapFreq)
+	/*i := 125
+	if edgesArr[i].GetDeleteFlag() == 0 {
+		log.Fatalf("[SimplifyByNGS]edgesArr[%v]: %v\n", i, edgesArr[i])
+	}*/
 	// constuct map edge ID to the path
-	IDMapPath := ConstructIDMapPath(joinPathArr)
-	DeleteJoinPathArrEnd(edgesArr, joinPathArr)
-	joinPathArr = ReconstructDBG(edgesArr, nodesArr, joinPathArr, IDMapPath)
+	//DeleteJoinPathArrEnd(edgesArr, joinPathArr)
+	ReconstructDBG(edgesArr, nodesArr, joinPathArr, opt.Kmer)
 	// debug code
 	//graphfn := opt.Prefix + ".afterNGS.dot"
 	//GraphvizDBGArr(nodesArr, edgesArr, graphfn)
 
-	AdjustPathMat(edgesArr, nodesArr, joinPathArr, IDMapPath)
+	//AdjustPathMat(edgesArr, nodesArr, joinPathArr, IDMapPath)
 }
 
 func CheckInterConnectivity(edgesArr []DBGEdge, nodesArr []DBGNode) {
 	for _, e := range edgesArr {
-		if e.ID == 0 || e.GetDeleteFlag() > 0 {
+		if e.ID < 2 || e.GetDeleteFlag() > 0 {
 			continue
 		}
 		if e.StartNID > 0 && (nodesArr[e.StartNID].GetDeleteFlag() > 0 || !IsInDBGNode(nodesArr[e.StartNID], e.ID)) {
-			log.Fatalf("[CheckInterConnectivity] nd: %v\n\tedge: %v\n", nodesArr[e.StartNID], e)
+			log.Fatalf("[CheckInterConnectivity]edge check nd: %v\n\tedge: %v\n", nodesArr[e.StartNID], e)
 		}
 		if e.EndNID > 0 && (nodesArr[e.EndNID].GetDeleteFlag() > 0 || !IsInDBGNode(nodesArr[e.EndNID], e.ID)) {
-			log.Fatalf("[CheckInterConnectivity] nd: %v\n\tedge: %v\n", nodesArr[e.StartNID], e)
+			log.Fatalf("[CheckInterConnectivity]edge check nd: %v\n\tedge: %v\n", nodesArr[e.EndNID], e)
 		}
 	}
 
@@ -3794,16 +4122,16 @@ func CheckInterConnectivity(edgesArr []DBGEdge, nodesArr []DBGNode) {
 		}
 
 		for j := 0; j < bnt.BaseTypeNum; j++ {
-			if nd.EdgeIDIncoming[j] > 0 {
+			if nd.EdgeIDIncoming[j] > 1 {
 				eID := nd.EdgeIDIncoming[j]
 				if edgesArr[eID].GetDeleteFlag() > 0 || (edgesArr[eID].StartNID != nd.ID && edgesArr[eID].EndNID != nd.ID) {
-					log.Fatalf("[CheckInterConnectivity] nd: %v\n\tedge: %v\n", nd, edgesArr[eID])
+					log.Fatalf("[CheckInterConnectivity]node check nd: %v\n\tedge: %v\n", nd, edgesArr[eID])
 				}
 			}
-			if nd.EdgeIDOutcoming[j] > 0 {
+			if nd.EdgeIDOutcoming[j] > 1 {
 				eID := nd.EdgeIDOutcoming[j]
 				if edgesArr[eID].GetDeleteFlag() > 0 || (edgesArr[eID].StartNID != nd.ID && edgesArr[eID].EndNID != nd.ID) {
-					log.Fatalf("[CheckInterConnectivity] nd: %v\n\tedge: %v\n", nd, edgesArr[eID])
+					log.Fatalf("[CheckInterConnectivity]node check nd: %v\n\tedge: %v\n", nd, edgesArr[eID])
 				}
 			}
 		}
@@ -3815,6 +4143,7 @@ type Options struct {
 	TipMaxLen     int
 	WinSize       int
 	MaxNGSReadLen int
+	MinMapFreq    int
 	//MaxMapEdgeLen int // max length of edge that don't need cut two flank sequence to map Long Reads
 }
 
@@ -3843,6 +4172,15 @@ func checkArgs(c cli.Command) (opt Options, succ bool) {
 	if opt.MaxNGSReadLen < opt.Kmer+50 {
 		log.Fatalf("[checkArgs] argument 'MaxNGSReadLen': %v must bigger than K+50\n", c.Flag("MaxNGSReadLen").String())
 	}
+
+	opt.MinMapFreq, ok = c.Flag("MinMapFreq").Get().(int)
+	if !ok {
+		log.Fatalf("[checkArgs] argument 'MinMapFreq': %v set error\n ", c.Flag("MinMapFreq").String())
+	}
+	if opt.MinMapFreq < 2 && opt.MinMapFreq >= 10 {
+		log.Fatalf("[checkArgs] argument 'MinMapFreq': %v must 2 <= MinMapFreq < 10\n", c.Flag("MinMapFreq").String())
+	}
+
 	/*opt.MaxMapEdgeLen, ok = c.Flag("MaxMapEdgeLen").Get().(int)
 	if !ok {
 		log.Fatalf("[checkArgs] argument 'MaxMapEdgeLen': %v set error\n ", c.Flag("MaxMapEdgeLen").String())
@@ -3863,7 +4201,7 @@ func Smfy(c cli.Command) {
 	if suc == false {
 		log.Fatalf("[Smfy] check global Arguments error, opt: %v\n", gOpt)
 	}
-	opt := Options{gOpt, 0, 0, 0}
+	opt := Options{gOpt, 0, 0, 0, 0}
 	tmp, suc := checkArgs(c)
 	if suc == false {
 		log.Fatalf("[Smfy] check Arguments error, opt: %v\n", tmp)
@@ -3871,6 +4209,7 @@ func Smfy(c cli.Command) {
 	opt.TipMaxLen = tmp.TipMaxLen
 	opt.MaxNGSReadLen = tmp.MaxNGSReadLen
 	opt.WinSize = tmp.WinSize
+	opt.MinMapFreq = tmp.MinMapFreq
 	//opt.MaxMapEdgeLen = tmp.MaxMapEdgeLen
 	fmt.Printf("Arguments: %v\n", opt)
 
@@ -3890,7 +4229,6 @@ func Smfy(c cli.Command) {
 	gfn1 := opt.Prefix + ".beforeSmfyDBG.dot"
 	GraphvizDBG(nodeMap, edgesArr, gfn1)
 
-	//SmfyDBG(nodeMap, edgesArr, opt)
 	//gfn := opt.Prefix + ".smfyDBG.dot"
 	//GraphvizDBG(nodeMap, edgesArr, gfn)
 	// reconstruct consistence De Bruijn Graph
@@ -3907,11 +4245,17 @@ func Smfy(c cli.Command) {
 
 	t1 := time.Now()
 	// map Illumina reads to the DBG and find reads map path for simplify DBG
-	wrFn := opt.Prefix + ".NGSAlignment"
+	wrFn := opt.Prefix + ".smfy.NGSAlignment"
 	MapNGS2DBG(opt, nodesArr, edgesArr, wrFn)
 	//CheckInterConnectivity(edgesArr, nodesArr)
 	SimplifyByNGS(opt, nodesArr, edgesArr, wrFn)
+
 	CheckInterConnectivity(edgesArr, nodesArr)
+
+	// simplify DBG
+	//IDMapPath := ConstructIDMapPath(joinPathArr)
+	SmfyDBG(nodesArr, edgesArr, opt)
+	//AdjustPathMat(edgesArr, nodesArr, joinPathArr, IDMapPath)
 
 	t2 := time.Now()
 	fmt.Printf("[Smfy] total used : %v, MapNGS2DBG used : %v\n", t2.Sub(t0), t2.Sub(t1))
