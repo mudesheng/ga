@@ -639,6 +639,22 @@ func ReverseByteArr(ba []byte) {
 	}
 }
 
+func GetReverseByteArr(ba []byte) (na []byte) {
+	na = make([]byte, len(ba))
+	for i := 0; i < len(ba); i++ {
+		na[len(ba)-1-i] = ba[i]
+	}
+	return
+}
+
+func GetCompByteArr(seq []byte) (cseq []byte) {
+	cseq = make([]byte, len(seq))
+	for i, b := range seq {
+		cseq[i] = bnt.BntRev[b]
+	}
+	return
+}
+
 func ReverseCompByteArr(seq []byte) {
 	ls := len(seq)
 	for i := 0; i < ls/2; i++ {

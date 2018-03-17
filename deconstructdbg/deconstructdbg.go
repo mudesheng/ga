@@ -245,6 +245,7 @@ type Options struct {
 	MaxNGSReadLen int
 	MinMapFreq    int
 	ExtLen        int
+	ONTFn         string
 }
 
 func checkArgs(c cli.Command) (opt Options, succ bool) {
@@ -311,6 +312,8 @@ func checkArgs(c cli.Command) (opt Options, succ bool) {
 		log.Fatalf("[checkArgs] argument 'ExtLen': %v must bigger than 1000\n", c.Flag("ExtLen").String())
 	}
 
+	opt.ONTFn = c.Flag("LongReadFile").String()
+
 	succ = true
 	return opt, succ
 }
@@ -322,7 +325,7 @@ func DeconstructDBG(c cli.Command) {
 		log.Fatalf("[Smfy] check global Arguments error, opt: %v\n", gOpt)
 	}
 
-	opt := Options{gOpt, 0, 0, 0, 0, 0}
+	opt := Options{gOpt, 0, 0, 0, 0, 0, ""}
 	tmp, suc := checkArgs(c)
 	if suc == false {
 		log.Fatalf("[Smfy] check Arguments error, opt: %v\n", tmp)
@@ -334,6 +337,7 @@ func DeconstructDBG(c cli.Command) {
 	opt.MinMapFreq = tmp.MinMapFreq
 	//opt.MaxMapEdgeLen = tmp.MaxMapEdgeLen
 	opt.ExtLen = tmp.ExtLen
+	opt.ONTFn = tmp.ONTFn
 	constructdbg.Kmerlen = opt.Kmer
 	fmt.Printf("Arguments: %v\n", opt)
 
@@ -371,10 +375,10 @@ func DeconstructDBG(c cli.Command) {
 
 	// get ont Long reads Mapping info by minimap2, must use ont or other Long reads as reference, and smfy edges as query
 	paffn := opt.Prefix + ".paf"
-	rc := make(chan [][]string, opt.NumCPU)
+	rc := make(chan []PAFInfo, opt.NumCPU)
 	wc := make(chan [2][]constructdbg.DBG_MAX_INT, opt.NumCPU)
 
-	go GetPAFRecord(paffn, rc, opt.NumCPU)
+	go GetPAFRecord(paffn, opt.ONTFn, rc, opt.NumCPU)
 
 	for i := 0; i < opt.NumCPU; i++ {
 		go paraFindLongReadsMappingPath(rc, wc, edgesArr, nodesArr, opt)

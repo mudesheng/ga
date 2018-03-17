@@ -65,6 +65,8 @@ func init() {
 		decontdbg.DefineIntFlag("MaxNGSReadLen", 550, "Max NGS Read Length")
 		decontdbg.DefineIntFlag("MinMapFreq", 2, "Minimum reads Mapping Frequent")
 		decontdbg.DefineIntFlag("ExtLen", 1000, "Extend Path length for distingush most probable path")
+		decontdbg.DefineStringFlag("LongReadFile", "ONT.fa", "Oxford Nanopore Technology long reads file")
+
 	}
 	// mapping long read to the DBG
 	mapDBG := app.DefineSubCommand("mapDBG", "mapping long read to the DBG", constructdbg.MapDBG)
