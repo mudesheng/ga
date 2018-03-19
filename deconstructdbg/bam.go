@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"reflect"
 	"sort"
@@ -108,6 +109,7 @@ type MapInfo struct {
 	EdgePos int                      // note edge sequence mapping start position
 	EIDIdx  int                      // mapping edge ID in the extArr[0]
 	NID     constructdbg.DBG_MAX_INT // note edge to next node ID
+	Strand  bool                     // note PLUS or MINUS strand mapping to the readSeq
 }
 
 func (R LRRecord) GetNM() int {
@@ -711,6 +713,9 @@ func GetConsisPath(pathMat []constructdbg.Path, eID, neID constructdbg.DBG_MAX_I
 	for i := 0; i < maxLen; i++ {
 		var id constructdbg.DBG_MAX_INT
 		for _, p := range pm {
+			if len(p) <= i {
+				continue
+			}
 			if id == 0 {
 				id = p[i]
 			} else if id != p[i] {
@@ -734,10 +739,11 @@ func GetNGSPath(extArr [2][]constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DB
 	for i := len(extArr[0]) - 1; i >= 0; i-- {
 		e := edgesArr[extArr[0][i]]
 		if e.GetUniqueFlag() > 0 && i < len(extArr[0])-1 {
-			eIDArr = GetConsisPath(e.PathMat, e.ID, extArr[0][i+1])
-			fmt.Printf("[GetNGSPath] eIDArr: %v\n", eIDArr)
-			if len(eIDArr) > len(extArr[0])-i && reflect.DeepEqual(extArr[0][i:], eIDArr[:len(extArr[0])-i]) {
-				return eIDArr[len(extArr[0])-i:]
+			//fmt.Printf("[GetNGSPath] eID: %v, pathMat: %v\n", e.ID, e.PathMat)
+			arr := GetConsisPath(e.PathMat, e.ID, extArr[0][i+1])
+			if len(arr) > len(extArr[0])-i && reflect.DeepEqual(extArr[0][i:], arr[:len(extArr[0])-i]) {
+				eIDArr = arr[len(extArr[0])-i:]
+				return
 			}
 		}
 	}
@@ -869,54 +875,52 @@ func findMostProbablePath(arr []LRRecord, edgesArr []constructdbg.DBGEdge, nodes
 	return
 }
 
-func ComputingNextEdgeInfo(e, ed constructdbg.DBGEdge, nd constructdbg.DBGNode) (strand bool, nID constructdbg.DBG_MAX_INT) {
-	if e.StartNID == nID {
-		if ed.StartNID == nID {
+func ComputingNextEdgeInfo(e, ed constructdbg.DBGEdge, strand bool, nd constructdbg.DBGNode) (bool, constructdbg.DBG_MAX_INT) {
+	var nID constructdbg.DBG_MAX_INT
+	if e.StartNID == nd.ID {
+		if ed.StartNID == nd.ID {
 			strand = !strand
 			nID = ed.EndNID
 		} else {
 			nID = ed.StartNID
 		}
 	} else {
-		if ed.EndNID == nID {
+		if ed.EndNID == nd.ID {
 			strand = !strand
 			nID = ed.StartNID
 		} else {
 			nID = ed.EndNID
 		}
 	}
-	return
+	return strand, nID
 }
 
-func GetMappingEdgePathSeq(mi MapInfo, extArr [2][]constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, direction uint8, extendEID constructdbg.DBG_MAX_INT, extendMinLen, kmerLen int) (edgeSeq []byte) {
+func GetMappingEdgePathSeq(mi MapInfo, extArr []constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, direction uint8, extendEID constructdbg.DBG_MAX_INT, extendMinLen, kmerLen int) (edgeSeq []byte, strand bool, minLen int) {
 	fmt.Printf("[GetMappingEdgePathSeq]mi: %v, direction: %v, extendEID: %v, extendMinLen: %v, kmerLen: %v\n", mi, direction, extendEID, extendMinLen, kmerLen)
 	// add first edge sequence
-	e := edgesArr[extArr[0][mi.EIDIdx]]
-	var strand bool
+	e := edgesArr[extArr[mi.EIDIdx]]
+	strand = mi.Strand
+	//var strand bool
 	if direction == constructdbg.BACKWARD {
-		if mi.NID == e.StartNID {
-			strand = constructdbg.PLUS
+		if strand == constructdbg.PLUS {
 			edgeSeq = append(edgeSeq, constructdbg.GetReverseByteArr(e.Utg.Ks[:mi.EdgePos])...)
 		} else {
-			strand = constructdbg.MINUS
 			edgeSeq = append(edgeSeq, constructdbg.GetCompByteArr(e.Utg.Ks[mi.EdgePos:])...)
 		}
 	} else {
-		if mi.NID == e.EndNID {
-			strand = constructdbg.PLUS
+		if strand == constructdbg.PLUS {
 			edgeSeq = append(edgeSeq, e.Utg.Ks[mi.EdgePos:]...)
 		} else {
-			strand = constructdbg.MINUS
 			edgeSeq = append(edgeSeq, constructdbg.GetReverseCompByteArr(e.Utg.Ks[:mi.EdgePos])...)
 		}
 	}
-	fmt.Printf("[GetMappingEdgePathSeq]after add first edge len(edgeSeq): %v\n", len(edgeSeq))
+	//fmt.Printf("[GetMappingEdgePathSeq]after add first edge len(edgeSeq): %v\n", len(edgeSeq))
 	// add middle path edges sequence
 	nID := mi.NID
-	for _, eID := range extArr[0][mi.EIDIdx+1:] {
+	for _, eID := range extArr[mi.EIDIdx+1:] {
 		nd := nodesArr[nID]
 		ed := edgesArr[eID]
-		strand, nID = ComputingNextEdgeInfo(e, ed, nd)
+		strand, nID = ComputingNextEdgeInfo(e, ed, strand, nd)
 		if direction == constructdbg.BACKWARD {
 			if strand == constructdbg.PLUS {
 				edgeSeq = append(edgeSeq, constructdbg.GetReverseByteArr(ed.Utg.Ks[:len(ed.Utg.Ks)-kmerLen+1])...)
@@ -930,12 +934,15 @@ func GetMappingEdgePathSeq(mi MapInfo, extArr [2][]constructdbg.DBG_MAX_INT, edg
 				edgeSeq = append(edgeSeq, constructdbg.GetReverseCompByteArr(ed.Utg.Ks[:len(ed.Utg.Ks)-kmerLen+1])...)
 			}
 		}
+		extendMinLen -= len(ed.Utg.Ks) - (kmerLen - 1)
 		e = ed
 	}
-	fmt.Printf("[GetMappingEdgePathSeq]after add middle edge len(edgeSeq): %v\n", len(edgeSeq))
+	//fmt.Printf("[GetMappingEdgePathSeq]after add middle edge len(edgeSeq): %v\n", len(edgeSeq))
 	// add last edge sequence
 	ed := edgesArr[extendEID]
-	strand, nID = ComputingNextEdgeInfo(e, ed, nodesArr[nID])
+	strand, _ = ComputingNextEdgeInfo(e, ed, strand, nodesArr[nID])
+	extendMinLen += kmerLen - 1
+	fmt.Printf("[GetMappingEdgePathSeq]after add middle edge extendMinLen: %v\n", extendMinLen)
 	if direction == constructdbg.BACKWARD {
 		if strand == constructdbg.PLUS {
 			edgeSeq = append(edgeSeq, constructdbg.GetReverseByteArr(ed.Utg.Ks[len(ed.Utg.Ks)-extendMinLen:len(ed.Utg.Ks)-kmerLen+1])...)
@@ -949,14 +956,15 @@ func GetMappingEdgePathSeq(mi MapInfo, extArr [2][]constructdbg.DBG_MAX_INT, edg
 			edgeSeq = append(edgeSeq, constructdbg.GetReverseCompByteArr(ed.Utg.Ks[len(ed.Utg.Ks)-extendMinLen:len(ed.Utg.Ks)-kmerLen+1])...)
 		}
 	}
-	fmt.Printf("[GetMappingEdgePathSeq]after add last edge len(edgeSeq): %v\n", len(edgeSeq))
-
+	//fmt.Printf("[GetMappingEdgePathSeq]after add last edge len(edgeSeq): %v\n", len(edgeSeq))
+	minLen = extendMinLen
 	return
 }
 
-func GetMappiingReadSeq(direction uint8, mi MapInfo, readSeqBnt []byte, extendMinLen, kmerLen int, edgeSeq []byte) ([]byte, []byte) {
+func GetMappingReadSeq(direction uint8, mi MapInfo, readSeqBnt []byte, extendMinLen, kmerLen int, edgeSeq []byte) ([]byte, []byte, int, int) {
 	var readSeq []byte
 	var readLen int
+	var nextReadPos, notMappingLen int
 	if direction == constructdbg.BACKWARD {
 		readLen = mi.ReadPos
 	} else {
@@ -965,20 +973,25 @@ func GetMappiingReadSeq(direction uint8, mi MapInfo, readSeqBnt []byte, extendMi
 	flankLen := 20
 	if readLen < len(edgeSeq) {
 		if readLen > len(edgeSeq)-(extendMinLen-(kmerLen-1))+flankLen {
+			notMappingLen = len(edgeSeq) - readLen
 			edgeSeq = edgeSeq[:readLen]
 		} else {
 			fmt.Printf("[DPAlignEdgePath] readLen: %v < len(edgeSeq): %v\n", readLen, len(edgeSeq))
-			return readSeq, edgeSeq
+			return readSeq, edgeSeq, nextReadPos, notMappingLen
 		}
 	} else {
-		readLen = len(edgeSeq)
+		if readLen > len(edgeSeq)+len(edgeSeq)/20 {
+			readLen = len(edgeSeq) + len(edgeSeq)/20
+		}
 	}
 	if direction == constructdbg.BACKWARD {
 		readSeq = constructdbg.GetReverseByteArr(readSeqBnt[mi.ReadPos-readLen : mi.ReadPos])
+		nextReadPos = mi.ReadPos - readLen
 	} else {
 		readSeq = readSeqBnt[mi.ReadPos : mi.ReadPos+readLen]
+		nextReadPos = mi.ReadPos + readLen
 	}
-	return readSeq, edgeSeq
+	return readSeq, edgeSeq, nextReadPos, notMappingLen
 }
 
 const PosWidth = 16
@@ -1015,7 +1028,7 @@ func (arr ChainArr) Len() int {
 }
 
 func (arr ChainArr) Less(i, j int) bool {
-	return arr[i].X < arr[j].X && arr[i].Y <= arr[j].Y
+	return arr[i].X < arr[j].X
 }
 
 func (arr ChainArr) Swap(i, j int) {
@@ -1072,14 +1085,17 @@ func GetInterSection(listA, listB []SeedKmer, skLen uint32) []Chain {
 			break
 		}
 		// sa == sb
+		//fmt.Printf("[GetInterSection] i: %v, j: %v\n", i, j)
 		for x := j; x < len(listB); x++ {
 			tmp := listB[x].Seed >> PosWidth
+			//fmt.Printf("[GetInterSection] tmp: %v,sa: %v,  x: %v\n", tmp, sa, x)
 			if tmp > sa {
 				break
 			}
 			var ch Chain
 			ch.X, ch.Y = uint32(listA[i].Seed&MUSKPos), uint32(listB[x].Seed&MUSKPos)
 			ch.Len = skLen
+			//fmt.Printf("[GetInterSection] ch: %v\n", ch)
 			interSecArr = append(interSecArr, ch)
 		}
 	}
@@ -1088,19 +1104,42 @@ func GetInterSection(listA, listB []SeedKmer, skLen uint32) []Chain {
 }
 
 func GetChainArr(interSecArr []Chain, seedKmerLen uint32) (chainA []Chain) {
-	for _, ch := range interSecArr {
-		//fmt.Printf("[GetChainArr] interSecArr[%v]: %v\n", i, ch)
+	for i := 0; i < len(interSecArr); {
+		ch := interSecArr[i]
 		d := int(ch.X) - int(ch.Y)
 		if d < 0 {
 			d = int(ch.Y) - int(ch.X)
 		}
+		j := i + 1
+		for ; j < len(interSecArr); j++ {
+			if ch.X != interSecArr[j].X {
+				break
+			}
+		}
+		for i++; i < j; i++ {
+			nch := interSecArr[i]
+			td := int(nch.X) - int(nch.Y)
+			if td < 0 {
+				td = int(nch.Y) - int(nch.X)
+			}
+			//fmt.Printf("[GetChainArr] interSecArr[%v]: %v, ch: %v\n", i, nch, ch)
+			if td < d {
+				ch = nch
+				d = td
+			}
+		}
+
 		if d > 50 && d > int(ch.X)/5 {
 			continue
 		}
+
 		if len(chainA) > 0 {
 			lch := chainA[len(chainA)-1]
 			//fmt.Printf("[GetChainArr] lch: %v\n", lch)
-			if ch.X-lch.X < lch.Len || ch.Y-lch.Y < lch.Len {
+			if int(ch.Y)-int(lch.Y) < 0 {
+				continue
+			}
+			if int(ch.X)-int(lch.X) < int(lch.Len) || int(ch.Y)-int(lch.Y) < int(lch.Len) {
 				if ch.X-lch.X == ch.Y-lch.Y {
 					lch.Len += (ch.X + ch.Len - (lch.X + lch.Len))
 					chainA[len(chainA)-1] = lch
@@ -1129,23 +1168,58 @@ func Max(a, b, c int) int {
 	return max
 }
 
-func GlobalAlignment(seqa, seqb []byte) (cg CIGAR) {
+func GetKArr(cycle, D uint, low, high int) []int {
+	kArr := make([]int, high-low+1)
+	i := 0
+	if cycle&0x1 == 0 {
+		for j := low; j <= high; j++ {
+			if uint(int(D)-j)&0x1 == 0 {
+				kArr[i] = j
+				i++
+			}
+		}
+		for j := low; j <= high; j++ {
+			if uint(int(D)-j)&0x1 == 1 {
+				kArr[i] = j
+				i++
+			}
+		}
+	} else {
+		for j := low; j <= high; j++ {
+			if uint(int(D)-j)&0x1 == 1 {
+				kArr[i] = j
+				i++
+			}
+		}
+		for j := low; j <= high; j++ {
+			if uint(int(D)-j)&0x1 == 0 {
+				kArr[i] = j
+				i++
+			}
+		}
+	}
+	return kArr
+}
+
+func GlobalAlignment(seqa, seqb []byte, localFirst bool) (cg CIGAR) {
 	//C := uint(64)
 	LAG := 20
 	//MASKC := 1 << (C - 1)
-	var min uint
+	var max uint
 	if len(seqa) >= len(seqb) {
-		min = uint(len(seqb))
+		max = uint(len(seqa))
+		//min = uint(len(seqb))
 	} else {
-		min = uint(len(seqa))
+		max = uint(len(seqb))
+		//min = uint(len(seqa))
 	}
 	var D uint
-	if min < 20 {
-		D = min
-	} else if min < 100 {
-		D = min / 2
+	if max < 20 {
+		D = max
+	} else if max < 100 {
+		D = max / 2
 	} else {
-		D = min / 6
+		D = max / 6
 	}
 	if D < 10 {
 		D = 10
@@ -1161,28 +1235,32 @@ func GlobalAlignment(seqa, seqb []byte) (cg CIGAR) {
 	for i, _ := range W {
 		W[i] = -2
 	}
-	W[mid] = 0
+	W[mid] = -1
 	low, high := 1, -1
 	var finished bool
-	fmt.Printf("[GlobalAlignment]mid: %v\n", mid)
-	for i := uint(0); i < D; i++ {
-		//fmt.Printf("W: %v\n", W)
+	//fmt.Printf("[GlobalAlignment]mid: %v\n", mid)
+	for i := uint(0); i <= D; i++ {
+		//fmt.Printf("i: %v, low: %v, high: %v\nW: %v\n", i, low, high, W)
 		//fmt.Printf("M: %v\n", M)
-		//fmt.Printf("B: %v\n", B)
-		for k := low - 1; k <= high+1; k++ { // k = i - j
+		//first process the digits propery(even or odd) same as i
+		kArr := GetKArr(i, D, low-1, high+1)
+		//fmt.Printf("kArr: %v\n", kArr)
+		for _, k := range kArr { // k = i - j
+			max := Max(W[mid+k]+1, W[mid+k-1], W[mid+k+1]+1)
 			if (i & 0x1) != (uint(int(D)-k) & 0x1) { // D and k one is odd ,another is even
-				continue
+				if max != W[mid+k]+1 {
+					continue
+				}
 			}
 			var y, m int
 			var b uint64
-			//fmt.Printf("k: %v,W[mid+k]: %v,  W[mid+k-1]: %v, W[mid+k+1]+1: %v\n", k, W[mid+k], W[mid+k-1], W[mid+k+1]+1)
-			max := Max(W[mid+k], W[mid+k-1], W[mid+k+1]+1)
-			if max == W[mid+k-1] {
-				y, m, b = max, M[mid+k-1], B[mid+k-1]
-			} else if max == W[mid+k+1]+1 {
-				y, m, b = max, M[mid+k+1], B[mid+k+1]
-			} else {
+			//fmt.Printf("k: %v,W[mid+k]+1: %v,  W[mid+k-1]: %v, W[mid+k+1]+1: %v\n", k, W[mid+k]+1, W[mid+k-1], W[mid+k+1]+1)
+			if max == W[mid+k]+1 {
 				y, m, b = max, M[mid+k], B[mid+k]
+			} else if max == W[mid+k-1] {
+				y, m, b = max, M[mid+k-1], B[mid+k-1]
+			} else {
+				y, m, b = max, M[mid+k+1], B[mid+k+1]
 			}
 			if y < 0 || y+k < 0 {
 				continue
@@ -1193,7 +1271,11 @@ func GlobalAlignment(seqa, seqb []byte) (cg CIGAR) {
 				//fmt.Printf("[GlobalAlignment]seqb[y] == seqa[y+k], y: %v, y+k: %v\n", y, y+k)
 			}
 			//fmt.Printf("[GlobalAlignment]y: %v, y+k: %v\n", y, y+k)
-			if y > len(seqb) || y+k > len(seqa) {
+			if localFirst && y+k == len(seqa) {
+				cg.Mch = uint32(m)
+				finished = true
+				break
+			} else if y > len(seqb) || y+k > len(seqa) {
 				continue
 			} else if y == len(seqb) && y+k == len(seqa) {
 				cg.Mch = uint32(m)
@@ -1210,30 +1292,42 @@ func GlobalAlignment(seqa, seqb []byte) (cg CIGAR) {
 		// trimming furthest reaching points
 		low--
 		high++
-		var best int
+		var best, by int
 		for k := low; k <= high; k++ {
 			if best < k+2*W[mid+k] { // i + j == y+k + y
 				best = k + 2*W[mid+k]
+				by = W[mid+k]
 			}
 		}
-
+		if LAG < by/10 {
+			LAG = by / 10
+		}
 		for ; low <= high && low+2*W[mid+low] <= best-LAG; low++ {
 		}
 		for ; high >= low && high+2*W[mid+high] <= best-LAG; high-- {
 		}
 
-		if low <= 0-int(D) || high >= int(D) || low > high {
-			log.Fatalf("[GlobalAlignment] low:%v, high: %v must between (-%v ~ %v)\n", low, high, D, D)
+		if low-1 <= 0-int(D) || high+1 >= int(D) || low > high {
+			break
+			//log.Fatalf("[GlobalAlignment] low:%v, high: %v must between (-%v ~ %v)\n", low, high, D, D)
 		}
 	}
 	if !finished {
-		log.Fatalf("[GlobalAlignment] not found proper alignment\nseqa: %v\nseqb: %v\n", seqa, seqb)
+		max := 0
+		for _, mch := range M {
+			if mch > max {
+				max = mch
+			}
+		}
+		cg.Mch = uint32(max)
+		//log.Fatalf("[GlobalAlignment] not found proper alignment\nseqa: %v\nseqb: %v\n", seqa, seqb)
 	}
 	// get score
 	return
 }
 
 func DPLocalAlign(edgesSeq, readSeq []byte, chainA []Chain) (cg CIGAR) {
+	enlongation := uint32(200) // same as minimap2 mapping step '-g' argument
 	for i := 0; i <= len(chainA); i++ {
 		var pch Chain
 		if i > 0 {
@@ -1247,8 +1341,11 @@ func DPLocalAlign(edgesSeq, readSeq []byte, chainA []Chain) (cg CIGAR) {
 		}
 		pXEnd := pch.X + pch.Len
 		pYEnd := pch.Y + pch.Len
-		fmt.Printf("[DPLocalAlign] cg: %v, MisMatch: %v\n", cg, pXEnd-cg.Mch)
+		//fmt.Printf("[DPLocalAlign] cg: %v, MisMatch: %v\n", cg, pXEnd-cg.Mch)
 		xlen, ylen := ch.X-pXEnd, ch.Y-pYEnd
+		//fmt.Printf("[DPLocalAlign] len(edgesSeq): %v, len(readSeq): %v, pch: %v, ch: %v\n", xlen, ylen, pch, ch)
+		//fmt.Printf("[DPLocalAlign] edge part seq: %v\n", edgesSeq[pXEnd:ch.X])
+		//fmt.Printf("[DPLocalAlign] read part seq: %v\n", readSeq[pYEnd:ch.Y])
 		if pXEnd == ch.X {
 			cg.Ins += ch.Y - pYEnd
 			cg.Mch += ch.Len
@@ -1314,10 +1411,17 @@ func DPLocalAlign(edgesSeq, readSeq []byte, chainA []Chain) (cg CIGAR) {
 		}
 
 		// need DP alignment
-		fmt.Printf("[DPLocalAlign] len(edgesSeq): %v, len(readSeq): %v, pch: %v, ch: %v\n", xlen, ylen, pch, ch)
-		fmt.Printf("[DPLocalAlign] edge part seq: %v\n", edgesSeq[pXEnd:ch.X])
-		fmt.Printf("[DPLocalAlign] read part seq: %v\n", readSeq[pYEnd:ch.Y])
-		cigar := GlobalAlignment(edgesSeq[pXEnd:ch.X], readSeq[pYEnd:ch.Y])
+		var localFirst bool
+		if i == len(chainA) {
+			localFirst = true
+			if ch.X-pXEnd > enlongation {
+				ch.X = pXEnd + enlongation
+			}
+			if ch.Y-pYEnd > enlongation {
+				ch.Y = pYEnd + enlongation
+			}
+		}
+		cigar := GlobalAlignment(edgesSeq[pXEnd:ch.X], readSeq[pYEnd:ch.Y], localFirst)
 		//fmt.Printf("[DPLocalAlign] cigar: %v, cg: %v\n", cigar, cg)
 		cg.Ins += cigar.Ins
 		cg.Del += cigar.Del
@@ -1336,20 +1440,23 @@ func GetChainScore(chainA []Chain) (chainScore uint32) {
 	return
 }
 
-func DPAlignEdgePath(mi MapInfo, extArr [2][]constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, readSeqBnt []byte, direction uint8, extendEID constructdbg.DBG_MAX_INT, extendMinLen int, kmerLen int) (score int) {
+func DPAlignEdgePath(mi MapInfo, extArr []constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, readSeqBnt []byte, direction uint8, extendEID constructdbg.DBG_MAX_INT, extendMinLen int, kmerLen int) (score, edgesSeqLen, notChainEdgeLen, readPos int, strand bool) {
 	// get edge path sequence and readSeq
 	var edgesSeq, readSeq []byte
-	fmt.Printf("[DPAlignEdgePath] readSeqbnt string: \n\t%v\n", bnt.TransformSeq(readSeqBnt))
-	edgesSeq = GetMappingEdgePathSeq(mi, extArr, edgesArr, nodesArr, direction, extendEID, extendMinLen, kmerLen)
-	readSeq, edgesSeq = GetMappiingReadSeq(direction, mi, readSeqBnt, extendMinLen, kmerLen, edgesSeq)
+	var nextReadPos, notMappinglen, minLen int
+	//fmt.Printf("[DPAlignEdgePath] mi: %v, extArr: %v, direction: %v, extendEID: %v, extendMinLen: %v\n", mi, extArr, direction, extendEID, extendMinLen)
+	edgesSeq, strand, minLen = GetMappingEdgePathSeq(mi, extArr, edgesArr, nodesArr, direction, extendEID, extendMinLen, kmerLen)
+	readSeq, edgesSeq, nextReadPos, notMappinglen = GetMappingReadSeq(direction, mi, readSeqBnt, minLen, kmerLen, edgesSeq)
+	edgesSeqLen = len(edgesSeq)
 	if len(readSeq) <= 0 {
 		return
 	}
 	//debug code
 	//readSeq, edgesSeq = readSeq[:651], edgesSeq[:653]
 	fmt.Printf("[DPAlignEdgePath] len(edgesSeq): %v, len(readSeq): %v\n", len(edgesSeq), len(readSeq))
-	fmt.Printf("[DPAlignEdgePath] edgesSeq string: %v\n\t\treadSeq string: %v\n", bnt.TransformSeq(edgesSeq), bnt.TransformSeq(readSeq))
-	fmt.Printf("[DPAlignEdgePath] reverse edgesSeq string: %v\n\t\t reverse readSeq string: %v\n", bnt.TransformSeq(constructdbg.GetReverseByteArr(edgesSeq)), bnt.TransformSeq(constructdbg.GetReverseByteArr(readSeq)))
+	fmt.Fprintf(os.Stderr, "[DPAlignEdgePath]extendeID: %v,edgesSeq string: %v\n", extendEID, bnt.TransformSeq(edgesSeq))
+	fmt.Fprintf(os.Stderr, "[DPAlignEdgePath]extendeID: %v,readSeq string: %v\n", extendEID, bnt.TransformSeq(readSeq))
+	//fmt.Printf("[DPAlignEdgePath] reverse edgesSeq string: %v\n\t\t reverse readSeq string: %v\n", bnt.TransformSeq(constructdbg.GetReverseByteArr(edgesSeq)), bnt.TransformSeq(constructdbg.GetReverseByteArr(readSeq)))
 
 	// found two sequences seed chaining
 	seedKmerLen := uint32(15)
@@ -1367,33 +1474,177 @@ func DPAlignEdgePath(mi MapInfo, extArr [2][]constructdbg.DBG_MAX_INT, edgesArr 
 		fmt.Printf("[GetChainArr] listB[%v:]: %v\n", i, listB[i:])
 	}*/
 	interSecArr := GetInterSection(listA, listB, seedKmerLen)
+	//for i, ch := range interSecArr {
+	//	fmt.Printf("[GetChainArr] interSecArr[%v]: %v\n", i, ch)
+	//}
 	sort.Sort(ChainArr(interSecArr))
 	chainA := GetChainArr(interSecArr, seedKmerLen)
 	chainScore := GetChainScore(chainA)
-	if len(edgesSeq) > 2*kmerLen && int(chainScore) < len(edgesSeq)/5 {
-		fmt.Printf("[DPAlignEdgePath] chainScore: %v < len(edgesSeq)/5: %v\n", chainScore, len(edgesSeq)/5)
-		return
-	}
-
-	// Rapid Local Alignment Discovery from seeds chain
 	fmt.Printf("[DPAlignEdgePath] edgesSeq: %v\n\t\t\treadSeq: %v\nchainScore: %v\n", edgesSeq, readSeq, chainScore)
 	for i, ch := range chainA {
 		fmt.Printf("[DPAlignEdgePath] chainA[%v]: %v\n", i, ch)
 	}
+	AlignmentMinLen := constructdbg.Min(len(edgesSeq), len(readSeq))
+	if int(chainScore) < AlignmentMinLen/15 {
+		fmt.Printf("[DPAlignEdgePath] chainScore: %v < min(len(edgesSeq),len(readSeq))/15: %v\n", chainScore, AlignmentMinLen/15)
+		return
+	}
+	lch := chainA[len(chainA)-1]
+	notChainEdgeLen = notMappinglen + (len(edgesSeq) - int(lch.X+lch.Len))
+	if direction == constructdbg.FORWARD {
+		readPos = nextReadPos - (len(readSeq) - int(lch.Y+lch.Len))
+	} else {
+		readPos = nextReadPos + (len(readSeq) - int(lch.Y+lch.Len))
+	}
+
+	// Rapid Local Alignment Discovery from seeds chain
 	cg := DPLocalAlign(edgesSeq, readSeq, chainA)
-	fmt.Printf("[DPAlignEdgePath] cg: %v\n", cg)
+	//fmt.Printf("[DPAlignEdgePath] cg: %v\n", cg)
 	score = int(cg.Mch)
 	return
 }
 
-func GetMinLen(ea []constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge) (minLen int) {
-	minLen = len(edgesArr[ea[0]].Utg.Ks)
-	for _, id := range ea[1:] {
-		if len(edgesArr[id].Utg.Ks) < minLen {
-			minLen = len(edgesArr[id].Utg.Ks)
+func GetMinLen(ea []constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, kmerLen int) (minLen int) {
+	minLen = math.MaxInt64
+	for _, id := range ea {
+		if len(edgesArr[id].Utg.Ks)-(kmerLen-1) < minLen {
+			minLen = len(edgesArr[id].Utg.Ks) - (kmerLen - 1)
 		}
 	}
 	return
+}
+
+func IndexIntsArr(arr []int, item int) int {
+	for i, v := range arr {
+		if item == v {
+			return i
+		}
+	}
+	return -1
+}
+
+func GetMappingExtendPathArr(extArr, ea []constructdbg.DBG_MAX_INT, nID constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, MinExtendLen, kmerlen int) (mappingPathArr [][]constructdbg.DBG_MAX_INT, lastEdgeArr []constructdbg.DBG_MAX_INT, newMinLen int) {
+	type pathExtend struct {
+		Path      []constructdbg.DBG_MAX_INT
+		NID       constructdbg.DBG_MAX_INT
+		ExtendLen int
+	}
+	newMinLen = math.MaxInt64
+	var pathQueue []pathExtend
+	for _, eID := range ea {
+		var pe pathExtend
+		pe.Path = append(pe.Path, extArr...)
+		pe.Path = append(pe.Path, eID)
+		te := edgesArr[eID]
+		if te.StartNID == nID {
+			pe.NID = te.EndNID
+		} else {
+			pe.NID = te.StartNID
+		}
+		pe.ExtendLen = len(te.Utg.Ks) - (kmerlen - 1)
+		pathQueue = append(pathQueue, pe)
+	}
+	for len(pathQueue) > 0 {
+		pe := pathQueue[len(pathQueue)-1]
+		pathQueue = pathQueue[:len(pathQueue)-1]
+		if pe.ExtendLen > MinExtendLen {
+			mappingPathArr = append(mappingPathArr, pe.Path[:len(pe.Path)-1])
+			leID := pe.Path[len(pe.Path)-1]
+			lastEdgeArr = append(lastEdgeArr, leID)
+			if pe.ExtendLen < newMinLen {
+				newMinLen = pe.ExtendLen
+			}
+			continue
+		}
+		// add next edge
+		tea := constructdbg.GetNearEdgeIDArr(nodesArr[pe.NID], pe.Path[len(pe.Path)-1])
+		for _, eID := range tea {
+			ne := edgesArr[eID]
+			var npe pathExtend
+			npe.Path = append(npe.Path, pe.Path...)
+			npe.Path = append(npe.Path, eID)
+			if ne.StartNID == pe.NID {
+				npe.NID = ne.EndNID
+			} else {
+				npe.NID = ne.StartNID
+			}
+			npe.ExtendLen = pe.ExtendLen + len(ne.Utg.Ks) - (kmerlen - 1)
+			pathQueue = append(pathQueue, npe)
+		}
+	}
+	return
+}
+
+/*func BackWardDeduceStrand(mappingPath []constructdbg.DBG_MAX_INT, consisPathLen int, edgesArr []constructdbg.DBGEdge, nID constructdbg.DBG_MAX_INT, strand bool) bool {
+	for y := len(mappingPath) - 1; y >= consisPathLen; y-- {
+		ae := edgesArr[mappingPath[y]]
+		be := edgesArr[mappingPath[y-1]]
+		if ae.StartNID == nID {
+			if be.StartNID == nID {
+				strand = !strand
+				nID = be.EndNID
+			} else {
+				nID = be.StartNID
+			}
+		} else {
+			if be.EndNID == nID {
+				strand = !strand
+				nID = be.StartNID
+			} else {
+				nID = be.EndNID
+			}
+		}
+	}
+	return strand
+}*/
+
+func GetLongConsisPath(mappingPathArr [][]constructdbg.DBG_MAX_INT, idxArr []int) (consisPath []constructdbg.DBG_MAX_INT) {
+	for i := 0; ; i++ {
+		var eID constructdbg.DBG_MAX_INT
+		for _, idx := range idxArr {
+			if len(mappingPathArr[idx]) <= i {
+				eID = 0
+				break
+			}
+			if eID == 0 {
+				eID = mappingPathArr[idx][i]
+			} else if eID != mappingPathArr[idx][i] {
+				eID = 0
+				break
+			}
+		}
+		if eID > 0 {
+			consisPath = append(consisPath, eID)
+		} else {
+			break
+		}
+	}
+
+	return
+}
+
+func GetExtendLen(extArr []constructdbg.DBG_MAX_INT, idx int, edgesArr []constructdbg.DBGEdge, kmerLen int) (extendLen int) {
+	for x := idx; x < len(extArr); x++ {
+		te := edgesArr[extArr[x]]
+		extendLen += len(te.Utg.Ks) - (kmerLen - 1)
+	}
+	return
+}
+
+func GetEdgePos(e constructdbg.DBGEdge, direction uint8, strand bool, kmerLen, minLen, flankLen int) int {
+	if direction == constructdbg.BACKWARD {
+		if strand == constructdbg.PLUS {
+			return len(e.Utg.Ks) - (kmerLen - 1) - minLen + flankLen
+		} else {
+			return (kmerLen - 1) + minLen - flankLen
+		}
+	} else {
+		if strand == constructdbg.PLUS {
+			return (kmerLen - 1) + minLen - flankLen
+		} else {
+			return len(e.Utg.Ks) - (kmerLen - 1) - minLen + flankLen
+		}
+	}
 }
 
 func MappingONTMostProbablePath(arr []LRRecord, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, opt Options) (extArr [2][]constructdbg.DBG_MAX_INT) {
@@ -1404,7 +1655,7 @@ func MappingONTMostProbablePath(arr []LRRecord, edgesArr []constructdbg.DBGEdge,
 	fmt.Printf("[MappingMostProbablePath] found seed Record: %v\n", arr[pos])
 	fmt.Printf("[MappingMostProbablePath] len(ReadSeqBnt): %v\n", len(arr[pos].ReadSeqBnt))
 
-	maxFlank := opt.Kmer * 4 / 5
+	maxFlank := opt.Kmer - 2
 	extArr[0] = append(extArr[0], arr[pos].RefID)
 	extArr[1] = append(extArr[1], 0)
 	edge := edgesArr[arr[pos].RefID]
@@ -1415,6 +1666,7 @@ func MappingONTMostProbablePath(arr []LRRecord, edgesArr []constructdbg.DBGEdge,
 		mi.EIDIdx = len(extArr[0]) - 1
 		var nID constructdbg.DBG_MAX_INT
 		var direction uint8
+		var deduceReadPos, extIdx int
 		if i == 0 {
 			if arr[j].Strand == constructdbg.PLUS {
 				nID = edge.StartNID
@@ -1427,6 +1679,7 @@ func MappingONTMostProbablePath(arr []LRRecord, edgesArr []constructdbg.DBGEdge,
 			}
 			direction = constructdbg.BACKWARD
 			mi.ReadPos = arr[j].Start
+			deduceReadPos = mi.ReadPos - flankLen
 		} else {
 			if arr[j].Strand == constructdbg.PLUS {
 				nID = edge.EndNID
@@ -1439,18 +1692,41 @@ func MappingONTMostProbablePath(arr []LRRecord, edgesArr []constructdbg.DBGEdge,
 			}
 			direction = constructdbg.FORWARD
 			mi.ReadPos = arr[j].End
+			deduceReadPos = mi.ReadPos + flankLen
 		}
+		mi.Strand = arr[j].Strand
 		if nID == 0 {
 			continue
 		}
+		extIdx = len(extArr[0])
 		mi.NID = nID
 		e := edge
 		for {
 			var alter constructdbg.DBG_MAX_INT // alternative edge, maybe cause by haplotype
+			//fmt.Printf("[MappingMostProbablePath]mi: %v, flankLen: %v, deduceReadPos: %v\n\textArr: %v,  e.ID: %v, nID: %v\n", mi, flankLen, deduceReadPos, extArr, e.ID, nID)
 			if flankLen >= maxFlank {
 				break
 			}
+			// test if readPos out of range
+			for ; extIdx < len(extArr[0]); extIdx++ {
+				leID := extArr[0][extIdx]
+				if direction == constructdbg.FORWARD {
+					deduceReadPos += (len(edgesArr[leID].Utg.Ks) - opt.Kmer + 1)
+				} else {
+					deduceReadPos -= (len(edgesArr[leID].Utg.Ks) - opt.Kmer + 1)
+				}
+			}
+			if direction == constructdbg.FORWARD {
+				if deduceReadPos >= arr[pos].Len {
+					break
+				}
+			} else {
+				if deduceReadPos <= 0 {
+					break
+				}
+			}
 			ea := constructdbg.GetNearEdgeIDArr(nodesArr[nID], e.ID)
+			fmt.Printf("[MappingMostProbablePath]deduceReadPos: %v\n\textArr: %v, ea: %v, e.ID: %v, nID: %v\n", deduceReadPos, extArr, ea, e.ID, nID)
 			if len(ea) == 0 {
 				break
 			}
@@ -1485,21 +1761,117 @@ func MappingONTMostProbablePath(arr []LRRecord, edgesArr []constructdbg.DBGEdge,
 			}
 			fmt.Printf("[MappingMostProbablePath] extend path: %v\n", extArr)
 			// mapping the ONT to the edges Path
-			minLen := GetMinLen(ea, edgesArr)
-			score := make([]int, len(ea))
-			mapable := true
-			for x, eID := range ea {
-				score[x] = DPAlignEdgePath(mi, extArr, edgesArr, nodesArr, arr[pos].ReadSeqBnt, direction, eID, minLen, opt.Kmer)
-				fmt.Printf("[MappingMostProbablePath] score[%v]: %v\n", x, score[x])
-				if score[x] <= 0 {
-					mapable = false
-					break
+			minLen := GetMinLen(ea, edgesArr, opt.Kmer)
+			var mappingPathArr [][]constructdbg.DBG_MAX_INT
+			var lastEdgeArr []constructdbg.DBG_MAX_INT
+			MinExtendLen := opt.Kmer / 2
+			if minLen < MinExtendLen {
+				var newml int
+				mappingPathArr, lastEdgeArr, newml = GetMappingExtendPathArr(extArr[0], ea, nID, edgesArr, nodesArr, MinExtendLen, opt.Kmer)
+				minLen = newml
+			} else {
+				for _, eID := range ea {
+					var mp []constructdbg.DBG_MAX_INT
+					mp = append(mp, extArr[0]...)
+					mappingPathArr = append(mappingPathArr, mp)
+					lastEdgeArr = append(lastEdgeArr, eID)
 				}
 			}
-			if !mapable {
-				break
+			extendLen := GetExtendLen(extArr[0], mi.EIDIdx+1, edgesArr, opt.Kmer)
+			extendLen += minLen
+			score := make([]int, len(lastEdgeArr))
+			notChainEdgeLenA := make([]int, len(lastEdgeArr))
+			readPosA := make([]int, len(lastEdgeArr))
+			edgesSeqLen := make([]int, len(lastEdgeArr))
+			strandArr := make([]bool, len(lastEdgeArr))
+			fmt.Printf("[MappingMostProbablePath] mi: %v, direction: %v, minLen: %v, extendLen: %v\n", mi, direction, minLen, extendLen)
+			for x, eID := range lastEdgeArr {
+				fmt.Printf("[MappingMostProbablePath]**************** mappingPathArr[%v]:%v,lasteID: %v *****************\n", x, mappingPathArr[x], eID)
+				score[x], edgesSeqLen[x], notChainEdgeLenA[x], readPosA[x], strandArr[x] = DPAlignEdgePath(mi, mappingPathArr[x], edgesArr, nodesArr, arr[pos].ReadSeqBnt, direction, eID, extendLen, opt.Kmer)
+				fmt.Printf("[MappingMostProbablePath]################ score[%v]: %v,edgesSeqLen[%v]: %v, notChainEdgeLenA[%v]: %v, readPosA[%v]: %v, strandArr[%v]: %v ###############\n", x, score[x], x, edgesSeqLen[x], x, notChainEdgeLenA[x], x, readPosA[x], x, strandArr[x])
+				if notChainEdgeLenA[x] < 0 {
+					log.Fatalf("[MappingMostProbablePath] notChainEdgeLenA[%v]: %v < 0\n", x, notChainEdgeLenA[x])
+				}
 			}
 
+			sc := make([]int, len(lastEdgeArr))
+			copy(sc, score)
+			sort.Ints(sc)
+			x := IndexIntsArr(score, sc[len(sc)-1])
+			max := sc[len(sc)-1]
+			if max < edgesSeqLen[x]*2/3 {
+				fmt.Printf("[MappingMostProbablePath] mapping score too low, ea: %v, score: %v, <edgeSeqLen[%v]*2/3\n", ea, score, edgesSeqLen[x])
+				break
+			}
+			if sc[len(sc)-1] == sc[len(sc)-2] {
+				var idxArr []int
+				for y, s := range score {
+					if s == max {
+						idxArr = append(idxArr, y)
+					}
+				}
+				consisPath := GetLongConsisPath(mappingPathArr, idxArr)
+				if len(consisPath) <= len(extArr[0]) {
+					// test if a bubble edges
+					if !(len(ea) == 2 && constructdbg.IsBubble(ea[0], ea[1], edgesArr)) {
+						fmt.Printf("[MappingMostProbablePath] encounter not unsure case, ea: %v, score: %v", ea, score)
+						break
+					}
+				} else {
+					mappingPathArr[x] = consisPath[:len(consisPath)-1]
+					lastEdgeArr[x] = consisPath[len(consisPath)-1]
+					eID := lastEdgeArr[x]
+					extendLen = GetExtendLen(mappingPathArr[x], mi.EIDIdx+1, edgesArr, opt.Kmer)
+					extendLen += len(edgesArr[eID].Utg.Ks) - (opt.Kmer - 1)
+					score[x], edgesSeqLen[x], notChainEdgeLenA[x], readPosA[x], strandArr[x] = DPAlignEdgePath(mi, mappingPathArr[x], edgesArr, nodesArr, arr[pos].ReadSeqBnt, direction, eID, extendLen, opt.Kmer)
+					sc[len(sc)-1] = score[x]
+					for y := 0; y < len(sc)-1; y++ {
+						sc[y] = 0
+					}
+				}
+			}
+			eID := lastEdgeArr[x]
+			e = edgesArr[eID]
+			// process mi
+			mi.Strand = strandArr[x]
+			flankLen = notChainEdgeLenA[x]
+			minLen = extendLen - GetExtendLen(mappingPathArr[x], mi.EIDIdx+1, edgesArr, opt.Kmer)
+			mi.EdgePos = GetEdgePos(e, direction, mi.Strand, opt.Kmer, minLen, flankLen)
+
+			mi.EIDIdx = len(mappingPathArr[x])
+			mi.ReadPos = readPosA[x]
+			if sc[len(sc)-1] > sc[len(sc)-2] {
+				mappingPathArr[x] = append(mappingPathArr[x], lastEdgeArr[x])
+				for y := len(extArr[0]); y < len(mappingPathArr[x]); y++ {
+					e = edgesArr[mappingPathArr[x][y]]
+					extArr[0] = append(extArr[0], e.ID)
+					extArr[1] = append(extArr[1], alter)
+					if e.StartNID == nID {
+						nID = e.EndNID
+					} else {
+						nID = e.StartNID
+					}
+				}
+				mi.NID = nID
+				continue
+			}
+			if len(ea) == 2 && constructdbg.IsBubble(ea[0], ea[1], edgesArr) {
+				alter = ea[1]
+				eID := ea[0]
+				extArr[0] = append(extArr[0], eID)
+				extArr[1] = append(extArr[1], alter)
+				e = edgesArr[eID]
+				if e.StartNID == nID {
+					nID = e.EndNID
+				} else {
+					nID = e.StartNID
+				}
+				mi.NID = nID
+				continue
+			}
+
+			fmt.Printf("[MappingMostProbablePath] encounter not process case, ea: %v, score: %v", ea, score)
+			break
 		}
 
 		// extArr process
@@ -1947,7 +2319,7 @@ func paraFindLongReadsMappingPath(rc <-chan []PAFInfo, wc chan [2][]constructdbg
 		// found most possible path
 		//path := findMostProbablePath(arr, edgesArr, nodesArr, opt)
 		fmt.Printf("[paraFindLongReadsMappingPath]path: %v\n", path)
-		if len(path) > 2 {
+		if len(path[0]) >= 2 {
 			wc <- path
 		}
 	}

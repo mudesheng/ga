@@ -1806,6 +1806,10 @@ func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt Options) {
 		if i < 1 || v.GetDeleteFlag() > 0 {
 			continue
 		}
+		if IsInComing(v.EdgeIDIncoming, 1) || IsInComing(v.EdgeIDOutcoming, 1) {
+			SubstituteEdgeID(nodesArr, v.ID, 1, 0)
+			v = nodesArr[v.ID]
+		}
 		inNum, inID := GetEdgeIDComing(v.EdgeIDIncoming)
 		outNum, outID := GetEdgeIDComing(v.EdgeIDOutcoming)
 		if inNum == 0 && outNum == 0 {
@@ -2962,6 +2966,7 @@ func MergePathMat(edgesArr []DBGEdge, nodesArr []DBGNode, minMapFreq int) {
 		if e.PathMat[0].Freq == 0 {
 			log.Fatalf("[MergePathMat] e.ID: %v PathMat[0]: %v\n", e.ID, e.PathMat[0])
 		}
+		//fmt.Printf("[MergePathMat]e.PathMat : %v\n", e.PathMat)
 
 		// check if is a node cycle edge
 		if e.StartNID == e.EndNID {

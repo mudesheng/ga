@@ -3,6 +3,7 @@ package deconstructdbg
 import (
 	"fmt"
 	"log"
+	"os"
 	"reflect"
 	"sort"
 
@@ -26,21 +27,23 @@ func addPathToPathMat(edgesArr []constructdbg.DBGEdge, eID constructdbg.DBG_MAX_
 	return false
 }
 
-func WriteLongPathToDBG(wc chan [2][]constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, numCPU int) {
+func WriteLongPathToDBG(wc chan [2][]constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, numCPU int) [][2][]constructdbg.DBG_MAX_INT {
 	var finishNum int
+	var pathArr [][2][]constructdbg.DBG_MAX_INT
 	for {
-		tmp := <-wc
-		fmt.Printf("[WriteLongPathToDBG] path: %v\n", tmp)
-		p := tmp[0]
+		extArr := <-wc
+		fmt.Fprintf(os.Stderr, "[WriteLongPathToDBG] path: %v\n", extArr)
+		p := extArr[0]
 		if len(p) == 0 {
 			finishNum++
 			if finishNum == numCPU {
 				break
 			}
 		}
+		pathArr = append(pathArr, extArr)
 		// write path to the DBG
 		// all long reads path store this pathArr, and store index of pathArr to the edge PathMat[1]
-		if len(p) > 2 {
+		/*if len(p) > 2 {
 			var path constructdbg.Path
 			path.IDArr = p
 			path.Freq = 1
@@ -56,10 +59,10 @@ func WriteLongPathToDBG(wc chan [2][]constructdbg.DBG_MAX_INT, edgesArr []constr
 					//edgesArr[eID].PathMat[1].IDArr = append(edgesArr[eID].PathMat[1].IDArr, idx)
 				}
 			}
-		}
+		}*/
 	}
 
-	return
+	return pathArr
 }
 
 // set the unique edge of edgesArr
@@ -387,7 +390,7 @@ func DeconstructDBG(c cli.Command) {
 	WriteLongPathToDBG(wc, edgesArr, opt.NumCPU)
 
 	// Simplify using Long Reads Mapping info
-	SimplifyByLongReadsPath(edgesArr, nodesArr, opt)
+	//SimplifyByLongReadsPath(edgesArr, nodesArr, opt)
 
 	graphfn := opt.Prefix + ".afterLR.dot"
 	constructdbg.GraphvizDBGArr(nodesArr, edgesArr, graphfn)

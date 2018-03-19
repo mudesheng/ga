@@ -1,11 +1,16 @@
 {
-  "uploadOnSave": false,
+  "uploadOnSave": true,
   "useAtomicWrites": true,
   "deleteLocal": false,
-  "hostname": "58.250.202.5",
+  "hostname": "192.168.31.6",
   "port": "22",
-  "target": "/home/mds/Test/Damapper/E.coli/ga",
+  "target": "/home/mds/go/src/github.com/mudesheng/ga",
   "ignore": [
+    "svg",
+    "*.svg",
+    "*.out",
+    "*.err",
+    "ga",
     ".remote-sync.json",
     ".git/**"
   ],
