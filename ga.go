@@ -55,7 +55,7 @@ func init() {
 		smfy.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length(-K * 2)")
 		smfy.DefineIntFlag("WinSize", 10, "th size of sliding window for DBG edge Sample")
 		smfy.DefineIntFlag("MaxNGSReadLen", 550, "Max NGS Read Length")
-		smfy.DefineIntFlag("MinMapFreq", 2, "Minimum reads Mapping Frequent")
+		smfy.DefineIntFlag("MinMapFreq", 5, "Minimum reads Mapping Frequent")
 		//smfy.DefineIntFlag("MaxMapEdgeLen", 2000, "Max Edge length for mapping Long Reads")
 	}
 	decontdbg := app.DefineSubCommand("decdbg", "deconstruct DBG using Long Reads Mapping info", deconstructdbg.DeconstructDBG)
@@ -63,7 +63,7 @@ func init() {
 		decontdbg.DefineIntFlag("MinCov", 2, "Mininum coverage by long reads")
 		decontdbg.DefineIntFlag("WinSize", 10, "th size of sliding window for DBG edge Sample")
 		decontdbg.DefineIntFlag("MaxNGSReadLen", 550, "Max NGS Read Length")
-		decontdbg.DefineIntFlag("MinMapFreq", 2, "Minimum reads Mapping Frequent")
+		decontdbg.DefineIntFlag("MinMapFreq", 5, "Minimum reads Mapping Frequent")
 		decontdbg.DefineIntFlag("ExtLen", 1000, "Extend Path length for distingush most probable path")
 		decontdbg.DefineStringFlag("LongReadFile", "ONT.fa", "Oxford Nanopore Technology long reads file")
 
