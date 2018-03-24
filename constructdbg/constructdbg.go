@@ -167,12 +167,36 @@ func (e *DBGEdge) GetUniqueFlag() uint8 {
 	return e.Flag & 0x4
 }
 
+func (e *DBGEdge) GetSemiUniqueFlag() uint8 {
+	return e.Flag & 0x8
+}
+
+func (e *DBGEdge) GetTwoEdgesCycleFlag() uint8 {
+	return e.Flag & 0x10
+}
+
+func (e *DBGEdge) SetSemiUniqueFlag() {
+	e.Flag = e.Flag | 0x8
+}
+
+func (e *DBGEdge) SetTwoEdgesCycleFlag() {
+	e.Flag = e.Flag | 0x10
+}
+
+func (e *DBGEdge) ResetTwoEdgesCycleFlag() {
+	e.Flag = e.Flag & (0xFF - 0x10)
+}
+
 func (e *DBGEdge) SetUniqueFlag() {
 	e.Flag = e.Flag | 0x4
 }
 
 func (e *DBGEdge) ResetUniqueFlag() {
-	e.Flag = e.Flag & 0xFB
+	e.Flag = e.Flag & (0xFF - 0x4)
+}
+
+func (e *DBGEdge) ResetSemiUniqueFlag() {
+	e.Flag = e.Flag & (0xFF - 0x8)
 }
 
 func (e *DBGEdge) SetProcessFlag() {
@@ -180,7 +204,7 @@ func (e *DBGEdge) SetProcessFlag() {
 }
 
 func (e *DBGEdge) ResetProcessFlag() {
-	e.Flag = e.Flag & 0xFE
+	e.Flag = e.Flag & (0xFF - 0x1)
 }
 
 func (e *DBGEdge) SetDeleteFlag() {
@@ -2072,7 +2096,7 @@ func LoadEdgesfqFromFn(fn string, edgesArr []DBGEdge, qual bool) {
 }
 
 // set the unique edge of edgesArr
-func SetDBGEdgesUniqueFlag(edgesArr []DBGEdge, nodesArr []DBGNode) (uniqueNum int) {
+func SetDBGEdgesUniqueFlag(edgesArr []DBGEdge, nodesArr []DBGNode) (uniqueNum, semiUniqueNum int) {
 	for i, e := range edgesArr {
 		if e.ID < 2 || e.GetDeleteFlag() > 0 {
 			continue
@@ -2088,12 +2112,19 @@ func SetDBGEdgesUniqueFlag(edgesArr []DBGEdge, nodesArr []DBGNode) (uniqueNum in
 			ea2 = GetNearEdgeIDArr(nd, e.ID)
 		}
 
+		if len(ea1) == 1 && len(ea2) == 1 && ea1[0] == ea2[0] {
+			edgesArr[i].SetTwoEdgesCycleFlag()
+		}
+
 		if len(ea1) <= 1 && len(ea2) <= 1 {
 			edgesArr[i].SetUniqueFlag()
 			uniqueNum++
+		} else if (len(ea1) == 1 && len(ea2) > 1) || (len(ea1) > 1 && len(ea2) == 1) {
+			edgesArr[i].SetSemiUniqueFlag()
+			semiUniqueNum++
 		}
 	}
-	return uniqueNum
+	return
 }
 
 type ReadInfo struct {
@@ -2851,7 +2882,7 @@ func AddPathToDBGEdge(edgesArr []DBGEdge, mapNGSFn string) {
 			if edgesArr[eID].CovD < math.MaxUint16 {
 				edgesArr[eID].CovD += cd
 			}
-			if edgesArr[eID].GetUniqueFlag() > 0 {
+			if edgesArr[eID].GetUniqueFlag() > 0 || edgesArr[eID].GetSemiUniqueFlag() > 0 {
 				edgesArr[eID].InsertPathToEdge(da, 1)
 			}
 		}
@@ -2958,7 +2989,7 @@ func MergePathMat(edgesArr []DBGEdge, nodesArr []DBGNode, minMapFreq int) {
 		//if e.GetUniqueFlag() > 0 {
 		//	fmt.Printf("[MergePathMat]unique edge : %v\n", e)
 		//}
-		if i < 2 || e.GetDeleteFlag() > 0 || len(e.PathMat) == 0 || e.GetUniqueFlag() == 0 {
+		if i < 2 || e.GetDeleteFlag() > 0 || len(e.PathMat) == 0 || (e.GetUniqueFlag() == 0 && e.GetSemiUniqueFlag() == 0) {
 			continue
 		}
 
@@ -2975,12 +3006,13 @@ func MergePathMat(edgesArr []DBGEdge, nodesArr []DBGNode, minMapFreq int) {
 			n2, _ := GetEdgeIDComing(node.EdgeIDOutcoming)
 			if n1 > 1 || n2 > 1 {
 				edgesArr[e.ID].ResetUniqueFlag()
+				edgesArr[e.ID].ResetSemiUniqueFlag()
 			}
 			continue
 		}
 
 		CheckPathDirection(edgesArr, nodesArr, e.ID)
-		if edgesArr[e.ID].GetUniqueFlag() == 0 {
+		if edgesArr[e.ID].GetUniqueFlag() == 0 && edgesArr[e.ID].GetSemiUniqueFlag() == 0 {
 			continue
 		}
 		if len(e.PathMat) == 1 {
@@ -3012,7 +3044,7 @@ func MergePathMat(edgesArr []DBGEdge, nodesArr []DBGNode, minMapFreq int) {
 		// alignment PathMat
 		/*for j, p := range pm {
 			fmt.Printf("[MergePathMat] pm[%v]: %v\n", j, p)
-		} */
+		}*/
 
 		// find consis Path
 		var path Path
@@ -3098,7 +3130,7 @@ func IsTwoEdgesCyclePath(edgesArr []DBGEdge, nodesArr []DBGNode, eID DBG_MAX_INT
 	return false
 }
 
-func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge, minMappingFreq int) (maxP Path) {
+func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge, minMappingFreq int, semi bool) (maxP Path) {
 	var p Path
 	p.IDArr = make([]DBG_MAX_INT, len(e.PathMat[0].IDArr))
 	copy(p.IDArr, e.PathMat[0].IDArr)
@@ -3112,7 +3144,21 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge, minMappingFre
 	// found left partition path
 	for i := 0; i < idx; i++ {
 		e2 := edgesArr[p.IDArr[i]]
-		if e2.GetUniqueFlag() == 0 || len(e2.PathMat) != 1 || e2.PathMat[0].Freq < minMappingFreq {
+		//fmt.Printf("[ExtendPath] i: %v, idx: %v\n", i, idx)
+		if len(e2.PathMat) != 1 || e2.PathMat[0].Freq < minMappingFreq || e2.GetProcessFlag() > 0 || e2.GetDeleteFlag() > 0 {
+			continue
+		}
+		if semi {
+			if e2.GetUniqueFlag() == 0 && e2.GetSemiUniqueFlag() == 0 {
+				continue
+			}
+		} else {
+			if e2.GetUniqueFlag() == 0 {
+				continue
+			}
+		}
+		if IsInDBG_MAX_INTArr(mutualArr, e2.ID) {
+			fmt.Printf("[ExtendPath] e2.ID: %v in the mutualArr: %v\n", e2.ID, mutualArr)
 			continue
 		}
 		p2 := e2.PathMat[0]
@@ -3120,16 +3166,17 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge, minMappingFre
 		e1 := edgesArr[eID1]
 		j1 := IndexEID(p2.IDArr, e1.ID)
 		j2 := IndexEID(p2.IDArr, e2.ID)
+		fmt.Printf("[ExtendPath]BACKWARD e1 ID: %v,  e2 ID: %v, p2: %v\n", e1.ID, e2.ID, p2)
 		if j1 < 0 || j2 < 0 {
 			continue
 		}
 		if j1 < j2 {
 			p2.IDArr = GetReverseDBG_MAX_INTArr(p2.IDArr)
 			j1 = IndexEID(p2.IDArr, e1.ID)
-			j2 = IndexEID(p2.IDArr, e2.ID)
+			//j2 = IndexEID(p2.IDArr, e2.ID)
 		}
 		k1 := IndexEID(p.IDArr, e1.ID)
-		fmt.Printf("[ExtendPath]j1: %v, j2:%v,k1: %v, eID1: %v, eID2: %v, p: %v, p2: %v\n", j1, j2, k1, e1.ID, e2.ID, p, p2)
+		//fmt.Printf("[ExtendPath]j1: %v, j2:%v,k1: %v, eID1: %v, eID2: %v, p: %v, p2: %v\n", j1, j2, k1, e1.ID, e2.ID, p, p2)
 		if j1 >= k1 && len(p2.IDArr)-j1 <= len(p.IDArr)-k1 {
 			if reflect.DeepEqual(p2.IDArr[j1-k1:], p.IDArr[:len(p2.IDArr)-(j1-k1)]) {
 				mutualArr = append(mutualArr, e2.ID)
@@ -3141,9 +3188,10 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge, minMappingFre
 					p.Freq = p2.Freq
 				}
 				idx = IndexEID(p.IDArr, e2.ID)
-				i = 0
+				i = -1
 			}
 		}
+		fmt.Printf("[ExtendPath] p: %v\n", p)
 	}
 
 	ReverseDBG_MAX_INTArr(mutualArr)
@@ -3151,7 +3199,20 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge, minMappingFre
 	// find right path
 	for i := len(p.IDArr) - 1; i > idx; i-- {
 		e2 := edgesArr[p.IDArr[i]]
-		if e2.GetUniqueFlag() == 0 || len(e2.PathMat) != 1 || e2.PathMat[0].Freq < minMappingFreq {
+		if len(e2.PathMat) != 1 || e2.PathMat[0].Freq < minMappingFreq || e2.GetProcessFlag() > 0 || e2.GetDeleteFlag() > 0 {
+			continue
+		}
+		if semi {
+			if e2.GetUniqueFlag() == 0 && e2.GetSemiUniqueFlag() == 0 {
+				continue
+			}
+		} else {
+			if e2.GetUniqueFlag() == 0 {
+				continue
+			}
+		}
+		if IsInDBG_MAX_INTArr(mutualArr, e2.ID) {
+			fmt.Printf("[ExtendPath] e2.ID: %v in the mutualArr: %v\n", e2.ID, mutualArr)
 			continue
 		}
 		p2 := e2.PathMat[0]
@@ -3165,10 +3226,11 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge, minMappingFre
 		if j2 < j1 {
 			p2.IDArr = GetReverseDBG_MAX_INTArr(p2.IDArr)
 			j1 = IndexEID(p2.IDArr, e1.ID)
-			j2 = IndexEID(p2.IDArr, e2.ID)
+			//j2 = IndexEID(p2.IDArr, e2.ID)
 		}
 		k1 := IndexEID(p.IDArr, e1.ID)
-		fmt.Printf("[ExtendPath] j1: %v, j2: %v, k1: %v, eID1: %v, eID2: %v, p: %v, p2: %v\n", j1, j2, k1, e1.ID, e2.ID, p, p2)
+		//fmt.Printf("[ExtendPath] j1: %v, j2: %v, k1: %v, eID1: %v, eID2: %v, p: %v, p2: %v\n", j1, j2, k1, e1.ID, e2.ID, p, p2)
+		fmt.Printf("[ExtendPath]FORWARD e1 ID: %v,  e2 ID: %v, p2: %v\n", e1.ID, e2.ID, p2)
 		if len(p2.IDArr)-j1 >= len(p.IDArr)-k1 && k1 >= j1 {
 			if reflect.DeepEqual(p.IDArr[k1-j1:], p2.IDArr[:len(p.IDArr)-(k1-j1)]) {
 				mutualArr = append(mutualArr, e2.ID)
@@ -3179,10 +3241,11 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge, minMappingFre
 					p.Freq = p2.Freq
 				}
 				idx = IndexEID(p.IDArr, e2.ID)
-				i = len(p.IDArr) - 1
+				i = len(p.IDArr)
 			}
 		}
 	}
+	fmt.Printf("[ExtendPath] p: %v\n", p)
 
 	if len(mutualArr) <= 1 {
 		edgesArr[e.ID].SetProcessFlag()
@@ -3209,7 +3272,7 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge, minMappingFre
 		edgesArr[id].SetDeleteFlag()
 		edgesArr[id].SetProcessFlag()
 	}
-	//fmt.Printf("[ExtendPath] mutualArr: %v\n", mutualArr)
+	fmt.Printf("[ExtendPath] mutualArr: %v\n", mutualArr)
 	fmt.Printf("[ExtendPath] maxP: %v\n", maxP)
 
 	return
@@ -3363,19 +3426,29 @@ func ExtendPath(edgesArr []DBGEdge, nodesArr []DBGNode, e DBGEdge, minMappingFre
 } */
 
 // find maximum path
-func findMaxPath(edgesArr []DBGEdge, nodesArr []DBGNode, minMapFreq int) (pathArr []Path) {
+func findMaxPath(edgesArr []DBGEdge, nodesArr []DBGNode, minMapFreq int, semi bool) (pathArr []Path) {
 	for i, e := range edgesArr {
-		if i < 2 || e.GetDeleteFlag() > 0 || e.GetProcessFlag() > 0 || e.GetUniqueFlag() == 0 || len(e.PathMat) != 1 {
+		if i < 2 || e.GetDeleteFlag() > 0 || e.GetProcessFlag() > 0 || len(e.PathMat) != 1 {
 			continue
+		}
+
+		if semi {
+			if e.GetSemiUniqueFlag() == 0 {
+				continue
+			}
+		} else {
+			if e.GetUniqueFlag() == 0 {
+				continue
+			}
 		}
 
 		p := e.PathMat[0]
 		if p.Freq < minMapFreq || len(p.IDArr) < 2 {
-			continue
-			//log.Fatalf("[findMaxPath] edgesArr[%v].PathMat: %v\t not contain useful info\n", i, p)
+			//continue
+			log.Fatalf("[findMaxPath] edgesArr[%v].PathMat: %v\t not contain useful info\n", i, p)
 		}
 
-		maxP := ExtendPath(edgesArr, nodesArr, e, minMapFreq)
+		maxP := ExtendPath(edgesArr, nodesArr, e, minMapFreq, semi)
 		if len(maxP.IDArr) > 1 {
 			pathArr = append(pathArr, maxP)
 		}
@@ -3884,6 +3957,7 @@ func findPathOverlap(jp Path, pathArr []DBG_MAX_INT, edgesArr []DBGEdge) (id DBG
 
 func CheckPathDirection(edgesArr []DBGEdge, nodesArr []DBGNode, eID DBG_MAX_INT) {
 	e := edgesArr[eID]
+	step := 1
 	var ea1, ea2 []DBG_MAX_INT
 	if e.StartNID > 0 {
 		ea1 = GetNearEdgeIDArr(nodesArr[e.StartNID], eID)
@@ -3894,18 +3968,37 @@ func CheckPathDirection(edgesArr []DBGEdge, nodesArr []DBGNode, eID DBG_MAX_INT)
 
 	// found two edge cycle
 	if len(ea1) == 1 && len(ea2) == 1 && ea1[0] == ea2[0] {
+		ea1 = GetNearEdgeIDArr(nodesArr[e.EndNID], ea1[0])
+		ea2 = GetNearEdgeIDArr(nodesArr[e.StartNID], ea2[0])
+		if len(ea1) == 2 && len(ea2) == 2 {
+			if ea1[0] == e.ID {
+				ea1[0] = ea1[1]
+			}
+			ea1 = ea1[:1]
+			if ea2[0] == e.ID {
+				ea2[0] = ea2[1]
+			}
+			ea2 = ea2[:1]
+			step = 2
+		} else {
+			edgesArr[eID].ResetUniqueFlag()
+			edgesArr[eID].ResetSemiUniqueFlag()
+			return
+		}
+	} else if IsIntersection(ea1, ea2) {
 		edgesArr[eID].ResetUniqueFlag()
+		edgesArr[eID].ResetSemiUniqueFlag()
 		return
 	}
 
 	for i, p := range e.PathMat {
 		idx := IndexEID(p.IDArr, eID)
-		if idx < len(p.IDArr)-1 {
-			if IsInDBG_MAX_INTArr(ea1, p.IDArr[idx+1]) {
+		if idx < len(p.IDArr)-step {
+			if IsInDBG_MAX_INTArr(ea1, p.IDArr[idx+step]) {
 				ReverseDBG_MAX_INTArr(edgesArr[eID].PathMat[i].IDArr)
 			}
 		} else {
-			if IsInDBG_MAX_INTArr(ea2, p.IDArr[idx-1]) {
+			if idx-step >= 0 && IsInDBG_MAX_INTArr(ea2, p.IDArr[idx-step]) {
 				ReverseDBG_MAX_INTArr(edgesArr[eID].PathMat[i].IDArr)
 			}
 		}
@@ -4144,7 +4237,14 @@ func SimplifyByNGS(opt Options, nodesArr []DBGNode, edgesArr []DBGEdge, mapNGSFn
 	MergePathMat(edgesArr, nodesArr, opt.MinMapFreq)
 
 	// find maximum path
-	joinPathArr := findMaxPath(edgesArr, nodesArr, opt.MinMapFreq)
+	joinPathArr := findMaxPath(edgesArr, nodesArr, opt.MinMapFreq, false) // just used for unique edge
+	joinPathArr1 := findMaxPath(edgesArr, nodesArr, opt.MinMapFreq, true) // just used for semi-unique edge
+	fmt.Printf("[SimplifyByNGS] findMaxPath number of the uinque edges : %v\n", len(joinPathArr))
+	fmt.Printf("[SimplifyByNGS] findMaxPath number of  the semi-uinque edges : %v\n", len(joinPathArr1))
+	// ReconstructDBG must first reconstruct uinque edges path , then process semi-unique edges,
+	// because semi-unique path maybe been contained in the uinque path,
+	// that will cause collison when  ReconstructDBG()
+	joinPathArr = append(joinPathArr, joinPathArr1...)
 	/*i := 125
 	if edgesArr[i].GetDeleteFlag() == 0 {
 		log.Fatalf("[SimplifyByNGS]edgesArr[%v]: %v\n", i, edgesArr[i])
@@ -4295,9 +4395,10 @@ func Smfy(c cli.Command) {
 	nodeMap = nil // nodeMap any more used
 
 	// set the unique edge of edgesArr
-	uniqueNum := SetDBGEdgesUniqueFlag(edgesArr, nodesArr)
+	uniqueNum, semiUniqueNum := SetDBGEdgesUniqueFlag(edgesArr, nodesArr)
 	//CheckInterConnectivity(edgesArr, nodesArr)
 	fmt.Printf("[Smfy] the number of DBG Unique  Edges is : %d\n", uniqueNum)
+	fmt.Printf("[Smfy] the number of DBG Semi-Unique  Edges is : %d\n", semiUniqueNum)
 
 	t1 := time.Now()
 	// map Illumina reads to the DBG and find reads map path for simplify DBG
