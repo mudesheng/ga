@@ -1,0 +1,176 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	0	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_PROGRAM_AUTHOR	Darren Hiebert	/dhiebert@users.sourceforge.net/
+!_TAG_PROGRAM_NAME	Exuberant Ctags	//
+!_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
+!_TAG_PROGRAM_VERSION	5.8	//
+GetSamRecord	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetSamRecord(bamfn string, rc chan []sam.Record, numCPU int) {$/;"	func	line:24
+rArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var rArr []sam.Record$/;"	var	line:35
+cigar	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	\/\/ var cigar sam.Cigar$/;"	var	line:36
+NM	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	\/\/var NM = sam.Tag{'N', 'M'}$/;"	var	line:37
+AS	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	\/\/var AS = sam.Tag{'A', 'S'}$/;"	var	line:38
+unknown	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			log.Fatalf("[GetSamRecord] as type unknown\\n")$/;"	type	line:68
+nilArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var nilArr []sam.Record$/;"	var	line:90
+LRRecord	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^type LRRecord struct {$/;"	type	line:95
+MapInfo	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^type MapInfo struct {$/;"	type	line:107
+GetNM	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (R LRRecord) GetNM() int {$/;"	func	line:115
+GetRefCon	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (R LRRecord) GetRefCon() int {$/;"	func	line:119
+AccumulateCigar	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func AccumulateCigar(cigar sam.Cigar, strand bool) (Mnum, Inum, Dnum, Pos int) {$/;"	func	line:123
+GetAuxUint	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetAuxUint(v interface{}) int {$/;"	func	line:150
+nmv	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var nmv int$/;"	var	line:151
+of	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		log.Fatalf("[GetAuxNM] unknown type of nm: %v\\n", v)$/;"	type	line:160
+LRRecordArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^type LRRecordArr []LRRecord$/;"	type	line:165
+Len	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (a LRRecordArr) Len() int {$/;"	func	line:167
+Less	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (a LRRecordArr) Less(i, j int) bool {$/;"	func	line:171
+Swap	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (a LRRecordArr) Swap(i, j int) {$/;"	func	line:175
+Diff	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^type Diff struct {$/;"	type	line:179
+DiffArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^type DiffArr []Diff$/;"	type	line:183
+Len	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (a DiffArr) Len() int {$/;"	func	line:185
+Less	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (a DiffArr) Less(i, j int) bool {$/;"	func	line:189
+Swap	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (a DiffArr) Swap(i, j int) {$/;"	func	line:193
+LRRecordScoreArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^type LRRecordScoreArr []LRRecord$/;"	type	line:197
+Len	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (a LRRecordScoreArr) Len() int {$/;"	func	line:199
+Less	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (a LRRecordScoreArr) Less(i, j int) bool {$/;"	func	line:203
+Swap	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (a LRRecordScoreArr) Swap(i, j int) {$/;"	func	line:207
+GetIDArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^\/*func GetIDArr(arr []LRRecord) (IDArr []constructdbg.DBG_MAX_INT) {$/;"	func	line:211
+PairIndex	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func PairIndex(arr []LRRecord, idx int, item LRRecord) int {$/;"	func	line:220
+findSeedEID	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func findSeedEID(arr []LRRecord, edgesArr []constructdbg.DBGEdge) int {$/;"	func	line:232
+maxMapNum	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var maxMapNum int$/;"	var	line:234
+findMapStrand	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^\/*func findMapStrand(RefID constructdbg.DBG_MAX_INT, pos int, arr []LRRecord) (strand bool) {$/;"	func	line:246
+max	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var max int$/;"	var	line:247
+ReverseLRRcordArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func ReverseLRRcordArr(arr []LRRecord) []LRRecord {$/;"	func	line:272
+GetExtendPath	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetExtendPath(IDArr []constructdbg.DBG_MAX_INT, eID constructdbg.DBG_MAX_INT, direction uint8) (arr []constructdbg.DBG_MAX_INT) {$/;"	func	line:280
+SearchLRRecordArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func SearchLRRecordArr(arr []LRRecord, aidx int, direction uint8, ea []constructdbg.DBG_MAX_INT, readPos, searchLen int) (isa []int) {$/;"	func	line:302
+GetMinLenEID	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetMinLenEID(edgesArr []constructdbg.DBGEdge, eIDArr []constructdbg.DBG_MAX_INT) int {$/;"	func	line:371
+GetMaxMchIdx	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^\/*func GetMaxMchIdx(arr []LRRecord) (idx, subidx int, diffScore int) {$/;"	func	line:385
+FindShareNID	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func FindShareNID(eID1, eID2 constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge) constructdbg.DBG_MAX_INT {$/;"	func	line:408
+GetFlankLen	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetFlankLen(R LRRecord, diretion uint8) int {$/;"	func	line:419
+RelocateLRRecordArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^\/*func RelocateLRRecordArr(arr []LRRecord, si int, direction uint8, newArr []constructdbg.DBG_MAX_INT, searchLen int, edgesArr []constructdbg.DBGEdge, opt Options) (int, int) {$/;"	func	line:435
+ExtPathInfo	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^type ExtPathInfo struct {$/;"	type	line:449
+ExtPathInfoArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^type ExtPathInfoArr []ExtPathInfo$/;"	type	line:457
+Len	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (a ExtPathInfoArr) Len() int {$/;"	func	line:459
+Less	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (a ExtPathInfoArr) Less(i, j int) bool {$/;"	func	line:463
+Swap	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (a ExtPathInfoArr) Swap(i, j int) {$/;"	func	line:467
+GetNM	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^\/*func GetNM(R LRRecord) (mch, mis, ins, del int) {$/;"	func	line:471
+Getscore	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^\/*func Getscore(R LRRecord, begin, end int) (score int) {$/;"	func	line:488
+priorIndex	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func priorIndex(arr []LRRecord, idx int) int {$/;"	func	line:517
+nextIndex	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func nextIndex(arr []LRRecord, idx int) int {$/;"	func	line:529
+GetScoreFixedLen	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetScoreFixedLen(edgesArr []constructdbg.DBGEdge, epi ExtPathInfo, flankPos int, direction uint8) int {$/;"	func	line:542
+score	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var score int$/;"	var	line:543
+IsInRefRegionContain	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func IsInRefRegionContain(a1, a2 LRRecord) (constructdbg.DBG_MAX_INT, bool) {$/;"	func	line:591
+extendPathDistinguish	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func extendPathDistinguish(edgesArr []constructdbg.DBGEdge, nd constructdbg.DBGNode, nodesArr []constructdbg.DBGNode, eIDArr []constructdbg.DBG_MAX_INT, lrArr []LRRecord, si, searchLen int, direction uint8, opt Options) (extArr []constructdbg.DBG_MAX_INT) {$/;"	func	line:605
+epiArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var epiArr []ExtPathInfo$/;"	var	line:606
+epi	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var epi ExtPathInfo$/;"	var	line:609
+nepi	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			var nepi ExtPathInfo$/;"	var	line:633
+mapArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		\/\/var mapArr []LRRecord$/;"	var	line:655
+flankPos	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var flankPos int$/;"	var	line:678
+IndexArrPos	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func IndexArrPos(subA []int, arr []LRRecord, eID constructdbg.DBG_MAX_INT) int {$/;"	func	line:699
+GetConsisPath	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetConsisPath(pathMat []constructdbg.Path, eID, neID constructdbg.DBG_MAX_INT) (eIDArr []constructdbg.DBG_MAX_INT) {$/;"	func	line:708
+pm	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var pm [][]constructdbg.DBG_MAX_INT$/;"	var	line:709
+na	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var na []constructdbg.DBG_MAX_INT$/;"	var	line:716
+id	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var id constructdbg.DBG_MAX_INT$/;"	var	line:732
+GetNGSPath	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetNGSPath(extArr [2][]constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge) (eIDArr []constructdbg.DBG_MAX_INT) {$/;"	func	line:753
+GetMostProbableEdge	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetMostProbableEdge(edgesArr []constructdbg.DBGEdge, extArr [2][]constructdbg.DBG_MAX_INT, subA []int, arr, na []LRRecord) int {$/;"	func	line:771
+findMostProbablePath	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func findMostProbablePath(arr []LRRecord, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, opt Options) (extArr [2][]constructdbg.DBG_MAX_INT) {$/;"	func	line:786
+nID	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var nID constructdbg.DBG_MAX_INT$/;"	var	line:800
+direction	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var direction uint8$/;"	var	line:801
+alter	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			var alter constructdbg.DBG_MAX_INT \/\/ alternative edge, maybe cause by haplotype$/;"	var	line:822
+flankLen	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			var flankLen int$/;"	var	line:823
+readPos	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			var readPos int$/;"	var	line:824
+ComputingNextEdgeInfo	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func ComputingNextEdgeInfo(e, ed constructdbg.DBGEdge, strand bool, nd constructdbg.DBGNode) (bool, constructdbg.DBG_MAX_INT) {$/;"	func	line:896
+nID	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var nID constructdbg.DBG_MAX_INT$/;"	var	line:897
+GetMappingEdgePathSeq	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetMappingEdgePathSeq(mi MapInfo, extArr []constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, direction uint8, extendEID constructdbg.DBG_MAX_INT, extendMinLen, kmerLen int) (edgeSeq []byte, strand bool, minLen int) {$/;"	func	line:916
+strand	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	\/\/var strand bool$/;"	var	line:921
+GetMappingReadSeq	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetMappingReadSeq(direction uint8, mi MapInfo, readSeqBnt []byte, extendMinLen, kmerLen int, edgeSeq []byte) ([]byte, []byte, int, int) {$/;"	func	line:982
+readSeq	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var readSeq []byte$/;"	var	line:983
+readLen	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var readLen int$/;"	var	line:984
+nextReadPos	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var nextReadPos, notMappingLen int$/;"	var	line:985
+SeedKmer	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^type SeedKmer struct {$/;"	type	line:1019
+SKArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^type SKArr []SeedKmer$/;"	type	line:1023
+Len	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (arr SKArr) Len() int {$/;"	func	line:1025
+Less	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (arr SKArr) Less(i, j int) bool {$/;"	func	line:1029
+Swap	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (arr SKArr) Swap(i, j int) {$/;"	func	line:1033
+Chain	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^type Chain struct {$/;"	type	line:1037
+ChainArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^type ChainArr []Chain$/;"	type	line:1042
+Len	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (arr ChainArr) Len() int {$/;"	func	line:1044
+Less	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (arr ChainArr) Less(i, j int) bool {$/;"	func	line:1048
+Swap	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func (arr ChainArr) Swap(i, j int) {$/;"	func	line:1052
+GetKmerList	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetKmerList(seq []byte, skLen uint32) (list []SeedKmer) {$/;"	func	line:1056
+sk	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var sk SeedKmer$/;"	var	line:1068
+GetInterSection	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetInterSection(listA, listB []SeedKmer, skLen uint32) []Chain {$/;"	func	line:1083
+interSecArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var interSecArr []Chain$/;"	var	line:1084
+ch	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			var ch Chain$/;"	var	line:1113
+GetChainArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetChainArr(interSecArr []Chain, seedKmerLen uint32) (chainA []Chain) {$/;"	func	line:1124
+CIGAR	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^type CIGAR struct {$/;"	type	line:1173
+Max	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func Max(a, b, c int) int {$/;"	func	line:1177
+GetKArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetKArr(cycle, D uint, low, high int) []int {$/;"	func	line:1189
+GlobalAlignment	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GlobalAlignment(seqa, seqb []byte, localFirst bool) (cg CIGAR, lastY int) {$/;"	func	line:1222
+max	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var max uint$/;"	var	line:1226
+D	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var D uint$/;"	var	line:1234
+finished	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var finished bool$/;"	var	line:1258
+y	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			var y, m int$/;"	var	line:1277
+b	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			var b uint64$/;"	var	line:1278
+best	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var best, by int$/;"	var	line:1333
+DPLocalAlign	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func DPLocalAlign(edgesSeq, readSeq []byte, chainA []Chain) (cg CIGAR, lastY int) {$/;"	func	line:1385
+pch	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var pch Chain$/;"	var	line:1388
+ch	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var ch Chain$/;"	var	line:1392
+localFirst	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var localFirst bool$/;"	var	line:1402
+finished	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^				var finished bool \/\/ test if a substring in another$/;"	var	line:1422
+GetChainScore	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetChainScore(chainA []Chain) (chainScore int) {$/;"	func	line:1513
+DPAlignEdgePath	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func DPAlignEdgePath(mi MapInfo, extArr []constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, readSeqBnt []byte, direction uint8, extendEID constructdbg.DBG_MAX_INT, extendMinLen int, kmerLen int) (cg CIGAR, chainScore int, edgesSeqLen, notChainEdgeLen, readPos int, strand bool, alignReadPos int) {$/;"	func	line:1520
+edgesSeq	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var edgesSeq, readSeq []byte$/;"	var	line:1522
+nextReadPos	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var nextReadPos, notMappinglen, minLen int$/;"	var	line:1523
+GetMinLen	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetMinLen(ea []constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, kmerLen int) (minLen int) {$/;"	func	line:1591
+IndexCigarArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func IndexCigarArr(arr []CIGAR, item int) int {$/;"	func	line:1601
+GetMappingExtendPathArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetMappingExtendPathArr(extArr, ea []constructdbg.DBG_MAX_INT, nID constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, MinExtendLen, kmerlen int) (mappingPathArr [][]constructdbg.DBG_MAX_INT, lastEdgeArr []constructdbg.DBG_MAX_INT, newMinLen int) {$/;"	func	line:1610
+pathExtend	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	type pathExtend struct {$/;"	type	line:1611
+pathQueue	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var pathQueue []pathExtend$/;"	var	line:1617
+pe	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var pe pathExtend$/;"	var	line:1619
+npe	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			var npe pathExtend$/;"	var	line:1647
+BackWardDeduceStrand	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^\/*func BackWardDeduceStrand(mappingPath []constructdbg.DBG_MAX_INT, consisPathLen int, edgesArr []constructdbg.DBGEdge, nID constructdbg.DBG_MAX_INT, strand bool) bool {$/;"	func	line:1662
+GetLongConsisPath	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetLongConsisPath(mappingPathArr [][]constructdbg.DBG_MAX_INT, idxArr []int) (consisPath []constructdbg.DBG_MAX_INT) {$/;"	func	line:1685
+eID	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var eID constructdbg.DBG_MAX_INT$/;"	var	line:1687
+GetExtendLen	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetExtendLen(extArr []constructdbg.DBG_MAX_INT, idx int, edgesArr []constructdbg.DBGEdge, kmerLen int) (extendLen int) {$/;"	func	line:1710
+GetEdgePos	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetEdgePos(e constructdbg.DBGEdge, direction uint8, strand bool, kmerLen, minLen, flankLen int) int {$/;"	func	line:1718
+MappingONTMostProbablePath	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func MappingONTMostProbablePath(arr []LRRecord, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, opt Options) (extArr [2][]constructdbg.DBG_MAX_INT) {$/;"	func	line:1734
+flankLen	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var flankLen int$/;"	var	line:1748
+mi	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var mi MapInfo$/;"	var	line:1749
+nID	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var nID constructdbg.DBG_MAX_INT$/;"	var	line:1751
+direction	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var direction uint8$/;"	var	line:1752
+deduceReadPos	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var deduceReadPos, extIdx int$/;"	var	line:1753
+alter	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			var alter constructdbg.DBG_MAX_INT \/\/ alternative edge, maybe cause by haplotype$/;"	var	line:1789
+mappingPathArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			var mappingPathArr [][]constructdbg.DBG_MAX_INT$/;"	var	line:1849
+lastEdgeArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			var lastEdgeArr []constructdbg.DBG_MAX_INT$/;"	var	line:1850
+newml	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^				var newml int$/;"	var	line:1853
+mp	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^					var mp []constructdbg.DBG_MAX_INT$/;"	var	line:1858
+diffArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^				var diffArr []Diff$/;"	var	line:1896
+diff	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^						var diff Diff$/;"	var	line:1899
+idxArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^				\/*var idxArr []int$/;"	var	line:1946
+findMostProbablePath	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^\/*func findMostProbablePath(arr []LRRecord, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, opt Options) (extArr [2][]constructdbg.DBG_MAX_INT) {$/;"	func	line:2025
+newArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			var newArr []constructdbg.DBG_MAX_INT$/;"	var	line:2047
+puzzy	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			var puzzy bool \/\/ note if found a puzzy path, maybe Long Reads sequence error cause$/;"	var	line:2048
+arrNGS	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^				\/\/var arrNGS []constructdbg.DBG_MAX_INT$/;"	var	line:2050
+perr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^					var perr bool$/;"	var	line:2058
+a	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^					var a []LRRecord$/;"	var	line:2076
+newArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			var newArr []constructdbg.DBG_MAX_INT$/;"	var	line:2158
+puzzy	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			var puzzy bool$/;"	var	line:2159
+perr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^					var perr bool$/;"	var	line:2167
+a	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^					var a []LRRecord$/;"	var	line:2184
+Reverse	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func Reverse(s string) string {$/;"	func	line:2255
+SplitBySpace	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func SplitBySpace(s string, num int) []string {$/;"	func	line:2263
+ConvertLRRecord	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func ConvertLRRecord(pi PAFInfo) (lrd LRRecord) {$/;"	func	line:2293
+err	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	\/\/var err error$/;"	var	line:2294
+cleanLRRecordArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func cleanLRRecordArr(arr []LRRecord, flankAllow int) []LRRecord {$/;"	func	line:2351
+paraFindLongReadsMappingPath	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func paraFindLongReadsMappingPath(rc <-chan []PAFInfo, wc chan [2][]constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, opt Options) {$/;"	func	line:2393
+guardPath	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			var guardPath [2][]constructdbg.DBG_MAX_INT$/;"	var	line:2398
+MAFRecord	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^\/*type MAFRecord struct {$/;"	type	line:2470
+MAFRecordArr	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^\/\/type MAFRecordArr []MAFRecord$/;"	type	line:2474
+LRInfo	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^type LRInfo struct {$/;"	type	line:2476
+PAFInfo	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^type PAFInfo struct {$/;"	type	line:2481
+GetLRRead	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetLRRead(ONTfafp *fasta.Reader) (LRInfo, error) {$/;"	func	line:2486
+li	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var li LRInfo$/;"	var	line:2487
+GetPAFRecord	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^func GetPAFRecord(paffn, ONTfn string, rc chan<- []PAFInfo, numCPU int) {$/;"	func	line:2503
+pa	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var pa []PAFInfo$/;"	var	line:2518
+li	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^	var li LRInfo$/;"	var	line:2519
+p	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^		var p PAFInfo$/;"	var	line:2540
+na	/Users/mds/go/src/github.com/mudesheng/ga/deconstructdbg/bam.go	/^			var na []PAFInfo$/;"	var	line:2549

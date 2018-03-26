@@ -1917,7 +1917,7 @@ func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt Options) {
 	fmt.Printf("[SmfyDBG]long tips number is : %d\n", longTipsEdgesNum)
 }
 
-func transform2QSeq(utg Unitig) alphabet.QLetters {
+func Transform2QSeq(utg Unitig) alphabet.QLetters {
 	if len(utg.Ks) != len(utg.Kq) {
 		log.Fatalf("[transform2QSeq] len(ks):%d != len(kq):%d\n", len(utg.Ks), len(utg.Kq))
 	}
@@ -1982,7 +1982,7 @@ func StoreEdgesToFn(edgesfn string, edgesArr []DBGEdge) {
 			seq := linear.NewQSeq("", nil, alphabet.DNA, alphabet.Sanger)
 			seq.ID = strconv.Itoa(int(v.ID))
 			// Add start and end adapter seq
-			qs := transform2QSeq(v.Utg)
+			qs := Transform2QSeq(v.Utg)
 			seq.AppendQLetters(qs...)
 			var path string
 			/*if len(v.PathMat) > 0 && len(v.PathMat[0].IDArr) > 1 {
@@ -3515,7 +3515,7 @@ func GetLinkPathArr(nodesArr []DBGNode, edgesArr []DBGEdge, nID DBG_MAX_INT) (p 
 	return p
 }
 
-func CascadePath(p Path, edgesArr []DBGEdge, nodesArr []DBGNode, kmerlen int) {
+func CascadePath(p Path, edgesArr []DBGEdge, nodesArr []DBGNode, kmerlen int, changeDBG bool) DBGEdge {
 	p0 := edgesArr[p.IDArr[0]]
 	p1 := edgesArr[p.IDArr[1]]
 	//eStartNID, eEndNID := p0.StartNID, p0.EndNID
@@ -3617,6 +3617,10 @@ func CascadePath(p Path, edgesArr []DBGEdge, nodesArr []DBGNode, kmerlen int) {
 		lastEID = p1.ID
 	}
 
+	if !changeDBG {
+		return edgesArr[p0.ID]
+	}
+
 	if direction == FORWARD {
 		if !SubstituteEdgeID(nodesArr, p0.EndNID, p0.ID, 0) {
 			log.Fatalf("[ReconstructDBG] SubsitututeEdgeID for Merged edge error, node: %v\n\tedge:%v\n", nodesArr[p0.EndNID], p0)
@@ -3634,6 +3638,7 @@ func CascadePath(p Path, edgesArr []DBGEdge, nodesArr []DBGNode, kmerlen int) {
 		}
 		edgesArr[p0.ID].StartNID = nID
 	}
+	return edgesArr[p0.ID]
 }
 
 // reset the nodesArr EdgeIDIncoming and EdgeIDOutcoming
@@ -3816,7 +3821,7 @@ func ReconstructDBG(edgesArr []DBGEdge, nodesArr []DBGNode, joinPathArr []Path, 
 		fmt.Printf("[ReconstructDBG] p: %v\n", p)
 		//if IsTwoEdgeCyclePath(path) { joinPathArr[i].IDArr = }
 
-		CascadePath(p, edgesArr, nodesArr, kmerlen)
+		CascadePath(p, edgesArr, nodesArr, kmerlen, true)
 	}
 	// Reset delete edges coming DBGNodes
 	ResetDeleteEdgeIncoming(edgesArr, nodesArr)

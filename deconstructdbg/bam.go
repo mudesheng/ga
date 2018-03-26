@@ -1219,95 +1219,169 @@ func GetKArr(cycle, D uint, low, high int) []int {
 	return kArr
 }
 
+func PrintBvec(b uint64, l int) []byte {
+	if l > 64 {
+		l = 64
+	}
+	bi := make([]byte, l)
+	for i := 0; i < l; i++ {
+		if (b & 0x1) > 0 {
+			bi[i] = '1'
+		} else {
+			bi[i] = '0'
+		}
+		b >>= 1
+	}
+	bi = []byte(Reverse(string(bi)))
+	return bi
+}
+
 func GlobalAlignment(seqa, seqb []byte, localFirst bool) (cg CIGAR, lastY int) {
 	//C := uint(64)
 	LAG := 20
 	//MASKC := 1 << (C - 1)
-	var max uint
+	var max, min int
 	if len(seqa) >= len(seqb) {
-		max = uint(len(seqa))
-		//min = uint(len(seqb))
+		max = len(seqa)
+		min = len(seqb)
 	} else {
-		max = uint(len(seqb))
-		//min = uint(len(seqa))
+		max = len(seqb)
+		min = len(seqa)
 	}
-	var D uint
-	if max < 20 {
-		D = max
-	} else if max < 100 {
-		D = max / 2
+	var D uint32
+	if max < 200 {
+		D = uint32(max) + 2
 	} else {
-		D = max / 6
+		D = uint32(max) / 3
 	}
 	if D < 10 {
 		D = 10
 	}
-	if D%2 != 0 { // D must even
+	if max-min > int(D)-min/2 {
+		D = uint32(max - min + min/2)
+	}
+	if D&0x1 == 1 { // D must even
 		D++
 	}
-	width := 2*D + 1
 	mid := int(D)
+	width := 2*D + 1
 	B := make([]uint64, width) // diagonal value is D
-	M := make([]int, width)
-	W := make([]int, width)
+	M := make([]int, width)    // store match score
+	W := make([]int, width)    // store max x+y == (y+k) + y == 2* y + k
 	for i, _ := range W {
-		W[i] = -2
+		W[i] = -1
 	}
-	W[mid] = -1
+	//W[mid] = -1
 	low, high := 1, -1
 	var finished bool
 	//fmt.Printf("[GlobalAlignment]mid: %v\n", mid)
-	i := uint(0)
+	maxBound, minBound := 0, 0
+	i := uint32(0)
 	for ; i <= D; i++ {
-		//fmt.Printf("i: %v, low: %v, high: %v\nW: %v\n", i, low, high, W)
-		//fmt.Printf("M: %v\n", M)
 		//first process the digits propery(even or odd) same as i
-		kArr := GetKArr(i, D, low-1, high+1)
+		//kArr := GetKArr(i, D, low-1, high+1)
+		//for _, k := range kArr
 		//fmt.Printf("kArr: %v\n", kArr)
-		for _, k := range kArr { // k = i - j
-			max := Max(W[mid+k]+1, W[mid+k-1], W[mid+k+1]+1)
-			if (i & 0x1) != (uint(int(D)-k) & 0x1) { // D and k one is odd ,another is even
+		/*start := low - 1
+		if ((D - (uint(low) - 1)) & 0x1) != (i & 0x1) {
+			start++
+		}*/
+		var lastB uint64
+		var lastM int
+		var ap, ac, am int
+		high++
+		low--
+		if high <= maxBound {
+			W[mid+high] = -1
+			M[mid+high] = 0
+			B[mid+high] = 0
+		}
+		am = W[mid+high]
+		lastM, lastB = 0, 0
+		if low >= minBound {
+			M[mid+low], M[mid+low-1] = 0, 0
+			W[mid+low], W[mid+low-1] = -1, -1
+			B[mid+low], B[mid+low-1] = 0, 0
+		}
+		ac = -1
+		for k := high; k >= low; k-- { // k = i - j
+			ap = ac
+			ac = am
+			am = W[mid+k-1]
+			max := Max(ap, ac, am)
+			/*if (i & 0x1) != (uint(int(D)-k) & 0x1) { // D and k one is odd ,another is even
 				if max != W[mid+k]+1 {
 					continue
 				}
-			}
-			var y, m int
+			}*/
+			var a, m int
 			var b uint64
-			//fmt.Printf("k: %v,W[mid+k]+1: %v,  W[mid+k-1]: %v, W[mid+k+1]+1: %v\n", k, W[mid+k]+1, W[mid+k-1], W[mid+k+1]+1)
-			if max == W[mid+k]+1 {
-				y, m, b = max, M[mid+k], B[mid+k]
-			} else if max == W[mid+k+1] {
-				y, m, b = max, M[mid+k+1], B[mid+k+1]
+			//fmt.Printf("k: %v,ap: %v, m: %v,  ac: %v, m: %v, am: %v,m: %v, max: %v\n", k, ap, M[mid+k+1], ac, M[mid+k], am, M[mid+k-1], max)
+			// check have been encounter boundary
+			var tx, ty int
+			if max >= 0 && max >= k {
+				/*if max < k {
+					log.Fatalf("[GlobalAlignment] max:%v must bigger than k: %v\n", max, k)
+				}*/
+				ty = (max - k) >> 1
+				tx = ty + k
 			} else {
-				y, m, b = max, M[mid+k-1], B[mid+k-1]
+				tx, ty = -1, -1
+			}
+			if tx >= len(seqa) {
+				a, m, b = max+1, M[mid+k-1], B[mid+k-1]<<1
+			} else if ty >= len(seqb) {
+				a, m, b = max+1, lastM, lastB
+			} else {
+				if max == ap {
+					a, m, b = max+1, lastM, lastB
+				} else if max == am {
+					a, m, b = max+1, M[mid+k-1], B[mid+k-1]<<1
+				} else {
+					a, m, b = max+2, M[mid+k], B[mid+k]<<1
+				}
+			}
+			y := -1
+			if a >= k {
+				y = (a - k) >> 1
 			}
 			if y < 0 || y+k < 0 {
-				continue
+				log.Fatalf("[GlobalAlignment] y: %v, y+k: %v must >= 0\n", y, y+k)
 			}
+			//fmt.Printf("[GlobalAlignment]y: %v, y+k: %v, a: %v, m: %v\n", y, y+k, a, m)
+			/*if y < 0 || y+k < 0 {
+				continue
+			}*/
 			for ; y < len(seqb) && y+k < len(seqa) && seqb[y] == seqa[y+k]; y++ {
 				b = (b << 1) | 1
 				m++
+				a += 2
 				//fmt.Printf("[GlobalAlignment]seqb[y] == seqa[y+k], y: %v, y+k: %v\n", y, y+k)
 			}
-			//fmt.Printf("[GlobalAlignment]y: %v, y+k: %v\n", y, y+k)
-			if y > len(seqb) || y+k > len(seqa) {
-				continue
-			}
 
-			if localFirst && y+k == len(seqa) {
+			//fmt.Printf("[GlobalAlignment]a: %v, y: %v, y+k: %v\n", a, y, y+k)
+			/*if y > len(seqb) || y+k > len(seqa) {
+				continue
+			}*/
+
+			if localFirst && y < len(seqb) && y+k == len(seqa) {
 				cg.Mch = uint32(m)
+				cg.Mis = i
 				lastY = y
 				finished = true
 				//fmt.Printf("locaFirst, y: %v, y+k: %v, cg: %v\n", y, y+k, cg)
 				break
 			} else if y == len(seqb) && y+k == len(seqa) {
 				cg.Mch = uint32(m)
+				cg.Mis = i
 				lastY = y
 				finished = true
 				//fmt.Printf("right finished, y: %v, y+k: %v, cg: %v\n", y, y+k, cg)
+				fmt.Println("B:" + string(PrintBvec(b, len(seqa))))
 				break
 			}
-			W[mid+k], M[mid+k], B[mid+k] = y, m, b
+			lastB, lastM = B[mid+k], M[mid+k]
+			W[mid+k], M[mid+k], B[mid+k] = a, m, b
 		}
 
 		if finished {
@@ -1315,43 +1389,71 @@ func GlobalAlignment(seqa, seqb []byte, localFirst bool) (cg CIGAR, lastY int) {
 		}
 
 		// trimming furthest reaching points
-		low--
-		high++
-		var best, by int
+		var besta, besty int
 		for k := low; k <= high; k++ {
-			if best < k+2*W[mid+k] { // i + j == y+k + y
-				best = k + 2*W[mid+k]
-				by = W[mid+k]
+			if besta < W[mid+k] { // i + j == y+k + y
+				besta = W[mid+k]
+				besty = (W[mid+k] - k) >> 1 // W[mid+k] = 2*y + k
 			}
 		}
-		if LAG < by/10 {
-			LAG = by / 10
+
+		if LAG > 10 && LAG < besty/5 {
+			LAG = besty / 5
 		}
-		for ; low <= high && low+2*W[mid+low] <= best-LAG; low++ {
+		for ; low <= high && W[mid+low] <= besta-LAG; low++ {
 		}
-		for ; high >= low && high+2*W[mid+high] <= best-LAG; high-- {
+		for ; high >= low && W[mid+high] <= besta-LAG; high-- {
 		}
 
-		if low-1 <= 0-int(D) || high+1 >= int(D) || low > high {
+		if low-2 <= 0-int(D) || high+1 >= int(D) || low > high {
 			break
 			//log.Fatalf("[GlobalAlignment] low:%v, high: %v must between (-%v ~ %v)\n", low, high, D, D)
 		}
+		if minBound > low {
+			minBound = low
+		}
+		if maxBound < high {
+			maxBound = high
+		}
+
+		if localFirst && i > 50 && besty < 2*int(i) {
+			break
+		}
+		//fmt.Printf("i: %v, low: %v, high: %v\nW: %v\n", i, low, high, W)
+		//fmt.Printf("M: %v\n", M)
 	}
 	if !finished {
-		max := 0
+		maxM, maxa := 0, 0
+		var b uint64
 		for j, mch := range M {
-			if mch > 0 && mch >= max {
-				lastY = W[j]
-				max = mch
-				cg.Mis = uint32(len(seqa) - (lastY + j - mid))
+			if mch > 0 && mch >= maxM {
+				if mch == maxM && W[j] >= maxa {
+					continue
+				}
+				k := j - mid
+				if W[j] > k {
+					lastY = (W[j] - k) >> 1
+				} else {
+					lastY = -1
+				}
+				maxM = mch
+				maxa = W[j]
+				b = B[j]
+				//cg.Mis = uint32(len(seqa) - (lastY + j - mid))
+				//fmt.Printf("!!!!!unfinished\tmaxM: %v, y: %v, y+k: %v\n", maxM, lastY, lastY+j-mid)
 			}
 		}
-		cg.Mch = uint32(max)
-		//log.Fatalf("[GlobalAlignment] not found proper alignment\nseqa: %v\nseqb: %v\n", seqa, seqb)
+		cg.Mch = uint32(maxM)
+		cg.Mis = i
+		fmt.Printf("!!!!!unfinished\tmaxM: %v, cg: %v\n", maxM, cg)
+		if !localFirst {
+			fmt.Println("B:" + string(PrintBvec(b, len(seqa))))
+			log.Fatalf("[GlobalAlignment] not found proper alignment, i: %v,  \nseqa: %v\nseqb: %v\n", i, seqa, seqb)
+		}
 	}
 	// get score
 	// i note the alignment encounter total number base of  MisMatch+Insertion+Deletion, any Mis or InDel base penlize score -1
-	cg.Mis += uint32(i)
+	//cg.Mis += uint32(i)
 	return
 }
 
@@ -1382,10 +1484,6 @@ func DPLocalAlign(edgesSeq, readSeq []byte, chainA []Chain) (cg CIGAR, lastY int
 				ch.Y = pYEnd + enlongation
 			}
 		}
-		fmt.Printf("[DPLocalAlign] cg: %v,ch: %v\n", cg, ch)
-		//fmt.Printf("[DPLocalAlign] len(edgesSeq): %v, len(readSeq): %v, pch: %v, ch: %v\n", xlen, ylen, pch, ch)
-		fmt.Printf("[DPLocalAlign] edge part seq: %v\n", edgesSeq[pXEnd:ch.X])
-		fmt.Printf("[DPLocalAlign] read part seq: %v\n", readSeq[pYEnd:ch.Y])
 		if !localFirst {
 			if pXEnd == ch.X {
 				cg.Ins += ch.Y - pYEnd
@@ -1459,10 +1557,13 @@ func DPLocalAlign(edgesSeq, readSeq []byte, chainA []Chain) (cg CIGAR, lastY int
 				continue
 			}
 		}
-
+		//fmt.Printf("[DPLocalAlign] len(edgesSeq): %v, len(readSeq): %v, pch: %v, ch: %v\n", xlen, ylen, pch, ch)
+		//fmt.Printf("[DPLocalAlign] cg: %v,ch: %v\n", cg, ch)
+		//fmt.Printf("[DPLocalAlign] edge part seq: %v\n", edgesSeq[pXEnd:ch.X])
+		//fmt.Printf("[DPLocalAlign] read part seq: %v\n", readSeq[pYEnd:ch.Y])
 		// need DP alignment
 		cigar, y := GlobalAlignment(edgesSeq[pXEnd:ch.X], readSeq[pYEnd:ch.Y], localFirst)
-		fmt.Printf("[DPLocalAlign] cigar: %v, cg: %v, y: %v\n", cigar, cg, y)
+		//fmt.Printf("[DPLocalAlign]ch: %v, cigar: %v, cg: %v, y: %v\n", ch, cigar, cg, y)
 		if i == len(chainA) {
 			if y < 0 {
 				log.Fatalf("[DPLocalAlign] found y[%v] < 0\n", y)
@@ -1505,8 +1606,8 @@ func DPAlignEdgePath(mi MapInfo, extArr []constructdbg.DBG_MAX_INT, edgesArr []c
 	//debug code
 	//readSeq, edgesSeq = readSeq[:651], edgesSeq[:653]
 	//fmt.Printf("[DPAlignEdgePath] len(edgesSeq): %v, len(readSeq): %v\n", len(edgesSeq), len(readSeq))
-	//fmt.Fprintf(os.Stderr, "[DPAlignEdgePath]mi: %v, extendeID: %v, edgesSeq string: %v\n", mi, extendEID, bnt.TransformSeq(edgesSeq))
-	//fmt.Fprintf(os.Stderr, "[DPAlignEdgePath]mi: %v, extendeID: %v,readSeq string: %v\n", mi, extendEID, bnt.TransformSeq(readSeq))
+	//fmt.Printf("[DPAlignEdgePath]mi: %v, extendeID: %v, edgesSeq string: %v\n", mi, extendEID, bnt.TransformSeq(edgesSeq))
+	//fmt.Printf("[DPAlignEdgePath]mi: %v, extendeID: %v,readSeq string: %v\n", mi, extendEID, bnt.TransformSeq(readSeq))
 	//fmt.Printf("[DPAlignEdgePath] reverse edgesSeq string: %v\n\t\t reverse readSeq string: %v\n", bnt.TransformSeq(constructdbg.GetReverseByteArr(edgesSeq)), bnt.TransformSeq(constructdbg.GetReverseByteArr(readSeq)))
 
 	// found two sequences seed chaining
@@ -1533,9 +1634,9 @@ func DPAlignEdgePath(mi MapInfo, extArr []constructdbg.DBG_MAX_INT, edgesArr []c
 	chainScore = GetChainScore(chainA)
 	fmt.Printf("[DPAlignEdgePath] chainScore: %v\n", chainScore)
 	//fmt.Printf("[DPAlignEdgePath] edgesSeq: %v\n\t\t\treadSeq: %v\nchainScore: %v\n", edgesSeq, readSeq, chainScore)
-	for i, ch := range chainA {
+	/*for i, ch := range chainA {
 		fmt.Printf("[DPAlignEdgePath] chainA[%v]: %v\n", i, ch)
-	}
+	}*/
 	AlignmentMinLen := constructdbg.Min(len(edgesSeq), len(readSeq))
 	if int(chainScore) < AlignmentMinLen/15 {
 		fmt.Printf("[DPAlignEdgePath] chainScore: %v < min(len(edgesSeq),len(readSeq))/15: %v\n", chainScore, AlignmentMinLen/15)
@@ -1546,6 +1647,10 @@ func DPAlignEdgePath(mi MapInfo, extArr []constructdbg.DBG_MAX_INT, edgesArr []c
 
 	// Rapid Local Alignment Discovery from seeds chain
 	cg, alignReadPos = DPLocalAlign(edgesSeq, readSeq, chainA)
+	if alignReadPos < constructdbg.Min(len(edgesSeq), len(readSeq))*4/5 {
+		cg.Mch = 0
+		return
+	}
 	if direction == constructdbg.FORWARD {
 		readPos = nextReadPos - (len(readSeq) - int(lch.Y+lch.Len))
 		alignReadPos = nextReadPos - (len(readSeq) - alignReadPos)
@@ -1553,7 +1658,7 @@ func DPAlignEdgePath(mi MapInfo, extArr []constructdbg.DBG_MAX_INT, edgesArr []c
 		readPos = nextReadPos + (len(readSeq) - int(lch.Y+lch.Len))
 		alignReadPos = nextReadPos + (len(readSeq) - alignReadPos)
 	}
-	fmt.Printf("[DPAlignEdgePath] cg: %v\n", cg)
+	//fmt.Printf("[DPAlignEdgePath] cg: %v\n", cg)
 	//score = int(cg.Mch) - int(cg.Ins+cg.Del+cg.Mis)
 	return
 }
@@ -1857,7 +1962,7 @@ func MappingONTMostProbablePath(arr []LRRecord, edgesArr []constructdbg.DBGEdge,
 			sort.Ints(sc)
 			x := IndexCigarArr(cgArr, sc[len(sc)-1])
 			max := sc[len(sc)-1]
-			if max < edgesSeqLen[x]/2 {
+			if max < edgesSeqLen[x]*2/5 {
 				fmt.Printf("[MappingMostProbablePath] mapping score too low, ea: %v, cgArr: %v, <edgeSeqLen[%v]/2\n", ea, cgArr, edgesSeqLen[x])
 				break
 			}

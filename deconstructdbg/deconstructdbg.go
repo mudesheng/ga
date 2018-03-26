@@ -7,7 +7,11 @@ import (
 	"os"
 	"reflect"
 	"sort"
+	"strconv"
 
+	"github.com/biogo/biogo/alphabet"
+	"github.com/biogo/biogo/io/seqio/fastq"
+	"github.com/biogo/biogo/seq/linear"
 	"github.com/jwaldrip/odin/cli"
 	"github.com/mudesheng/ga/constructdbg"
 	"github.com/mudesheng/ga/utils"
@@ -267,8 +271,11 @@ func ExtendPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode
 		// found left partition path
 		for i := idx - 1; i >= 0; i-- {
 			e2 := edgesArr[p.IDArr[i]]
-			if e2.GetUniqueFlag() == 0 || e2.GetProcessFlag() > 0 || e2.GetDeleteFlag() > 0 {
+			if e2.GetUniqueFlag() == 0 || e2.GetDeleteFlag() > 0 {
 				continue
+			}
+			if e2.GetProcessFlag() > 0 {
+				log.Fatalf("[ExtendPath] found e2.ID: %v have been processed in p: %v\n", e2.ID, p)
 			}
 			step := 1
 			if e2.GetTwoEdgesCycleFlag() > 0 {
@@ -286,7 +293,7 @@ func ExtendPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode
 					j = constructdbg.IndexEID(ep.IDArr, e2.ID)
 				}
 				fmt.Printf("[ExtendPath]step: %v, e2.ID: %v, i: %v, j: %v\n\tp: %v\n\tep: %v\n", step, e2.ID, i, j, p, ep)
-				if j > i && len(p.IDArr)-i > len(ep.IDArr)-j && reflect.DeepEqual(p.IDArr[:i+len(ep.IDArr)-j], ep.IDArr[j-i:]) {
+				if j >= i && len(p.IDArr)-i > len(ep.IDArr)-j && reflect.DeepEqual(p.IDArr[:i+len(ep.IDArr)-j], ep.IDArr[j-i:]) {
 					if i+len(ep.IDArr)-j >= minMapEdgesNum && int32(ep.Freq) >= minMapingFreq {
 						p.IDArr = append(ep.IDArr[:j-i], p.IDArr...)
 						if p.Freq > ep.Freq {
@@ -296,6 +303,9 @@ func ExtendPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode
 						idx = constructdbg.IndexEID(p.IDArr, e.ID)
 						i = idx - (tmp - i)
 					}
+					edgesArr[e2.ID].SetProcessFlag()
+				} else if i == 0 && j == 0 && len(ep.IDArr) <= len(p.IDArr) && reflect.DeepEqual(p.IDArr[:i+len(ep.IDArr)-j], ep.IDArr[j-i:]) {
+					edgesArr[e2.ID].SetProcessFlag()
 				}
 				continue
 			}
@@ -378,8 +388,11 @@ func ExtendPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode
 		// found right partition path
 		for i := idx + 1; i < len(p.IDArr); i++ {
 			e2 := edgesArr[p.IDArr[i]]
-			if e2.GetUniqueFlag() == 0 || e2.GetProcessFlag() > 0 || e2.GetDeleteFlag() > 0 {
+			if e2.GetUniqueFlag() == 0 || e2.GetDeleteFlag() > 0 {
 				continue
+			}
+			if e2.GetProcessFlag() > 0 {
+				log.Fatalf("[ExtendPath] found e2.ID: %v have been processed in p: %v\n", e2.ID, p)
 			}
 			step := 1
 			if e2.GetTwoEdgesCycleFlag() > 0 {
@@ -396,7 +409,7 @@ func ExtendPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode
 					j = constructdbg.IndexEID(ep.IDArr, e2.ID)
 				}
 				fmt.Printf("[ExtendPath]e2.ID: %v,, i: %v, j: %v\n\tp: %v\n\tep: %v\n", e2.ID, i, j, p, ep)
-				if len(ep.IDArr)-j > len(p.IDArr)-i && j < i && reflect.DeepEqual(p.IDArr[i-j:], ep.IDArr[:len(p.IDArr)-i+j]) {
+				if len(ep.IDArr)-j >= len(p.IDArr)-i && j < i && reflect.DeepEqual(p.IDArr[i-j:], ep.IDArr[:len(p.IDArr)-i+j]) {
 					if len(p.IDArr)-i+j >= minMapEdgesNum && int32(ep.Freq) >= minMapingFreq {
 						p.IDArr = append(p.IDArr, ep.IDArr[len(p.IDArr)-i+j:]...)
 						if p.Freq > ep.Freq {
@@ -404,6 +417,7 @@ func ExtendPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode
 						}
 						fmt.Printf("[ExtendPath] p: %v\n", p)
 					}
+					edgesArr[e2.ID].SetProcessFlag()
 				}
 				continue
 			}
@@ -470,6 +484,7 @@ func ExtendPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode
 			fmt.Printf("[ExtendPath] p: %v\n", p)
 		}
 	}
+	fmt.Fprintf(os.Stderr, "[ExtendPath]maxP : %v\n", p)
 
 	return p
 }
@@ -480,6 +495,7 @@ func findMaxPath(sortedEIDIdxArr []IdxLen, edgesArr []constructdbg.DBGEdge, node
 		if e.GetDeleteFlag() > 0 || e.GetProcessFlag() > 0 || e.GetUniqueFlag() == 0 || len(e.PathMat) != 1 || len(e.PathMat[0].IDArr) == 0 {
 			continue
 		}
+		edgesArr[e.ID].SetProcessFlag()
 		fmt.Printf("[findMaxPath] eID: %v, length: %v\n", item.Idx, item.Length)
 		maxP := ExtendPath(edgesArr, nodesArr, e, pathArr, edgesPathRelationArr, int32(minMapingFreq))
 		if len(maxP.IDArr) > 1 {
@@ -764,14 +780,22 @@ func MergePathArr(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNo
 					if int(idFreqArr[0].Freq)+uncertainFreq < minMapFreq {
 						break
 					}
-					if float32(idFreqArr[0].Freq)/float32(3) < float32(idFreqArr[1].Freq) {
+					if float32(idFreqArr[0].Freq)/float32(2) < float32(idFreqArr[1].Freq) {
 						if constructdbg.IsBubble(idFreqArr[0].ID, idFreqArr[1].ID, edgesArr) && (float32(idFreqArr[0].Freq) >= float32(idFreqArr[1].Freq*2)) {
 							// this is a bubble cause mapping uncertain
 						} else {
 							notConsis = true
 							break
 						}
-					} /* else { // this maybe wrong mapping path, need clean up
+					}
+					//  clean ePathArr low freq path
+					for x, p := range ePathArr {
+						if len(p[0]) > 0 && IsInIDFreqArr(idFreqArr[1:], p[0][j]) {
+							ePathArr[x][0] = nil
+							ePathArr[x][1] = nil
+						}
+					}
+					/* else { // this maybe wrong mapping path, need clean up
 						for x, p := range ePathArr {
 							if len(p[0]) > 0 && IsInIDFreqArr(idFreqArr[1:], p[0][j]) {
 								idx := edgesPathRelationArr[e.ID][x]
@@ -816,7 +840,43 @@ func MergePathArr(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNo
 	}
 }
 
-func SimplifyByLongReadsPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, pathArr [][2][]constructdbg.DBG_MAX_INT, opt Options) {
+func ExtractSeq(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, joinPathArr []constructdbg.Path, DcDBGEdgesfn string, kmerlen int) {
+	fp, err := os.Create(DcDBGEdgesfn)
+	if err != nil {
+		log.Fatalf("[ExtractSeq] create file: %s failed, err: %v\n", DcDBGEdgesfn, err)
+	}
+	defer fp.Close()
+
+	fqfp := fastq.NewWriter(fp)
+
+	for _, p := range joinPathArr {
+		if len(p.IDArr) <= 1 {
+			continue
+		}
+		fmt.Printf("[ReconstructDBG] p: %v\n", p)
+		//if IsTwoEdgeCyclePath(path) { joinPathArr[i].IDArr = }
+
+		e := constructdbg.CascadePath(p, edgesArr, nodesArr, kmerlen, false)
+		seq := linear.NewQSeq("", nil, alphabet.DNA, alphabet.Sanger)
+		seq.ID = strconv.Itoa(int(e.ID))
+		// Add start and end adapter seq
+		qs := constructdbg.Transform2QSeq(e.Utg)
+		seq.AppendQLetters(qs...)
+		var ps string
+		for _, eID := range p.IDArr {
+			ps += strconv.Itoa(int(eID)) + "-"
+		}
+		ps = ps[:len(ps)-1]
+		ans := "path: " + ps + "\tFreq: " + strconv.Itoa(p.Freq)
+		seq.Annotation.SetDescription(ans)
+		_, err := fqfp.Write(seq)
+		if err != nil {
+			log.Fatalf("[StoreEdgesToFn] write seq: %v; err: %v\n", seq, err)
+		}
+	}
+}
+
+func SimplifyByLongReadsPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, pathArr [][2][]constructdbg.DBG_MAX_INT, opt Options) []constructdbg.Path {
 
 	sortedEIDIdxArr := sortIdxByUniqueEdgeLen(edgesArr)
 	edgesPathRelationArr := make([][]uint32, len(edgesArr))
@@ -831,7 +891,7 @@ func SimplifyByLongReadsPath(edgesArr []constructdbg.DBGEdge, nodesArr []constru
 	// constuct map edge ID to the path
 	//IDMapPath := constructdbg.ConstructIDMapPath(pathArr)
 	//constructdbg.DeleteJoinPathArrEnd(edgesArr, pathArr)
-	constructdbg.ReconstructDBG(edgesArr, nodesArr, mergePathArr, opt.Kmer)
+	return mergePathArr
 }
 
 type Options struct {
@@ -984,10 +1044,11 @@ func DeconstructDBG(c cli.Command) {
 	pathArr := WriteLongPathToDBG(wc, edgesArr, opt.NumCPU)
 
 	// Simplify using Long Reads Mapping info
-	SimplifyByLongReadsPath(edgesArr, nodesArr, pathArr, opt)
+	joinPathArr := SimplifyByLongReadsPath(edgesArr, nodesArr, pathArr, opt)
 
 	graphfn := opt.Prefix + ".afterLR.dot"
 	constructdbg.GraphvizDBGArr(nodesArr, edgesArr, graphfn)
 	DcDBGEdgesfn := opt.Prefix + ".edges.DcDBG.fq"
-	constructdbg.StoreEdgesToFn(DcDBGEdgesfn, edgesArr)
+	ExtractSeq(edgesArr, nodesArr, joinPathArr, DcDBGEdgesfn, opt.Kmer)
+	//constructdbg.StoreEdgesToFn(DcDBGEdgesfn, edgesArr)
 }
