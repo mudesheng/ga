@@ -229,15 +229,42 @@ func PairIndex(arr []LRRecord, idx int, item LRRecord) int {
 	return nidx
 }
 
-func findSeedEID(arr []LRRecord, edgesArr []constructdbg.DBGEdge) int {
+func findSeedEID(arr []LRRecord, edgesArr []constructdbg.DBGEdge, flankAllow int) int {
 	pos := -1
 	var maxMapNum int
 	for i, item := range arr {
 		e := edgesArr[item.RefID]
 		if e.GetUniqueFlag() > 0 && maxMapNum < item.MapNum {
+			if item.Start < flankAllow {
+				if item.Strand == constructdbg.PLUS {
+					if item.RefLen-item.RefEnd > flankAllow {
+						continue
+					}
+				} else {
+					if item.Start > flankAllow {
+						continue
+					}
+				}
+			} else if item.Len-item.End < flankAllow {
+				if item.Strand == constructdbg.PLUS {
+					if item.RefStart > flankAllow {
+						continue
+					}
+				} else {
+					if item.RefLen-item.RefEnd > flankAllow {
+						continue
+					}
+				}
+			} else {
+				continue
+			}
 			pos = i
 			maxMapNum = item.MapNum
 		}
+	}
+	// check read only mapping one edge
+	if pos >= 0 && arr[pos].RefStart < flankAllow && arr[pos].RefLen-arr[pos].RefEnd < flankAllow {
+		pos = -1
 	}
 
 	return pos
@@ -784,7 +811,7 @@ func GetMostProbableEdge(edgesArr []constructdbg.DBGEdge, extArr [2][]constructd
 }
 
 func findMostProbablePath(arr []LRRecord, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, opt Options) (extArr [2][]constructdbg.DBG_MAX_INT) {
-	pos := findSeedEID(arr, edgesArr)
+	pos := findSeedEID(arr, edgesArr, opt.Kmer)
 	if pos < 0 || arr[pos].GapMapNum < opt.Kmer {
 		return
 	}
@@ -1557,13 +1584,13 @@ func DPLocalAlign(edgesSeq, readSeq []byte, chainA []Chain) (cg CIGAR, lastY int
 				continue
 			}
 		}
-		//fmt.Printf("[DPLocalAlign] len(edgesSeq): %v, len(readSeq): %v, pch: %v, ch: %v\n", xlen, ylen, pch, ch)
+		fmt.Printf("[DPLocalAlign] len(edgesSeq): %v, len(readSeq): %v, pch: %v, ch: %v\n", xlen, ylen, pch, ch)
 		//fmt.Printf("[DPLocalAlign] cg: %v,ch: %v\n", cg, ch)
-		//fmt.Printf("[DPLocalAlign] edge part seq: %v\n", edgesSeq[pXEnd:ch.X])
-		//fmt.Printf("[DPLocalAlign] read part seq: %v\n", readSeq[pYEnd:ch.Y])
+		fmt.Printf("[DPLocalAlign] edge part seq: %v\n", edgesSeq[pXEnd:ch.X])
+		fmt.Printf("[DPLocalAlign] read part seq: %v\n", readSeq[pYEnd:ch.Y])
 		// need DP alignment
 		cigar, y := GlobalAlignment(edgesSeq[pXEnd:ch.X], readSeq[pYEnd:ch.Y], localFirst)
-		//fmt.Printf("[DPLocalAlign]ch: %v, cigar: %v, cg: %v, y: %v\n", ch, cigar, cg, y)
+		fmt.Printf("[DPLocalAlign]ch: %v, cigar: %v, cg: %v, y: %v\n", ch, cigar, cg, y)
 		if i == len(chainA) {
 			if y < 0 {
 				log.Fatalf("[DPLocalAlign] found y[%v] < 0\n", y)
@@ -1605,7 +1632,7 @@ func DPAlignEdgePath(mi MapInfo, extArr []constructdbg.DBG_MAX_INT, edgesArr []c
 	}
 	//debug code
 	//readSeq, edgesSeq = readSeq[:651], edgesSeq[:653]
-	//fmt.Printf("[DPAlignEdgePath] len(edgesSeq): %v, len(readSeq): %v\n", len(edgesSeq), len(readSeq))
+	fmt.Printf("[DPAlignEdgePath] len(edgesSeq): %v, len(readSeq): %v\n", len(edgesSeq), len(readSeq))
 	//fmt.Printf("[DPAlignEdgePath]mi: %v, extendeID: %v, edgesSeq string: %v\n", mi, extendEID, bnt.TransformSeq(edgesSeq))
 	//fmt.Printf("[DPAlignEdgePath]mi: %v, extendeID: %v,readSeq string: %v\n", mi, extendEID, bnt.TransformSeq(readSeq))
 	//fmt.Printf("[DPAlignEdgePath] reverse edgesSeq string: %v\n\t\t reverse readSeq string: %v\n", bnt.TransformSeq(constructdbg.GetReverseByteArr(edgesSeq)), bnt.TransformSeq(constructdbg.GetReverseByteArr(readSeq)))
@@ -1806,8 +1833,8 @@ func GetEdgePos(e constructdbg.DBGEdge, direction uint8, strand bool, kmerLen, m
 	}
 }
 
-func MappingONTMostProbablePath(arr []LRRecord, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, opt Options) (extArr [2][]constructdbg.DBG_MAX_INT) {
-	pos := findSeedEID(arr, edgesArr)
+func MappingONTMostProbablePath(arr []LRRecord, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, opt Options, flankAllow int) (extArr [2][]constructdbg.DBG_MAX_INT) {
+	pos := findSeedEID(arr, edgesArr, flankAllow)
 	if pos < 0 || arr[pos].MapNum < opt.Kmer*2 {
 		return
 	}
@@ -2432,8 +2459,10 @@ func cleanLRRecordArr(arr []LRRecord, flankAllow int) []LRRecord {
 				j++
 			}
 		} else if r.Start < flankAllow && r.End > r.Len-flankAllow {
-			arr[j] = r
-			j++
+			if r.End-r.Start > r.Len*3/4 {
+				arr[j] = r
+				j++
+			}
 		} else if r.Start <= flankAllow {
 			if r.Strand == constructdbg.PLUS {
 				if r.RefEnd > r.RefLen-flankAllow {
@@ -2529,7 +2558,7 @@ func paraFindLongReadsMappingPath(rc <-chan []PAFInfo, wc chan [2][]constructdbg
 		flankAllow := opt.Kmer
 		arr = cleanLRRecordArr(arr, flankAllow)
 		// mapping ONT reads To the edge Path
-		path := MappingONTMostProbablePath(arr, edgesArr, nodesArr, opt)
+		path := MappingONTMostProbablePath(arr, edgesArr, nodesArr, opt, flankAllow)
 		// found most possible path
 		//path := findMostProbablePath(arr, edgesArr, nodesArr, opt)
 		fmt.Printf("[paraFindLongReadsMappingPath]path: %v\n", path)

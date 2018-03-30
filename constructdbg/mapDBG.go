@@ -1546,7 +1546,7 @@ func MapDBG(c cli.Command) {
 	}
 	fmt.Println(cfgInfo)
 
-	if Kmerlen, err = strconv.Atoi(c.Parent().Flag("K").String()); err != nil {
+	if _, err = strconv.Atoi(c.Parent().Flag("K").String()); err != nil {
 		log.Fatal("flag 'K' set error")
 	}
 	prefix := c.Parent().Flag("p").String()

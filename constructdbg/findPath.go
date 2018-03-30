@@ -49,6 +49,7 @@ const (
 	MIN_EDGE_LEN_EXTEND     = 500
 	MIN_ALLOW_PATH_FREQ     = 3
 	MATCH_SCORE             = 1
+	Kmerlen                 = 203
 )
 
 type PathCrossInfo struct {
@@ -2857,7 +2858,7 @@ func GraphvizDBG(nodeMap map[string]DBGNode, edgesArr []DBGEdge, graphfn string)
 func FSpath(c cli.Command) {
 	k := c.Parent().Flag("K").String()
 	var err error = nil
-	Kmerlen, err = strconv.Atoi(k)
+	//Kmerlen, err = strconv.Atoi(k)
 	// Kmerlen = kmerlen
 	if err != nil {
 		log.Fatalf("[Fpath] argument: %s set error: %v\n", k, err)
@@ -5631,7 +5632,7 @@ func StaticsMergeMat(matArr [][]DBG_MAX_INT, edgesArr []DBGEdge) {
 func Fpath(c cli.Command) {
 	k := c.Parent().Flag("K").String()
 	var err error = nil
-	Kmerlen, err = strconv.Atoi(k)
+	//Kmerlen, err = strconv.Atoi(k)
 	//Kmerlen = Kmerlen
 	if err != nil {
 		log.Fatalf("[Fpath] argument: %s set error: %v\n", k, err)

@@ -995,7 +995,7 @@ func DeconstructDBG(c cli.Command) {
 	//opt.MaxMapEdgeLen = tmp.MaxMapEdgeLen
 	opt.ExtLen = tmp.ExtLen
 	opt.ONTFn = tmp.ONTFn
-	constructdbg.Kmerlen = opt.Kmer
+	//constructdbg.Kmerlen = opt.Kmer
 	fmt.Printf("Arguments: %v\n", opt)
 
 	// read files and construt DBG

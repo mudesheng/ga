@@ -51,7 +51,7 @@ type Bucket struct {
 
 type CuckooFilter struct {
 	Hash     []Bucket
-	numItems uint64
+	NumItems uint64
 	Kmerlen  int
 }
 
@@ -79,7 +79,7 @@ func MakeCuckooFilter(maxNumKeys uint64, kmerLen int) (cf CuckooFilter) {
 	}*/
 
 	cf.Hash = make([]Bucket, numBuckets)
-	cf.numItems = numBuckets * BucketSize
+	cf.NumItems = numBuckets * BucketSize
 	cf.Kmerlen = kmerLen
 
 	return cf

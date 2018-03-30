@@ -9,16 +9,15 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jwaldrip/odin/cli"
 	"github.com/mudesheng/ga/bnt"
 	"github.com/mudesheng/ga/cuckoofilter"
 	"github.com/mudesheng/ga/utils"
-
-	//"github.com/mudesheng/ga/bnt"
-	"github.com/jwaldrip/odin/cli"
 )
 
 const (
@@ -58,7 +57,6 @@ type ReadBnt struct {
 }
 
 type ReadSeqBucket struct {
-	End     bool
 	ReadBuf [ReadSeqSize]ReadBnt
 	Count   int
 }
@@ -223,12 +221,12 @@ func ReverseComplet(ks ReadBnt) (rs ReadBnt) {
 	return rs
 }
 
-func paraConstructCF(cf cuckoofilter.CuckooFilter, cs chan ReadSeqBucket, wc chan ReadSeqBucket) {
+func ParaConstructCF(cf cuckoofilter.CuckooFilter, cs chan ReadSeqBucket, wc chan ReadSeqBucket) {
 
 	var wrsb ReadSeqBucket
 	for {
 		rsb := <-cs
-		if rsb.End == true {
+		if rsb.Count == 0 {
 			wc <- wrsb
 			wc <- rsb
 			break
@@ -267,7 +265,7 @@ func paraConstructCF(cf cuckoofilter.CuckooFilter, cs chan ReadSeqBucket, wc cha
 	}
 }
 
-func writeKmer(wrfn string, we chan int, wc chan ReadSeqBucket, Kmerlen, numCPU int) {
+func WriteKmer(wrfn string, wc <-chan ReadSeqBucket, Kmerlen, numCPU int) {
 	outfp, err := os.Create(wrfn)
 	if err != nil {
 		log.Fatal(err)
@@ -282,10 +280,9 @@ func writeKmer(wrfn string, we chan int, wc chan ReadSeqBucket, Kmerlen, numCPU 
 	writeKmerCount := 0
 	for {
 		rsb := <-wc
-		if rsb.End == true {
+		if rsb.Count == 0 {
 			endFlagCount++
 			if endFlagCount == numCPU {
-				we <- 1
 				break
 			} else {
 				continue
@@ -306,7 +303,6 @@ func writeKmer(wrfn string, we chan int, wc chan ReadSeqBucket, Kmerlen, numCPU 
 	}
 	gzwriter.Flush()
 	fmt.Printf("[writeKmer] total write kmer number is : %d\n", writeKmerCount)
-
 }
 
 func Trans2Byte(s string) (rb ReadBnt) {
@@ -343,19 +339,100 @@ func checkArgs(c cli.Command) (opt Options, suc bool) {
 	return opt, suc
 }
 
+func GetReadSeqBucket(libs []LibInfo, cs chan<- ReadSeqBucket) {
+	var processNumReads int
+	var rsb ReadSeqBucket
+	//var bucketCount int
+	// iteration read cfgInfo files
+	for _, lib := range libs {
+		// seqProfile == 1 note Illumina
+		if lib.AsmFlag != AllState || lib.SeqProfile != 1 {
+			continue
+		}
+		for _, fn := range lib.FnName {
+			sfn := strings.Split(fn, ".")
+			tmp := sfn[len(sfn)-2]
+			var format bool // fa format == true, fq format == false
+			if tmp == "fa" || tmp == "fasta" {
+				format = true
+			} else if tmp == "fq" || tmp == "fastq" {
+				format = false
+			} else {
+				log.Fatalf("[GetReadSeqBucket] reads file: %v need suffix end with '*.fa.gz | *.fasta.gz | *.fq.gz | *.fastq.gz'\n", fn)
+			}
+			infile, err := os.Open(fn)
+			if err != nil {
+				log.Fatal(err)
+			}
+			gzreader, err := gzip.NewReader(infile)
+			if err != nil {
+				log.Fatalf("[GetReadSeqBucket] file: %v maybe not gzip compressed file, err: %v\n", fn, err)
+			}
+			defer gzreader.Close()
+			defer infile.Close()
+			bufin := bufio.NewReader(gzreader)
+
+			eof := false
+			count := 0
+			for !eof {
+				var line string
+				line, err = bufin.ReadString('\n')
+				if err != nil {
+					if err == io.EOF {
+						eof = true
+						continue
+					} else {
+						log.Fatal(err)
+					}
+				}
+
+				if (format && count%2 == 1) || (!format && count%4 == 1) {
+					s := strings.TrimSpace(line)
+					bs := Trans2Byte(s)
+					if rsb.Count >= ReadSeqSize {
+						cs <- rsb
+						var nsb ReadSeqBucket
+						rsb = nsb
+					}
+					rsb.ReadBuf[rsb.Count] = bs
+					rsb.Count++
+					//fmt.Printf("%s\n", s)
+					processNumReads++
+					if processNumReads%(1024*1024) == 0 {
+						fmt.Printf("processed reads number: %d\n", processNumReads)
+					}
+				}
+				count++
+			}
+		}
+	}
+	if rsb.Count > 0 {
+		cs <- rsb
+	}
+	// send read finish signal
+	close(cs)
+}
+
 func CCF(c cli.Command) {
 	//fmt.Println(c.Flags(), c.Parent().Flags())
 	//argsCheck(c)
 	gOpt, suc := utils.CheckGlobalArgs(c.Parent())
 	if suc == false {
-		log.Fatalf("[Smfy] check global Arguments error, opt: %v\n", gOpt)
+		log.Fatalf("[CCF] check global Arguments error, opt: %v\n", gOpt)
 	}
 	opt := Options{gOpt, 0}
 	tmp, suc := checkArgs(c)
 	if suc == false {
-		log.Fatalf("[Smfy] check Arguments error, opt: %v\n", tmp)
+		log.Fatalf("[CCF] check Arguments error, opt: %v\n", tmp)
 	}
 	opt.CFSize = tmp.CFSize
+	fmt.Printf("[CCF] opt: %v\n", opt)
+	cpuprofilefp, err := os.Create(opt.Cpuprofile)
+	if err != nil {
+		log.Fatalf("[CCF] open cpuprofile file: %v failed\n", opt.Cpuprofile)
+	}
+	pprof.StartCPUProfile(cpuprofilefp)
+	defer pprof.StopCPUProfile()
 	cfgInfo, err := ParseCfg(opt.CfgFn)
 	if err != nil {
 		log.Fatalf("[CCF] ParseCfg 'C': %v err :%v\n", opt.CfgFn, err)
@@ -375,78 +452,15 @@ func CCF(c cli.Command) {
 	defer close(we)
 	defer close(wc)
 	defer close(cs)
+	go GetReadSeqBucket(cfgInfo.Libs, cs)
 	for i := 0; i < numCPU; i++ {
-		go paraConstructCF(cf, cs, wc)
+		go ParaConstructCF(cf, cs, wc)
 	}
 	// write goroutinue
 	wrfn := opt.Prefix + ".uniqkmerseq.gz"
-	go writeKmer(wrfn, we, wc, opt.Kmer, numCPU)
+	WriteKmer(wrfn, wc, opt.Kmer, numCPU)
 
-	var processNumReads int
-	var rsb ReadSeqBucket
-	//var bucketCount int
-	// iteration read cfgInfo files
-	for _, lib := range cfgInfo.Libs {
-		// seqProfile == 1 note Illumina
-		if lib.AsmFlag == AllState && lib.SeqProfile == 1 {
-			for _, fn := range lib.FnName {
-				infile, err := os.Open(fn)
-				if err != nil {
-					log.Fatal(err)
-				}
-				gzreader, err := gzip.NewReader(infile)
-				if err != nil {
-					log.Fatal(err)
-				}
-				defer gzreader.Close()
-				defer infile.Close()
-				bufin := bufio.NewReader(gzreader)
-
-				eof := false
-				count := 0
-				for !eof {
-					var line string
-					line, err = bufin.ReadString('\n')
-					if err != nil {
-						if err == io.EOF {
-							err = nil
-							eof = true
-							continue
-						} else {
-							log.Fatal(err)
-						}
-					}
-
-					if count%4 == 1 {
-						s := strings.TrimSpace(line)
-						bs := Trans2Byte(s)
-						if rsb.Count >= ReadSeqSize {
-							cs <- rsb
-							var nsb ReadSeqBucket
-							rsb = nsb
-						}
-						rsb.ReadBuf[rsb.Count] = bs
-						rsb.Count++
-						//fmt.Printf("%s\n", s)
-						processNumReads++
-						if processNumReads%(1024*1024) == 0 {
-							fmt.Printf("processed reads number: %d\n", processNumReads)
-						}
-					}
-					count++
-				}
-			}
-		}
-	}
-	cs <- rsb
-	// send read finish signal
-	for i := 0; i < numCPU; i++ {
-		var nrsb ReadSeqBucket
-		nrsb.End = true
-		cs <- nrsb
-	}
-
-	<-we // end signal from write goroutinue
+	// end signal from write goroutinue
 	// prefix := c.Parent().Flag("p").String()
 	// cfinfofn := prefix + ".cfInfo"
 	// if err := cf.WriteCuckooFilterInfo(cfinfofn); err != nil {
@@ -458,7 +472,6 @@ func CCF(c cli.Command) {
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	// output stat
 	cf.GetStat()
 	t1 := time.Now()

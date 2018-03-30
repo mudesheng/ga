@@ -218,7 +218,8 @@ func (e *DBGEdge) GetSeqLen() int {
 var MIN_KMER_COUNT uint16 = 2
 var BACKWARD uint8 = 1
 var FORWARD uint8 = 2
-var Kmerlen int = -1
+
+//var Kmerlen int = -1
 
 func ReverseDBG_MAX_INTArr(path []DBG_MAX_INT) []DBG_MAX_INT {
 	for i := 0; i < len(path)/2; i++ {
@@ -287,15 +288,15 @@ func readUniqKmer(uniqkmergzfn string, cs chan constructcf.ReadBnt, kmerlen, num
 	close(cs)
 }
 
-func UniDirectExtend(nb constructcf.ReadBnt, cf cuckoofilter.CuckooFilter, min_kmer_count uint16, direction uint8) (ec int) {
+func UniDirectExtend(nb constructcf.ReadBnt, cf cuckoofilter.CuckooFilter, min_kmer_count uint16, direction uint8, kmerlen int) (ec int) {
 	var nBnt constructcf.ReadBnt
-	nBnt.Seq = make([]byte, Kmerlen)
+	nBnt.Seq = make([]byte, kmerlen)
 	if direction == FORWARD {
-		copy(nBnt.Seq[:Kmerlen-1], nb.Seq)
+		copy(nBnt.Seq[:kmerlen-1], nb.Seq)
 		for i := 0; i < bnt.BaseTypeNum; i++ {
 			b := byte(i)
-			nBnt.Seq[Kmerlen-1] = b
-			ks := constructcf.GetReadBntKmer(nBnt, 0, Kmerlen)
+			nBnt.Seq[kmerlen-1] = b
+			ks := constructcf.GetReadBntKmer(nBnt, 0, kmerlen)
 			rs := constructcf.ReverseComplet(ks)
 			if ks.BiggerThan(rs) {
 				ks, rs = rs, ks
@@ -309,7 +310,7 @@ func UniDirectExtend(nb constructcf.ReadBnt, cf cuckoofilter.CuckooFilter, min_k
 		for i := 0; i < bnt.BaseTypeNum; i++ {
 			b := byte(i)
 			nBnt.Seq[0] = b
-			ks := constructcf.GetReadBntKmer(nBnt, 0, Kmerlen)
+			ks := constructcf.GetReadBntKmer(nBnt, 0, kmerlen)
 			rs := constructcf.ReverseComplet(ks)
 			if ks.BiggerThan(rs) {
 				ks, rs = rs, ks
@@ -323,10 +324,10 @@ func UniDirectExtend(nb constructcf.ReadBnt, cf cuckoofilter.CuckooFilter, min_k
 	return
 }
 
-func ExtendNodeKmer(nodeBnt constructcf.ReadBnt, cf cuckoofilter.CuckooFilter, min_kmer_count uint16, direction uint8, base byte) (nd DBGNode, baseBnt byte, baseCount uint16) {
+func ExtendNodeKmer(nodeBnt constructcf.ReadBnt, cf cuckoofilter.CuckooFilter, min_kmer_count uint16, direction uint8, base byte, kmerlen int) (nd DBGNode, baseBnt byte, baseCount uint16) {
 	var nBnt constructcf.ReadBnt
-	nBnt.Seq = make([]byte, Kmerlen+1)
-	nd.Seq = constructcf.GetReadBntKmer(nodeBnt, 0, Kmerlen-1).Seq
+	nBnt.Seq = make([]byte, kmerlen+1)
+	nd.Seq = constructcf.GetReadBntKmer(nodeBnt, 0, kmerlen-1).Seq
 	copy(nBnt.Seq[1:], nodeBnt.Seq)
 	for i := 0; i < bnt.BaseTypeNum; i++ {
 		bi := byte(i)
@@ -334,7 +335,7 @@ func ExtendNodeKmer(nodeBnt constructcf.ReadBnt, cf cuckoofilter.CuckooFilter, m
 			nd.EdgeIDIncoming[bi] = 1
 		} else {
 			nBnt.Seq[0] = bi
-			ks := constructcf.GetReadBntKmer(nBnt, 0, Kmerlen)
+			ks := constructcf.GetReadBntKmer(nBnt, 0, kmerlen)
 			rs := constructcf.ReverseComplet(ks)
 			if ks.BiggerThan(rs) {
 				ks, rs = rs, ks
@@ -343,9 +344,9 @@ func ExtendNodeKmer(nodeBnt constructcf.ReadBnt, cf cuckoofilter.CuckooFilter, m
 			count := cf.GetCountAllowZero(ks.Seq)
 			if count >= min_kmer_count {
 				var nb constructcf.ReadBnt
-				nb.Seq = append(nb.Seq, nBnt.Seq[:Kmerlen-1]...)
+				nb.Seq = append(nb.Seq, nBnt.Seq[:kmerlen-1]...)
 				nb.Length = len(nb.Seq)
-				if ec := UniDirectExtend(nb, cf, min_kmer_count, BACKWARD); ec > 0 {
+				if ec := UniDirectExtend(nb, cf, min_kmer_count, BACKWARD, kmerlen); ec > 0 {
 					if direction == FORWARD {
 						baseBnt = uint8(i)
 						baseCount = count
@@ -370,7 +371,7 @@ func ExtendNodeKmer(nodeBnt constructcf.ReadBnt, cf cuckoofilter.CuckooFilter, m
 				var nb constructcf.ReadBnt
 				nb.Seq = append(nb.Seq, nBnt.Seq[2:]...)
 				nb.Length = len(nb.Seq)
-				if ec := UniDirectExtend(nb, cf, min_kmer_count, FORWARD); ec > 0 {
+				if ec := UniDirectExtend(nb, cf, min_kmer_count, FORWARD, kmerlen); ec > 0 {
 					if direction == BACKWARD {
 						baseBnt = uint8(i)
 						baseCount = count
@@ -423,7 +424,7 @@ func paraLookupComplexNode(cs chan constructcf.ReadBnt, wc chan DBGNode, cf cuck
 			copy(nodeBnt.Seq, extRBnt.Seq[:cf.Kmerlen-1])
 			nodeBnt.Length = len(nodeBnt.Seq)
 			// fmt.Printf("[paraLookupComplexNode] nodeBnt : %v\n", nodeBnt)
-			nd, _, _ := ExtendNodeKmer(nodeBnt, cf, MIN_KMER_COUNT, FORWARD, extRBnt.Seq[cf.Kmerlen-1])
+			nd, _, _ := ExtendNodeKmer(nodeBnt, cf, MIN_KMER_COUNT, FORWARD, extRBnt.Seq[cf.Kmerlen-1], cf.Kmerlen)
 			var leftcount, rightcount int
 			for i := 0; i < bnt.BaseTypeNum; i++ {
 				if nd.EdgeIDIncoming[i] == 1 {
@@ -445,7 +446,7 @@ func paraLookupComplexNode(cs chan constructcf.ReadBnt, wc chan DBGNode, cf cuck
 			nodeBnt.Seq = make([]byte, cf.Kmerlen-1)
 			copy(nodeBnt.Seq, extRBnt.Seq[1:])
 			nodeBnt.Length = len(nodeBnt.Seq)
-			nd, _, _ := ExtendNodeKmer(nodeBnt, cf, MIN_KMER_COUNT, BACKWARD, extRBnt.Seq[0])
+			nd, _, _ := ExtendNodeKmer(nodeBnt, cf, MIN_KMER_COUNT, BACKWARD, extRBnt.Seq[0], cf.Kmerlen)
 			var leftcount, rightcount int
 			for i := 0; i < bnt.BaseTypeNum; i++ {
 				if nd.EdgeIDIncoming[i] == 1 {
@@ -463,7 +464,7 @@ func paraLookupComplexNode(cs chan constructcf.ReadBnt, wc chan DBGNode, cf cuck
 	}
 }
 
-func constructNodeMap(complexKmergzfn string) (map[string]DBGNode, DBG_MAX_INT) {
+func constructNodeMap(complexKmergzfn string, kmerlen int) (map[string]DBGNode, DBG_MAX_INT) {
 	nodeID := DBG_MAX_INT(1)
 	nodeMap := make(map[string]DBGNode)
 	ckfp, err := os.Open(complexKmergzfn)
@@ -477,7 +478,7 @@ func constructNodeMap(complexKmergzfn string) (map[string]DBGNode, DBG_MAX_INT) 
 	}
 	defer ckgzfp.Close()
 	//ckbuffp := bufio.NewReader(ckgzfp)
-	NBntByteLen := (Kmerlen - 1 + bnt.BaseTypeNum - 1) / bnt.BaseTypeNum
+	NBntByteLen := (kmerlen - 1 + bnt.BaseTypeNum - 1) / bnt.BaseTypeNum
 	eof := false
 	readnodeNum := 0
 	for !eof {
@@ -716,7 +717,7 @@ func GetEdges(cf cuckoofilter.CuckooFilter, nBnt constructcf.ReadBnt, count uint
 		tbnt.Length = len(tbnt.Seq)
 		bi := nBnt.Seq[0]
 		for {
-			node, baseBnt, baseCount := ExtendNodeKmer(tbnt, cf, MIN_KMER_COUNT, BACKWARD, bi)
+			node, baseBnt, baseCount := ExtendNodeKmer(tbnt, cf, MIN_KMER_COUNT, BACKWARD, bi, cf.Kmerlen)
 			var leftcount, rightcount int
 			for i := 0; i < bnt.BaseTypeNum; i++ {
 				if node.EdgeIDIncoming[i] == 1 {
@@ -747,7 +748,7 @@ func GetEdges(cf cuckoofilter.CuckooFilter, nBnt constructcf.ReadBnt, count uint
 		tbnt.Seq = nBnt.Seq[:cf.Kmerlen-1]
 		tbnt.Length = len(tbnt.Seq)
 		for {
-			node, baseBnt, baseCount := ExtendNodeKmer(tbnt, cf, MIN_KMER_COUNT, FORWARD, bi)
+			node, baseBnt, baseCount := ExtendNodeKmer(tbnt, cf, MIN_KMER_COUNT, FORWARD, bi, cf.Kmerlen)
 			var leftcount, rightcount int
 			for i := 0; i < bnt.BaseTypeNum; i++ {
 				if node.EdgeIDIncoming[i] == 1 {
@@ -1362,7 +1363,7 @@ func CDBG(c cli.Command) {
 	}
 	// fmt.Printf("[CDBG] cf: %v\n", cf)
 	// fmt.Printf("[CDBG] cf.Hash[0]: %v\n", cf.Hash[0])
-	Kmerlen = cf.Kmerlen
+	//Kmerlen = cf.Kmerlen
 	bufsize := 100
 	cs := make(chan constructcf.ReadBnt, bufsize)
 	wc := make(chan DBGNode, bufsize)
@@ -1381,7 +1382,7 @@ func CDBG(c cli.Command) {
 	fmt.Printf("[CDBG] found complex Node num is : %d\n", complexNodeNum)
 
 	// construct Node map
-	nodeMap, nodeID := constructNodeMap(complexKmergzfn)
+	nodeMap, nodeID := constructNodeMap(complexKmergzfn, cf.Kmerlen)
 	fmt.Printf("[CDBG] assgin nodeID to : %d\n", nodeID)
 	// parallel generate edges and write to file
 	edgefn := prefix + ".edges"
@@ -1472,11 +1473,11 @@ func GetRCUnitig(u Unitig) (ru Unitig) {
 	return
 }
 
-func RevNode(node DBGNode) DBGNode {
+func RevNode(node DBGNode, kmerlen int) DBGNode {
 	rnode := node
 	var rBnt constructcf.ReadBnt
 	rBnt.Seq = rnode.Seq
-	rBnt.Length = Kmerlen - 1
+	rBnt.Length = kmerlen - 1
 	rs := constructcf.ReverseComplet(rBnt)
 	rnode.Seq = rs.Seq
 	for i := 0; i < bnt.BaseTypeNum; i++ {
@@ -1749,10 +1750,10 @@ func ConcatEdges(u1, u2 Unitig, kmerlen int) (u Unitig) {
 	}
 }*/
 
-func substituteEdgeID(nodeMap map[string]DBGNode, nodekey []byte, srcID, dstID DBG_MAX_INT) bool {
+func substituteEdgeID(nodeMap map[string]DBGNode, nodekey []byte, srcID, dstID DBG_MAX_INT, kmerlen int) bool {
 	var nkB constructcf.ReadBnt
 	nkB.Seq = nodekey
-	ks := constructcf.GetReadBntKmer(nkB, 0, Kmerlen-1)
+	ks := constructcf.GetReadBntKmer(nkB, 0, kmerlen-1)
 	rs := constructcf.ReverseComplet(ks)
 	min := ks
 	if ks.BiggerThan(rs) {
@@ -1840,7 +1841,6 @@ func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt Options) {
 			nodesArr[i].SetDeleteFlag()
 			deleteNodeNum++
 		} else if inNum+outNum == 1 {
-			longTipsEdgesNum++
 			id := inID
 			if outNum == 1 {
 				id = outID
@@ -1849,6 +1849,12 @@ func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt Options) {
 				edgesArr[id].StartNID = 0
 			} else {
 				edgesArr[id].EndNID = 0
+			}
+			if len(edgesArr[id].Utg.Ks) < opt.MaxNGSReadLen {
+				edgesArr[id].SetDeleteFlag()
+				deleteEdgeNum++
+			} else {
+				longTipsEdgesNum++
 			}
 			nodesArr[i].SetDeleteFlag()
 			deleteNodeNum++
@@ -1942,7 +1948,7 @@ func transform2Letters(ks []byte) alphabet.Letters {
 	return ls
 }
 
-func transform2Unitig(Seq alphabet.QLetters, qual bool) (utg Unitig) {
+func Transform2Unitig(Seq alphabet.QLetters, qual bool) (utg Unitig) {
 
 	utg.Ks = make([]byte, len(Seq))
 	if qual {
@@ -2083,7 +2089,7 @@ func LoadEdgesfqFromFn(fn string, edgesArr []DBGEdge, qual bool) {
 				}
 				edge.PathMat = append(edge.PathMat, path)
 			}
-			edge.Utg = transform2Unitig(l.Seq, qual)
+			edge.Utg = Transform2Unitig(l.Seq, qual)
 			if edge.ID >= DBG_MAX_INT(len(edgesArr)) {
 				log.Fatalf("[LoadEdgesfqFromFn] edge.ID:%v >= len(edgesArr):%d\n", edge.ID, len(edgesArr))
 			} else if edgesArr[edge.ID].ID > 0 {
@@ -2128,12 +2134,14 @@ func SetDBGEdgesUniqueFlag(edgesArr []DBGEdge, nodesArr []DBGNode) (uniqueNum, s
 }
 
 type ReadInfo struct {
-	ID  int64
-	Seq []byte
+	ID        int64
+	Seq       []byte
+	Anotition string
 }
 type AlignInfo struct {
-	ID    int64
-	Paths []DBG_MAX_INT
+	ID     int64
+	EndPos int
+	Paths  []DBG_MAX_INT
 }
 
 func paraLoadNGSReads(fn string, cs chan ReadInfo, kmerLen int, we chan int) {
@@ -2164,7 +2172,7 @@ func paraLoadNGSReads(fn string, cs chan ReadInfo, kmerLen int, we chan int) {
 			log.Fatalf("[paraLoadNGSReads] load fn: '%v' file, read ID: %v not digits, please convert to digits...\n", fn, fq.Name())
 		}
 		ri.ID = int64(id)
-		ri.Seq = transform2Unitig(fq.Seq, false).Ks
+		ri.Seq = Transform2Unitig(fq.Seq, false).Ks
 		cs <- ri
 		count++
 	}
@@ -2217,7 +2225,7 @@ func writeAlignToFile(wrFn string, wc chan AlignInfo, numCPU int) {
 	var finishedT int
 	for {
 		ai := <-wc
-		if ai.ID < 0 {
+		if len(ai.Paths) == 0 {
 			finishedT++
 			if finishedT == numCPU {
 				break
@@ -2245,7 +2253,7 @@ func BiggerThan(kb, rb []byte) bool {
 	return false
 }
 
-func getCuckoofilterDBGSampleSize(edgesArr []DBGEdge, winSize, maxNGSReadLen, kmerLen int) (cfSize int64) {
+func GetCuckoofilterDBGSampleSize(edgesArr []DBGEdge, winSize, maxNGSReadLen, kmerLen int) (cfSize int64) {
 
 	for _, e := range edgesArr[2:] {
 		if e.GetDeleteFlag() > 0 {
@@ -2280,7 +2288,7 @@ func GetMinimizer(seq []byte, kmerlen int) (minSeq []byte, pos uint32, strand bo
 	return
 }
 
-func constructCFDBGMinimizers(cf CuckooFilter, edgesArr []DBGEdge, winSize, maxNGSReadLen int) (count int) {
+func ConstructCFDBGMinimizers(cf CuckooFilter, edgesArr []DBGEdge, winSize, maxNGSReadLen int) (count int) {
 	for _, e := range edgesArr {
 		if e.ID < 2 || e.GetDeleteFlag() > 0 {
 			continue
@@ -2390,6 +2398,359 @@ func IsInDBGNode(nd DBGNode, eID DBG_MAX_INT) bool {
 	return false
 }
 
+func MappingReadToEdgesBackWard(dk DBGKmer, ri ReadInfo, rpos int, rstrand bool, edgesArr []DBGEdge, nodesArr []DBGNode, cf CuckooFilter, correct bool) (errorNum int, ai AlignInfo) {
+	if dk.Strand != rstrand {
+		dk.Pos += uint32(cf.Kmerlen)
+	}
+	ai.EndPos = math.MinInt64
+	for i := rpos - 1; i >= 0; {
+		e := edgesArr[dk.ID]
+		ai.Paths = append(ai.Paths, e.ID)
+		b := 0
+		var j int
+		if dk.Strand == rstrand {
+			if int(dk.Pos) < rpos {
+				b = rpos - int(dk.Pos)
+			}
+			j = int(dk.Pos) - 1
+			for ; i >= b; i-- {
+				//fmt.Printf("[paraMapNGS2DBG] i: %v, j: %v, dk.Pos: %v, pos: %v, b: %v\n", i, j, dk.Pos, rpos, b)
+				if ri.Seq[i] != e.Utg.Ks[j] {
+					errorNum++
+					if !correct {
+						break
+					}
+				}
+				j--
+			}
+		} else { // dk.Strand != strand
+			if len(e.Utg.Ks)-int(dk.Pos) < rpos {
+				b = rpos - (len(e.Utg.Ks) - int(dk.Pos))
+			}
+			j := int(dk.Pos)
+			for ; i >= b; i-- {
+				//fmt.Printf("[paraMapNGS2DBG] i: %v, j: %v, dk.Pos: %v, pos: %v, b: %v\n", i, j, dk.Pos, rpos, b)
+				if ri.Seq[i] != bnt.BntRev[e.Utg.Ks[j]] {
+					errorNum++
+					if !correct {
+						break
+					}
+				}
+				j++
+			}
+		}
+
+		if !correct && errorNum > 0 {
+			fmt.Printf("[paraMapNGS2DBG]not perfect start i: %v,edge ID: %v,len(e.Utg.Ks):%v,  dk.Pos: %v, pos: %v, b: %v\n", i, dk.ID, len(e.Utg.Ks), dk.Pos, rpos, b)
+			break
+		}
+		if i < 0 {
+			ai.EndPos = j
+			break
+		}
+		// find next edge
+		rpos = i + 1
+		if dk.Strand == rstrand {
+			if e.StartNID == 0 {
+				break
+			}
+			n := nodesArr[e.StartNID]
+			if IsInComing(n.EdgeIDOutcoming, e.ID) {
+				if n.EdgeIDIncoming[ri.Seq[i]] > 1 {
+					dk.ID = n.EdgeIDIncoming[ri.Seq[i]]
+				} else {
+					errorNum++
+					if correct {
+						ea := GetNearEdgeIDArr(n, e.ID)
+						if len(ea) == 1 {
+							dk.ID = ea[0]
+						} else {
+							ai.EndPos = j
+							fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+							break
+						}
+					} else {
+						fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+						break
+					}
+				}
+				e = edgesArr[dk.ID]
+				if e.EndNID == n.ID {
+					dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+				} else {
+					dk.Strand = !dk.Strand
+					dk.Pos = uint32(cf.Kmerlen) - 1
+				}
+			} else {
+				b := bnt.BntRev[ri.Seq[i]]
+				if n.EdgeIDOutcoming[b] > 1 {
+					dk.ID = n.EdgeIDOutcoming[b]
+				} else {
+					errorNum++
+					if correct {
+						ea := GetNearEdgeIDArr(n, e.ID)
+						if len(ea) == 1 {
+							dk.ID = ea[0]
+						} else {
+							ai.EndPos = j
+							fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+							break
+						}
+					} else {
+						fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+						break
+					}
+				}
+				e = edgesArr[dk.ID]
+				if e.StartNID == n.ID {
+					dk.Strand = !dk.Strand
+					dk.Pos = uint32(cf.Kmerlen) - 1
+				} else {
+					dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+				}
+			}
+		} else {
+			if e.EndNID == 0 {
+				break
+			}
+			n := nodesArr[e.EndNID]
+			if IsInComing(n.EdgeIDIncoming, e.ID) {
+				b := bnt.BntRev[ri.Seq[i]]
+				if n.EdgeIDOutcoming[b] > 1 {
+					dk.ID = n.EdgeIDOutcoming[b]
+				} else {
+					errorNum++
+					if correct {
+						ea := GetNearEdgeIDArr(n, e.ID)
+						if len(ea) == 1 {
+							dk.ID = ea[0]
+						} else {
+							ai.EndPos = j
+							fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+							break
+						}
+					} else {
+						fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+						break
+					}
+				}
+				e = edgesArr[dk.ID]
+				if e.StartNID == n.ID {
+					dk.Pos = uint32(cf.Kmerlen) - 1
+				} else {
+					dk.Strand = !dk.Strand
+					dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+				}
+			} else { // e.ID in the n.EdgeIDOutcoming
+				if n.EdgeIDIncoming[ri.Seq[i]] > 1 {
+					dk.ID = n.EdgeIDIncoming[ri.Seq[i]]
+				} else {
+					errorNum++
+					if correct {
+						ea := GetNearEdgeIDArr(n, e.ID)
+						if len(ea) == 1 {
+							dk.ID = ea[0]
+						} else {
+							ai.EndPos = j
+							fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+							break
+						}
+					} else {
+						fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+						break
+					}
+				}
+				e = edgesArr[dk.ID]
+				if e.EndNID == n.ID {
+					dk.Strand = !dk.Strand
+					dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+				} else {
+					dk.Pos = uint32(cf.Kmerlen) - 1
+				}
+			}
+		}
+	}
+
+	return
+}
+
+func MappingReadToEdgesForWard(dk DBGKmer, ri ReadInfo, rpos int, rstrand bool, edgesArr []DBGEdge, nodesArr []DBGNode, cf CuckooFilter, correct bool) (errorNum int, ai AlignInfo) {
+	if dk.Strand == rstrand {
+		dk.Pos += uint32(cf.Kmerlen)
+	}
+	for i := rpos; i < len(ri.Seq); {
+		e := edgesArr[dk.ID]
+		ai.Paths = append(ai.Paths, e.ID)
+		b := len(ri.Seq)
+		var j int
+		if dk.Strand == rstrand {
+			if len(e.Utg.Ks)-int(dk.Pos) < len(ri.Seq)-rpos {
+				b = rpos + (len(e.Utg.Ks) - int(dk.Pos))
+			}
+			j = int(dk.Pos)
+			for ; i < b; i++ {
+				//fmt.Printf("[paraMapNGS2DBG] i: %v, j: %v, dk.Pos: %v, pos: %v, b: %v\n", i, j, dk.Pos, rpos, b)
+				if ri.Seq[i] != e.Utg.Ks[j] {
+					errorNum++
+					if !correct {
+						break
+					}
+				}
+				j++
+			}
+		} else { // dbgK.Strand != strand
+			if len(ri.Seq)-rpos > int(dk.Pos) {
+				b = rpos + int(dk.Pos)
+			}
+			j := int(dk.Pos) - 1
+			for ; i < b; i++ {
+				//fmt.Printf("[paraMapNGS2DBG] i: %v, j: %v, dk.Pos: %v, pos: %v, b: %v\n", i, j, dk.Pos, rpos, b)
+				if ri.Seq[i] != bnt.BntRev[e.Utg.Ks[j]] {
+					errorNum++
+					if !correct {
+						break
+					}
+				}
+				j--
+			}
+		}
+
+		if !correct && errorNum > 0 {
+			fmt.Printf("[paraMapNGS2DBG]not perfect end i: %v,edge ID: %v,len(e.Utg.Ks): %v,  dk.Pos: %v, pos: %v, b: %v\n", i, dk.ID, len(e.Utg.Ks), dk.Pos, rpos, b)
+			break
+		}
+
+		if i == len(ri.Seq) {
+			ai.EndPos = j
+			break
+		}
+
+		// find next edge
+		rpos = i
+		if dk.Strand == rstrand {
+			if e.EndNID == 0 {
+				break
+			}
+			n := nodesArr[e.EndNID]
+			if IsInComing(n.EdgeIDIncoming, e.ID) {
+				if n.EdgeIDOutcoming[ri.Seq[i]] > 1 {
+					dk.ID = n.EdgeIDOutcoming[ri.Seq[i]]
+				} else {
+					errorNum++
+					if correct {
+						ea := GetNearEdgeIDArr(n, e.ID)
+						if len(ea) == 1 {
+							dk.ID = ea[0]
+						} else {
+							ai.EndPos = j
+							fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+							break
+						}
+					} else {
+						fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+						break
+					}
+				}
+				e = edgesArr[dk.ID]
+				if e.StartNID == n.ID {
+					dk.Pos = uint32(cf.Kmerlen) - 1
+				} else {
+					dk.Strand = !dk.Strand
+					dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+				}
+			} else { // e.ID in the n.EdgeIDOutcoming
+				base := bnt.BntRev[ri.Seq[i]]
+				if n.EdgeIDIncoming[base] > 1 {
+					dk.ID = n.EdgeIDIncoming[base]
+				} else {
+					errorNum++
+					if correct {
+						ea := GetNearEdgeIDArr(n, e.ID)
+						if len(ea) == 1 {
+							dk.ID = ea[0]
+						} else {
+							ai.EndPos = j
+							fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+							break
+						}
+					} else {
+						fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+						break
+					}
+				}
+				e = edgesArr[dk.ID]
+				if e.EndNID == n.ID {
+					dk.Strand = !dk.Strand
+					dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+				} else {
+					dk.Pos = uint32(cf.Kmerlen) - 1
+				}
+			}
+		} else { // dk.Strand != strand
+			if e.StartNID == 0 {
+				break
+			}
+			n := nodesArr[e.StartNID]
+			if IsInComing(n.EdgeIDOutcoming, e.ID) {
+				base := bnt.BntRev[ri.Seq[i]]
+				if n.EdgeIDIncoming[base] > 1 {
+					dk.ID = n.EdgeIDIncoming[base]
+				} else {
+					errorNum++
+					if correct {
+						ea := GetNearEdgeIDArr(n, e.ID)
+						if len(ea) == 1 {
+							dk.ID = ea[0]
+						} else {
+							ai.EndPos = j
+							fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+							break
+						}
+					} else {
+						fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+						break
+					}
+				}
+				e = edgesArr[dk.ID]
+				if e.EndNID == n.ID {
+					dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+				} else {
+					dk.Strand = !dk.Strand
+					dk.Pos = uint32(cf.Kmerlen - 1)
+				}
+			} else { // e.ID in the n.EdgeIDIncoming
+				if n.EdgeIDOutcoming[ri.Seq[i]] > 1 {
+					dk.ID = n.EdgeIDOutcoming[ri.Seq[i]]
+				} else {
+					errorNum++
+					if correct {
+						ea := GetNearEdgeIDArr(n, e.ID)
+						if len(ea) == 1 {
+							dk.ID = ea[0]
+						} else {
+							ai.EndPos = j
+							fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+							break
+						}
+					} else {
+						fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
+						break
+					}
+				}
+				e = edgesArr[dk.ID]
+				if e.StartNID == n.ID {
+					dk.Strand = !dk.Strand
+					dk.Pos = uint32(cf.Kmerlen - 1)
+				} else {
+					dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
+				}
+			}
+		}
+	}
+
+	return
+}
+
 // parallel Map NGS reads to the DBG edges, then output alignment path for the DBG
 func paraMapNGS2DBG(cs chan ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edgesArr []DBGEdge, cf CuckooFilter, winSize int) {
 	var notFoundSeedNum, mapOneEdgeNum, notPerfectNum int
@@ -2397,7 +2758,6 @@ func paraMapNGS2DBG(cs chan ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edg
 		ri, ok := <-cs
 		var ai AlignInfo
 		if !ok {
-			ai.ID = -1
 			wc <- ai
 			break
 		}
@@ -2428,274 +2788,32 @@ func paraMapNGS2DBG(cs chan ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edg
 
 		// extend map to the DBG edges
 		{
-			ai.ID = ri.ID
-			overAll := true // note if overall length read sequence match
+			// overAll := true // note if overall length read sequence match
 			// map the start partition of read sequence
-			{
-				dk := dbgK
-				rpos := int(pos)
-				if dk.Strand != strand {
-					dk.Pos += uint32(cf.Kmerlen)
-				}
-				for i := rpos - 1; i >= 0; {
-					e := edgesArr[dk.ID]
-					b := 0
-					if dk.Strand == strand {
-						if int(dk.Pos) < rpos {
-							b = rpos - int(dk.Pos)
-						}
-						j := int(dk.Pos) - 1
-						for ; i >= b; i-- {
-							//fmt.Printf("[paraMapNGS2DBG] i: %v, j: %v, dk.Pos: %v, pos: %v, b: %v\n", i, j, dk.Pos, rpos, b)
-							if ri.Seq[i] != e.Utg.Ks[j] {
-								overAll = false
-								break
-							}
-							j--
-						}
-					} else { // dk.Strand != strand
-						if len(e.Utg.Ks)-int(dk.Pos) < rpos {
-							b = rpos - (len(e.Utg.Ks) - int(dk.Pos))
-						}
-						j := int(dk.Pos)
-						for ; i >= b; i-- {
-							//fmt.Printf("[paraMapNGS2DBG] i: %v, j: %v, dk.Pos: %v, pos: %v, b: %v\n", i, j, dk.Pos, rpos, b)
-							if ri.Seq[i] != bnt.BntRev[e.Utg.Ks[j]] {
-								overAll = false
-								break
-							}
-							j++
-						}
-					}
-
-					if !overAll {
-						fmt.Printf("[paraMapNGS2DBG]not perfect start i: %v,edge ID: %v,len(e.Utg.Ks):%v,  dk.Pos: %v, pos: %v, b: %v\n", i, dk.ID, len(e.Utg.Ks), dk.Pos, rpos, b)
-						break
-					}
-					ai.Paths = append(ai.Paths, e.ID)
-
-					if i < 0 {
-						break
-					}
-					// find next edge
-					rpos = i + 1
-					if dk.Strand == strand {
-						if e.StartNID == 0 {
-							break
-						}
-						n := nodesArr[e.StartNID]
-						if IsInComing(n.EdgeIDOutcoming, e.ID) {
-							if n.EdgeIDIncoming[ri.Seq[i]] > 1 {
-								dk.ID = n.EdgeIDIncoming[ri.Seq[i]]
-								e = edgesArr[dk.ID]
-								if e.EndNID == n.ID {
-									dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
-								} else {
-									dk.Strand = !dk.Strand
-									dk.Pos = uint32(cf.Kmerlen) - 1
-								}
-							} else {
-								fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
-								break
-							}
-						} else {
-							b := bnt.BntRev[ri.Seq[i]]
-							if n.EdgeIDOutcoming[b] > 1 {
-								dk.ID = n.EdgeIDOutcoming[b]
-								e = edgesArr[dk.ID]
-								if e.StartNID == n.ID {
-									dk.Strand = !dk.Strand
-									dk.Pos = uint32(cf.Kmerlen) - 1
-								} else {
-									dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
-								}
-							} else {
-								fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
-								break
-							}
-						}
-					} else {
-						if e.EndNID == 0 {
-							break
-						}
-						n := nodesArr[e.EndNID]
-						if IsInComing(n.EdgeIDIncoming, e.ID) {
-							b := bnt.BntRev[ri.Seq[i]]
-							if n.EdgeIDOutcoming[b] > 1 {
-								dk.ID = n.EdgeIDOutcoming[b]
-								e = edgesArr[dk.ID]
-								if e.StartNID == n.ID {
-									dk.Pos = uint32(cf.Kmerlen) - 1
-								} else {
-									dk.Strand = !dk.Strand
-									dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
-								}
-							} else {
-								fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
-								break
-							}
-						} else { // e.ID in the n.EdgeIDOutcoming
-							if n.EdgeIDIncoming[ri.Seq[i]] > 1 {
-								dk.ID = n.EdgeIDIncoming[ri.Seq[i]]
-								e = edgesArr[dk.ID]
-								if e.EndNID == n.ID {
-									dk.Strand = !dk.Strand
-									dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
-								} else {
-									dk.Pos = uint32(cf.Kmerlen) - 1
-								}
-							} else {
-								fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
-								break
-							}
-						}
-					}
-				}
-			}
-			if !overAll {
+			errorNum, ar := MappingReadToEdgesBackWard(dbgK, ri, int(pos), strand, edgesArr, nodesArr, cf, false)
+			if errorNum > 0 {
 				notPerfectNum++
 				continue
 			}
-			ai.Paths = ReverseDBG_MAX_INTArr(ai.Paths)
+			ar.Paths = ReverseDBG_MAX_INTArr(ar.Paths)
 			// map the end partition of read sequence
-			var path []DBG_MAX_INT
-			{
-				dk := dbgK
-				rpos := int(pos) + cf.Kmerlen
-				if dk.Strand == strand {
-					dk.Pos += uint32(cf.Kmerlen)
-				}
-				for i := rpos; i < len(ri.Seq); {
-					e := edgesArr[dk.ID]
-					b := len(ri.Seq)
-					if dk.Strand == strand {
-						if len(e.Utg.Ks)-int(dk.Pos) < len(ri.Seq)-rpos {
-							b = rpos + (len(e.Utg.Ks) - int(dk.Pos))
-						}
-						j := int(dk.Pos)
-						for ; i < b; i++ {
-							//fmt.Printf("[paraMapNGS2DBG] i: %v, j: %v, dk.Pos: %v, pos: %v, b: %v\n", i, j, dk.Pos, rpos, b)
-							if ri.Seq[i] != e.Utg.Ks[j] {
-								overAll = false
-								break
-							}
-							j++
-						}
-					} else { // dbgK.Strand != strand
-						if len(ri.Seq)-rpos > int(dk.Pos) {
-							b = rpos + int(dk.Pos)
-						}
-						j := int(dk.Pos) - 1
-						for ; i < b; i++ {
-							//fmt.Printf("[paraMapNGS2DBG] i: %v, j: %v, dk.Pos: %v, pos: %v, b: %v\n", i, j, dk.Pos, rpos, b)
-							if ri.Seq[i] != bnt.BntRev[e.Utg.Ks[j]] {
-								overAll = false
-								break
-							}
-							j--
-						}
-					}
+			errorNum, al := MappingReadToEdgesForWard(dbgK, ri, int(pos)+cf.Kmerlen, strand, edgesArr, nodesArr, cf, false)
 
-					if overAll == false {
-						fmt.Printf("[paraMapNGS2DBG]not perfect end i: %v,edge ID: %v,len(e.Utg.Ks): %v,  dk.Pos: %v, pos: %v, b: %v\n", i, dk.ID, len(e.Utg.Ks), dk.Pos, rpos, b)
-						break
-					}
-					path = append(path, e.ID)
-
-					if i == len(ri.Seq) {
-						break
-					}
-
-					// find next edge
-					rpos = i
-					if dk.Strand == strand {
-						if e.EndNID == 0 {
-							break
-						}
-						n := nodesArr[e.EndNID]
-						if IsInComing(n.EdgeIDIncoming, e.ID) {
-							if n.EdgeIDOutcoming[ri.Seq[i]] > 1 {
-								dk.ID = n.EdgeIDOutcoming[ri.Seq[i]]
-								e = edgesArr[dk.ID]
-								if e.StartNID == n.ID {
-									dk.Pos = uint32(cf.Kmerlen) - 1
-								} else {
-									dk.Strand = !dk.Strand
-									dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
-								}
-							} else {
-								fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
-								break
-							}
-						} else { // e.ID in the n.EdgeIDOutcoming
-							base := bnt.BntRev[ri.Seq[i]]
-							if n.EdgeIDIncoming[base] > 1 {
-								dk.ID = n.EdgeIDIncoming[base]
-								e = edgesArr[dk.ID]
-								if e.EndNID == n.ID {
-									dk.Strand = !dk.Strand
-									dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
-								} else {
-									dk.Pos = uint32(cf.Kmerlen) - 1
-								}
-							} else {
-								fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
-								break
-							}
-						}
-					} else { // dk.Strand != strand
-						if e.StartNID == 0 {
-							break
-						}
-						n := nodesArr[e.StartNID]
-						if IsInComing(n.EdgeIDOutcoming, e.ID) {
-							base := bnt.BntRev[ri.Seq[i]]
-							if n.EdgeIDIncoming[base] > 1 {
-								dk.ID = n.EdgeIDIncoming[base]
-								e = edgesArr[dk.ID]
-								if e.EndNID == n.ID {
-									dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
-								} else {
-									dk.Strand = !dk.Strand
-									dk.Pos = uint32(cf.Kmerlen - 1)
-								}
-							} else {
-								fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
-								break
-							}
-						} else { // e.ID in the n.EdgeIDIncoming
-							if n.EdgeIDOutcoming[ri.Seq[i]] > 1 {
-								dk.ID = n.EdgeIDOutcoming[ri.Seq[i]]
-								e = edgesArr[dk.ID]
-								if e.StartNID == n.ID {
-									dk.Strand = !dk.Strand
-									dk.Pos = uint32(cf.Kmerlen - 1)
-								} else {
-									dk.Pos = uint32(len(e.Utg.Ks) - (cf.Kmerlen - 1))
-								}
-							} else {
-								fmt.Printf("[paraMapNGS2DBG] not found next edge in node: %v\n", n)
-								break
-							}
-						}
-					}
-				}
-			}
-
-			if !overAll {
+			if errorNum > 0 {
 				//fmt.Printf("[paraMapNGS2DBG] ", a)
 				notPerfectNum++
 				continue
 			}
 
-			if len(ai.Paths) > 0 && len(path) > 0 && ai.Paths[len(ai.Paths)-1] == path[0] {
-				ai.Paths = append(ai.Paths, path[1:]...)
+			if len(ar.Paths) > 0 && len(al.Paths) > 0 && ar.Paths[len(ar.Paths)-1] == al.Paths[0] {
+				ai.Paths = append(ar.Paths, al.Paths[1:]...)
+				ai.ID = ri.ID
 			} else {
-				ai.Paths = append(ai.Paths, path...)
+				log.Fatalf("[paraMapNGS2DBG] ar: %v and al: %v not consis\n", ar, al)
 			}
 
 			// write to output
-			if overAll && len(ai.Paths) > 1 {
+			if len(ai.Paths) > 1 {
 				wc <- ai
 			}
 		}
@@ -2818,11 +2936,11 @@ func paraMapNGS2DBG(cs chan ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edg
 
 func MapNGS2DBG(opt Options, nodesArr []DBGNode, edgesArr []DBGEdge, wrFn string) {
 	// construct cuckoofilter of DBG sample
-	cfSize := getCuckoofilterDBGSampleSize(edgesArr, opt.WinSize, opt.MaxNGSReadLen, opt.Kmer)
+	cfSize := GetCuckoofilterDBGSampleSize(edgesArr, opt.WinSize, opt.MaxNGSReadLen, opt.Kmer)
 	fmt.Printf("[MapNGS2DBG] cfSize: %v\n", cfSize)
-	cf := MakeCuckooFilter(uint64(cfSize*3), opt.Kmer)
-	fmt.Printf("[MapNGS2DBG] cf.numItems: %v\n", cf.numItems)
-	count := constructCFDBGMinimizers(cf, edgesArr, opt.WinSize, opt.MaxNGSReadLen)
+	cf := MakeCuckooFilter(uint64(cfSize*5), opt.Kmer)
+	fmt.Printf("[MapNGS2DBG] cf.numItems: %v\n", cf.NumItems)
+	count := ConstructCFDBGMinimizers(cf, edgesArr, opt.WinSize, opt.MaxNGSReadLen)
 	fmt.Printf("[MapNGS2DBG]construct Smaple of DBG edges cuckoofilter number is : %v\n", count)
 	//if cfSize != int64(count) {
 	//	log.Fatalf("[MapNGS2DBG]cfSize : %v != count : %v, please check\n", cfSize, count)
@@ -3659,7 +3777,7 @@ func ResetDeleteEdgeIncoming(edgesArr []DBGEdge, nodesArr []DBGNode) {
 	}
 }
 
-func ResetMergedEdgeNID(edgesArr []DBGEdge, nodesArr []DBGNode, joinPathArr []Path, IDMapPath map[DBG_MAX_INT]uint32) {
+func ResetMergedEdgeNID(edgesArr []DBGEdge, nodesArr []DBGNode, joinPathArr []Path, IDMapPath map[DBG_MAX_INT]uint32, kmerlen int) {
 	for _, e := range edgesArr {
 		if e.ID == 0 {
 			continue
@@ -3670,8 +3788,8 @@ func ResetMergedEdgeNID(edgesArr []DBGEdge, nodesArr []DBGNode, joinPathArr []Pa
 					//SubstituteEdgeID(nodesArr, e.StartNID, e.ID, 0)
 					if !IsInDBGNode(nodesArr[e.StartNID], e.ID) {
 						var sBnt constructcf.ReadBnt
-						sBnt.Seq = e.Utg.Ks[:Kmerlen-1]
-						ks := constructcf.GetReadBntKmer(sBnt, 0, Kmerlen-1)
+						sBnt.Seq = e.Utg.Ks[:kmerlen-1]
+						ks := constructcf.GetReadBntKmer(sBnt, 0, kmerlen-1)
 						ts := ks
 						rs := constructcf.ReverseComplet(ks)
 						if ks.BiggerThan(rs) {
@@ -3680,7 +3798,7 @@ func ResetMergedEdgeNID(edgesArr []DBGEdge, nodesArr []DBGNode, joinPathArr []Pa
 						if reflect.DeepEqual(ks.Seq, nodesArr[e.StartNID].Seq) == false {
 							log.Fatalf("[ResetMergedEdgeNID] ks != nodesArr[e.StartNID].Seq, ks: %v\n\tnodesArr[%v]: %v\n", ks, e.StartNID, nodesArr[e.StartNID])
 						}
-						c := e.Utg.Ks[Kmerlen-1]
+						c := e.Utg.Ks[kmerlen-1]
 						if reflect.DeepEqual(ts, ks) {
 							nodesArr[e.StartNID].EdgeIDOutcoming[c] = e.ID
 						} else {
@@ -3692,8 +3810,8 @@ func ResetMergedEdgeNID(edgesArr []DBGEdge, nodesArr []DBGNode, joinPathArr []Pa
 					//SubstituteEdgeID(nodesArr, e.EndNID, e.ID, 0)
 					if !IsInDBGNode(nodesArr[e.EndNID], e.ID) {
 						var sBnt constructcf.ReadBnt
-						sBnt.Seq = e.Utg.Ks[e.GetSeqLen()-Kmerlen+1:]
-						ks := constructcf.GetReadBntKmer(sBnt, 0, Kmerlen-1)
+						sBnt.Seq = e.Utg.Ks[e.GetSeqLen()-kmerlen+1:]
+						ks := constructcf.GetReadBntKmer(sBnt, 0, kmerlen-1)
 						ts := ks
 						rs := constructcf.ReverseComplet(ks)
 						if ks.BiggerThan(rs) {
@@ -3702,7 +3820,7 @@ func ResetMergedEdgeNID(edgesArr []DBGEdge, nodesArr []DBGNode, joinPathArr []Pa
 						if reflect.DeepEqual(ks.Seq, nodesArr[e.EndNID].Seq) == false {
 							log.Fatalf("[ResetMergedEdgeNID] ks != nodesArr[e.StartNID].Seq, ks: %v\n\tnodesArr[%v]: %v\n", ks, e.StartNID, nodesArr[e.StartNID])
 						}
-						c := e.Utg.Ks[e.GetSeqLen()-Kmerlen]
+						c := e.Utg.Ks[e.GetSeqLen()-kmerlen]
 						if reflect.DeepEqual(ks, ts) {
 							nodesArr[e.EndNID].EdgeIDIncoming[c] = e.ID
 						} else {
@@ -4342,6 +4460,10 @@ func checkArgs(c cli.Command) (opt Options, succ bool) {
 		log.Fatalf("[checkArgs] argument 'MinMapFreq': %v must 5 <= MinMapFreq < 20\n", c.Flag("MinMapFreq").String())
 	}
 
+	if opt.TipMaxLen == 0 {
+		opt.TipMaxLen = opt.MaxNGSReadLen
+	}
+
 	/*opt.MaxMapEdgeLen, ok = c.Flag("MaxMapEdgeLen").Get().(int)
 	if !ok {
 		log.Fatalf("[checkArgs] argument 'MaxMapEdgeLen': %v set error\n ", c.Flag("MaxMapEdgeLen").String())
@@ -4375,7 +4497,7 @@ func Smfy(c cli.Command) {
 	fmt.Printf("Arguments: %v\n", opt)
 
 	// set package-level variable
-	Kmerlen = opt.Kmer
+	//Kmerlen = opt.Kmer
 
 	// read nodes file and transform to array mode for more quckly access
 	nodesfn := opt.Prefix + ".nodes.mmap"
