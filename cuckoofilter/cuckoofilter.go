@@ -10,17 +10,19 @@ import "C"
 
 import (
 	"bufio"
-	"crypto/sha1"
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
+	"unsafe"
 	//"log"
 
 	//"strings"
 	"encoding/gob"
+
+	"github.com/mudesheng/highwayhash"
 	// "syscall"
-	"unsafe"
 )
 
 const (
@@ -34,6 +36,10 @@ const (
 const BucketSize = 4
 const MaxLoad = 0.95
 const KMaxCount = 512
+
+// KEY used for highwayhash function, must len(KEY) == 32
+//var KEY = []byte{35, 158, 189, 243, 123, 39, 95, 219, 58, 253, 127, 163, 91, 235, 248, 177, 139, 67, 229, 171, 195, 81, 95, 149, 191, 249, 148, 45, 155, 235}
+var KEY = []uint64{0xBD4CCC325BEFCA6F, 0xA89A58CE65E641FF, 0xAE093FEF1F84E3E7, 0xFB4297E8C586EE2D}
 
 func CompareAndSwapUint16(addr *uint16, old uint16, new uint16) (swapped bool) {
 	a := (*C.uint16_t)(addr)
@@ -83,29 +89,31 @@ func MakeCuckooFilter(maxNumKeys uint64, kmerLen int) (cf CuckooFilter) {
 	cf.Hash = make([]Bucket, numBuckets)
 	cf.numItems = numBuckets * BucketSize
 	cf.Kmerlen = kmerLen
+	fmt.Printf("[MakeCuckooFilter]cf items number is: %d\n\tsizeof(cf.Hash): %d\n", cf.numItems, unsafe.Sizeof(cf.Hash))
 
 	return cf
 
 }
 
 func (cf CuckooFilter) IndexHash(v uint64) uint64 {
-	v >>= NUM_FP_BITS
+	v = (v >> 37) ^ (v >> 27) ^ v
 
 	return v % uint64(len(cf.Hash))
 }
 
-func FingerHash(v uint64) uint64 {
+func FingerHash(v uint64) uint16 {
+	v = (v >> 47) ^ (v >> 33) ^ (v >> 19) ^ (v >> 13) ^ v
 	v &= FPMASK
-	return v
+	return uint16(v)
 }
 
-func (cf CuckooFilter) AltIndex(index uint64, finger uint64) uint64 {
-	index ^= finger
+func (cf CuckooFilter) AltIndex(index uint64, finger uint16) uint64 {
+	index ^= uint64(finger)
 
 	return index % uint64(len(cf.Hash))
 }
 
-func combineCFItem(fp uint64, count uint64) (cfi CFItem) {
+func combineCFItem(fp uint16, count uint16) (cfi CFItem) {
 	if count > MAX_C {
 		panic("count bigger than CFItem allowed")
 	}
@@ -200,17 +208,31 @@ func (b *Bucket) AddBucket(cfi CFItem, kickout bool) (CFItem, bool, int) {
 
 	//fmt.Printf("kikcout: %t", kickout)
 	if kickout {
-		ci := cfi.GetFinger() & CMASK
-		old := b.Bkt[ci]
-		b.Bkt[ci] = cfi
-		return old, true, 0
+		min := uint16(math.MaxUint16)
+		idx := -1
+		for j := BucketSize - 1; j >= 0; j-- {
+			c := b.Bkt[j].GetCount()
+			if c < min {
+				min = c
+				idx = j
+			}
+		}
+		var oi CFItem
+		for {
+			oi = b.Bkt[idx]
+			a := (*uint16)(&b.Bkt[idx])
+			if CompareAndSwapUint16(a, uint16(oi), uint16(cfi)) {
+				break
+			}
+		}
+		return oi, true, 0
 	} else {
 		return CFItem(0), false, 0
 	}
 }
 
 // return if successed added
-func (cf CuckooFilter) Add(index uint64, fingerprint uint64) (oldcount int, succ bool) {
+func (cf CuckooFilter) Add(index uint64, fingerprint uint16) (oldcount int, succ bool) {
 	ci := index
 	cfi := combineCFItem(fingerprint, 1)
 	for count := 0; count < KMaxCount; count++ {
@@ -229,12 +251,12 @@ func (cf CuckooFilter) Add(index uint64, fingerprint uint64) (oldcount int, succ
 		}
 		//fmt.Printf("cycle : %d\n", count)
 
-		ci = cf.AltIndex(ci, uint64(cfi.GetFinger()))
+		ci = cf.AltIndex(ci, cfi.GetFinger())
 	}
 	return oldcount, succ
 }
 
-func hk2uint64(hk [sha1.Size]byte) (v uint64) {
+/*func hk2uint64(hk [sha1.Size]byte) (v uint64) {
 	for i := 0; i <= len(hk)-8; i += 8 {
 		hkp := unsafe.Pointer(&hk[i])
 		t := (*uint64)(hkp)
@@ -247,12 +269,14 @@ func hk2uint64(hk [sha1.Size]byte) (v uint64) {
 	}
 
 	return v
-}
+}*/
 
 // return last count of kmer fingerprint and have been successed inserted
-func (cf CuckooFilter) Insert(kb []byte) (int, bool) {
-	hk := sha1.Sum(kb)
-	v := hk2uint64(hk)
+func (cf CuckooFilter) Insert(kb []uint64) (int, bool) {
+	//hk := sha1.Sum(kb)
+	//v := hk2uint64(hk)
+	v := highwayhash.SumInput64Arr64(kb, KEY)
+
 	//fmt.Printf("%v\t", v)
 	index := cf.IndexHash(v)
 	fingerprint := FingerHash(v)
@@ -262,28 +286,30 @@ func (cf CuckooFilter) Insert(kb []byte) (int, bool) {
 	return cf.Add(index, fingerprint)
 }
 
-func (cf CuckooFilter) Lookup(kb []byte) bool {
-	hk := sha1.Sum(kb)
-	v := hk2uint64(hk)
+func (cf CuckooFilter) Lookup(kb []uint64) bool {
+	//hk := sha1.Sum(kb)
+	//v := hk2uint64(hk)
+	v := highwayhash.SumInput64Arr64(kb, KEY)
 	index := cf.IndexHash(v)
 	fingerprint := FingerHash(v)
 
-	if cf.Hash[index].Contain(uint16(fingerprint)) {
+	if cf.Hash[index].Contain(fingerprint) {
 		return true
 	} else {
 		index = cf.AltIndex(index, fingerprint)
-		return cf.Hash[index].Contain(uint16(fingerprint))
+		return cf.Hash[index].Contain(fingerprint)
 	}
 }
 
-func (cf CuckooFilter) GetCount(kb []byte) uint16 {
-	hk := sha1.Sum(kb)
-	v := hk2uint64(hk)
+func (cf CuckooFilter) GetCount(kb []uint64) uint16 {
+	//hk := sha1.Sum(kb)
+	//v := hk2uint64(hk)
+	v := highwayhash.SumInput64Arr64(kb, KEY)
 	index := cf.IndexHash(v)
 	fingerprint := FingerHash(v)
 	for _, item := range cf.Hash[index].Bkt {
 		// fmt.Printf("index: %v, finger: %v\n", index, item.GetFinger())
-		if item.GetFinger() == uint16(fingerprint) {
+		if item.GetFinger() == fingerprint {
 			return item.GetCount()
 		}
 	}
@@ -291,7 +317,7 @@ func (cf CuckooFilter) GetCount(kb []byte) uint16 {
 	index = cf.AltIndex(index, fingerprint)
 	for _, item := range cf.Hash[index].Bkt {
 		// fmt.Printf("index: %v, finger: %v\n", index, item.GetFinger())
-		if item.GetFinger() == uint16(fingerprint) {
+		if item.GetFinger() == fingerprint {
 			return item.GetCount()
 		}
 	}
@@ -301,16 +327,17 @@ func (cf CuckooFilter) GetCount(kb []byte) uint16 {
 }
 
 /* allow function return zero version if kb not found in the CuckooFilter */
-func (cf CuckooFilter) GetCountAllowZero(kb []byte) uint16 {
-	hk := sha1.Sum(kb)
-	v := hk2uint64(hk)
+func (cf CuckooFilter) GetCountAllowZero(kb []uint64) uint16 {
+	//hk := sha1.Sum(kb)
+	//v := hk2uint64(hk)
+	v := highwayhash.SumInput64Arr64(kb, KEY)
 	// fmt.Printf("[GetCountAllowZero] len(cf.Hash): %d\n", len(cf.Hash))
 	// fmt.Printf("[GetCountAllowZero] cf.Hash[0]: %v\n", cf.Hash[0])
 	index := cf.IndexHash(v)
 	fingerprint := FingerHash(v)
 	for _, item := range cf.Hash[index].Bkt {
 		// fmt.Printf("index: %v, finger: %v\n", index, item.GetFinger())
-		if item.GetFinger() == uint16(fingerprint) {
+		if item.GetFinger() == fingerprint {
 			return item.GetCount()
 		}
 	}
@@ -318,7 +345,7 @@ func (cf CuckooFilter) GetCountAllowZero(kb []byte) uint16 {
 	index = cf.AltIndex(index, fingerprint)
 	for _, item := range cf.Hash[index].Bkt {
 		// fmt.Printf("index: %v, finger: %v\n", index, item.GetFinger())
-		if item.GetFinger() == uint16(fingerprint) {
+		if item.GetFinger() == fingerprint {
 			return item.GetCount()
 		}
 	}

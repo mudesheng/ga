@@ -48,9 +48,9 @@ func init() {
 	{
 		//pp.DefineInt64Flag("k", 89, "correct cukcoofilter kmer used")
 		pp.DefineInt64Flag("S", 0, "the Size number of items cuckoofilter set")
-		smfy.DefineIntFlag("tipMaxLen", 0, "Maximum tip length, default[0] for MaxNGSReadLen")
-		smfy.DefineIntFlag("WinSize", 10, "th size of sliding window for DBG edge Sample")
-		smfy.DefineIntFlag("MaxNGSReadLen", 250, "Max NGS Read Length")
+		pp.DefineIntFlag("tipMaxLen", 0, "Maximum tip length, default[0] for MaxNGSReadLen")
+		pp.DefineIntFlag("WinSize", 5, "th size of sliding window for DBG edge Sample")
+		pp.DefineIntFlag("MaxNGSReadLen", 250, "Max NGS Read Length")
 		//pp.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length(-K * 2)")
 	}
 	ccf := app.DefineSubCommand("ccf", "construct cukcoofilter", constructcf.CCF)

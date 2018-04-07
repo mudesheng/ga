@@ -279,10 +279,10 @@ func (cf CuckooFilter) Lookup(kb []byte, edgesArr []DBGEdge) (dbgK DBGKmer, coun
 	} else if len(da) == 1 {
 		d := da[0]
 		eb := edgesArr[d.ID].Utg.Ks[d.Pos : d.Pos+uint32(cf.Kmerlen)]
+		//fmt.Printf("[cf.Lookup]\n\tkb: %v\n\teb: %v\n", kb, eb)
 		if d.Strand == MINUS {
 			eb = GetReverseCompByteArr(eb)
 		}
-		//fmt.Printf("[cf.Lookup]\n\tkb: %v\n\teb: %v\n", kb, eb)
 		if reflect.DeepEqual(kb, eb) {
 			dbgK = d
 			count++

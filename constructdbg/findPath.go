@@ -2818,13 +2818,17 @@ func CleanDBG(edgesArr []DBGEdge, nodesArr []DBGNode) {
 	fmt.Printf("[CleanDBG] delete edges number is : %d\n", deleteNum)
 }
 
-func GraphvizDBG(nodeMap map[string]DBGNode, edgesArr []DBGEdge, graphfn string) {
+func GraphvizDBG(nodeMap map[[NODEMAP_KEY_LEN]uint64]DBGNode, edgesArr []DBGEdge, graphfn string) {
 	// create a new graph
 	g := gographviz.NewGraph()
 	g.SetName("G")
 	g.SetDir(true)
 	g.SetStrict(false)
 	for _, v := range nodeMap {
+		if v.GetDeleteFlag() > 0 || v.ID == 0 {
+			continue
+		}
+		fmt.Printf("[GraphvizDBG] v : %d\n", v)
 		attr := make(map[string]string)
 		attr["color"] = "Green"
 		attr["shape"] = "record"

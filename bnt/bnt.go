@@ -1,9 +1,10 @@
 package bnt
 
 const (
-	NumBaseInByte = 4
-	NumBitsInBase = 2
-	BaseTypeNum   = 4
+	NumBaseInByte   = 4
+	NumBaseInUint64 = NumBaseInByte * 8
+	NumBitsInBase   = 2
+	BaseTypeNum     = 4
 	// BaseMask      = ((1 << NumBitsInBase) - 1) // 0x3
 	BaseMask = 0x3
 )

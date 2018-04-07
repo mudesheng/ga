@@ -2,7 +2,6 @@ package constructcf
 
 import (
 	"bufio"
-	"compress/gzip"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/jwaldrip/odin/cli"
 	"github.com/mudesheng/ga/bnt"
+	"github.com/mudesheng/ga/cbrotli"
 	"github.com/mudesheng/ga/cuckoofilter"
 	"github.com/mudesheng/ga/utils"
 )
@@ -25,7 +25,7 @@ const (
 	ScaffState  = 2
 	GapState    = 3
 	EndString   = "end"
-	ReadSeqSize = 100
+	ReadSeqSize = 1000
 )
 
 type LibInfo struct {
@@ -51,13 +51,24 @@ type CfgInfo struct {
 	Libs []LibInfo
 }
 
-type ReadBnt struct {
+/*type ReadBnt struct {
 	Seq    []byte
 	Length int // length of sequence
+}*/
+
+// KmerBnt compact kmer base sequence to the uint64 Array
+type KmerBnt struct {
+	Seq []uint64
+	Len int // length of Sequence
+}
+
+type KmerBntBucket struct {
+	KmerBntBuf [ReadSeqSize]KmerBnt
+	Count      int
 }
 
 type ReadSeqBucket struct {
-	ReadBuf [ReadSeqSize]ReadBnt
+	ReadBuf [ReadSeqSize][]byte
 	Count   int
 }
 
@@ -66,16 +77,16 @@ type ReadSeqBucket struct {
 	state   chan int // note if goroutinue can return
 } */
 
-func (s1 ReadBnt) BiggerThan(s2 ReadBnt) bool {
-	if s1.Length < s2.Length {
+func (k1 KmerBnt) BiggerThan(k2 KmerBnt) bool {
+	if k1.Len < k2.Len {
 		return false
-	} else if s1.Length > s2.Length {
+	} else if k1.Len > k2.Len {
 		return true
 	} else {
-		for i := 0; i < len(s1.Seq); i++ {
-			if s1.Seq[i] < s2.Seq[i] {
+		for i := 0; i < len(k1.Seq); i++ {
+			if k1.Seq[i] < k2.Seq[i] {
 				return false
-			} else if s1.Seq[i] > s2.Seq[i] {
+			} else if k1.Seq[i] > k2.Seq[i] {
 				return true
 			}
 		}
@@ -175,106 +186,213 @@ func ParseCfg(fn string) (cfgInfo CfgInfo, e error) {
 	return
 }
 
-func ExtendReadBnt2Byte(rb ReadBnt) (extRB ReadBnt) {
-	extRB.Length = rb.Length
-	extRB.Seq = make([]byte, extRB.Length)
-	var crb ReadBnt
-	crb.Length = rb.Length
-	crb.Seq = make([]byte, len(rb.Seq))
+func ExtendKmerBnt2Byte(rb KmerBnt) (extRB []byte) {
+	if rb.Len <= 0 || len(rb.Seq) == 0 {
+		log.Fatalf("[ExtendKmerBnt2Byte] rb: %v\n", rb)
+	}
+	extRB = make([]byte, rb.Len)
+	var crb KmerBnt
+	crb.Len = rb.Len
+	crb.Seq = make([]uint64, len(rb.Seq))
 	copy(crb.Seq, rb.Seq)
 	// fmt.Printf("[ExtendReadBnt2Byte] rb: %v, crb: %v\n", rb, crb)
 
-	for i := crb.Length - 1; i >= 0; i-- {
-		base := crb.Seq[i/bnt.NumBaseInByte] & bnt.BaseMask
-		extRB.Seq[i] = base
-		crb.Seq[i/bnt.NumBaseInByte] >>= bnt.NumBitsInBase
+	for i := crb.Len - 1; i >= 0; i-- {
+		base := crb.Seq[i/bnt.NumBaseInUint64] & bnt.BaseMask
+		extRB[i] = uint8(base)
+		crb.Seq[i/bnt.NumBaseInUint64] >>= bnt.NumBitsInBase
 	}
 
 	return extRB
 }
 
-func GetReadBntKmer(extRBnt ReadBnt, startPos int, kmerlen int) (rbk ReadBnt) {
-	rbk.Length = kmerlen
-	rbk.Seq = make([]byte, (rbk.Length+bnt.NumBaseInByte-1)/bnt.NumBaseInByte)
+func GetReadBntKmer(seq []byte, startPos, kmerlen int) (kBnt KmerBnt) {
+	kBnt.Len = kmerlen
+	kBnt.Seq = make([]uint64, (kBnt.Len+bnt.NumBaseInUint64-1)/bnt.NumBaseInUint64)
 
 	for i := 0; i < kmerlen; i++ {
-		rbk.Seq[i/bnt.NumBaseInByte] <<= bnt.NumBitsInBase
-		rbk.Seq[i/bnt.NumBaseInByte] |= extRBnt.Seq[i+startPos]
+		kBnt.Seq[i/bnt.NumBaseInUint64] <<= bnt.NumBitsInBase
+		kBnt.Seq[i/bnt.NumBaseInUint64] |= uint64(seq[i+startPos])
 	}
 
-	return rbk
+	return
 }
 
-func ReverseComplet(ks ReadBnt) (rs ReadBnt) {
-	var tmp ReadBnt
-	tmp.Length = ks.Length
-	tmp.Seq = make([]byte, len(ks.Seq))
+func ReverseComplet(ks KmerBnt) (rs KmerBnt) {
+	rs.Len = ks.Len
+	rs.Seq = make([]uint64, len(ks.Seq))
+	var tmp KmerBnt
+	tmp.Len = ks.Len
+	tmp.Seq = make([]uint64, len(ks.Seq))
 	copy(tmp.Seq, ks.Seq)
-	rs.Length = ks.Length
-	rs.Seq = make([]byte, len(ks.Seq))
-	for i := tmp.Length - 1; i >= 0; i-- {
-		base := tmp.Seq[i/bnt.NumBaseInByte] & bnt.BaseMask
-		tmp.Seq[i/bnt.NumBaseInByte] >>= bnt.NumBitsInBase
-		rs.Seq[(rs.Length-i-1)/bnt.NumBaseInByte] <<= bnt.NumBitsInBase
-		rs.Seq[(rs.Length-i-1)/bnt.NumBaseInByte] |= bnt.BntRev[base]
+	for i := tmp.Len - 1; i >= 0; i-- {
+		base := tmp.Seq[i/bnt.NumBaseInUint64] & bnt.BaseMask
+		tmp.Seq[i/bnt.NumBaseInUint64] >>= bnt.NumBitsInBase
+		rs.Seq[(rs.Len-i-1)/bnt.NumBaseInUint64] <<= bnt.NumBitsInBase
+		rs.Seq[(rs.Len-i-1)/bnt.NumBaseInUint64] |= uint64(bnt.BntRev[base])
 	}
 	return rs
 }
 
-func ParaConstructCF(cf cuckoofilter.CuckooFilter, cs chan ReadSeqBucket, wc chan ReadSeqBucket) {
+func DeleteLastBaseKmer(kb KmerBnt) (dk KmerBnt, base uint64) {
+	nLen := (kb.Len + bnt.NumBaseInUint64 - 1) / bnt.NumBaseInUint64
+	dk.Len = kb.Len - 1
+	base = kb.Seq[nLen-1] & bnt.BaseMask
+	if nLen > (kb.Len-1+bnt.NumBaseInUint64-1)/bnt.NumBaseInUint64 {
+		dk.Seq = make([]uint64, nLen-1)
+		copy(dk.Seq, kb.Seq)
+	} else {
+		dk.Seq = make([]uint64, nLen)
+		copy(dk.Seq, kb.Seq)
+		dk.Seq[nLen-1] >>= bnt.NumBitsInBase
+	}
+	return
+}
 
-	var wrsb ReadSeqBucket
-	for {
-		rsb := <-cs
-		if rsb.Count == 0 {
-			wc <- wrsb
-			wc <- rsb
-			break
-		} else {
-			if rsb.Count < ReadSeqSize {
-				fmt.Printf("rsb.ReadBuf length is :%d\n", len(rsb.ReadBuf))
+func DeleteFirstBaseKmer(kb KmerBnt) (dk KmerBnt, base uint64) {
+	nLen := (kb.Len + bnt.NumBaseInUint64 - 1) / bnt.NumBaseInUint64
+	dk.Len = kb.Len - 1
+	seqLen := (dk.Len + bnt.NumBaseInUint64 - 1) / bnt.NumBaseInUint64
+	dk.Seq = make([]uint64, seqLen)
+	for i := nLen - 1; i >= 0; i-- {
+		if i == nLen-1 {
+			offset := (uint64(kb.Len)%bnt.NumBaseInUint64 - 1) * bnt.NumBitsInBase
+			base = (kb.Seq[i] >> offset) & bnt.BaseMask
+			mask := uint64(1<<offset) - 1
+			if seqLen == nLen {
+				dk.Seq[i] = kb.Seq[i] & mask
 			}
-			for i := 0; i < rsb.Count; i++ {
-				extRBnt := ExtendReadBnt2Byte(rsb.ReadBuf[i])
-				for j := 0; j < extRBnt.Length-cf.Kmerlen+1; j++ {
-					ks := GetReadBntKmer(extRBnt, j, cf.Kmerlen)
-					rs := ReverseComplet(ks)
-					if ks.BiggerThan(rs) {
-						ks, rs = rs, ks
+		} else {
+			tb := (kb.Seq[i] >> 62) & bnt.BaseMask
+			dk.Seq[i] = (kb.Seq[i] << bnt.NumBitsInBase) | base
+			base = tb
+		}
+	}
+
+	return
+}
+
+func GetNextKmer(kb KmerBnt, base uint64, kmerlen int) (next KmerBnt) {
+	nLen := (kmerlen + bnt.NumBaseInUint64 - 1) / bnt.NumBaseInUint64
+	next.Len = kmerlen
+	next.Seq = make([]uint64, nLen)
+	if kb.Len == kmerlen-1 {
+		copy(next.Seq, kb.Seq)
+		next.Seq[nLen-1] <<= bnt.NumBitsInBase
+		next.Seq[nLen-1] |= base
+		return
+	} else if kb.Len != kmerlen {
+		log.Fatalf("[GetNextKmer] length of kb set error, kmerlen:%d,   kb length: %v\n", kmerlen, kb.Len)
+	}
+	for i := nLen - 1; i >= 0; i-- {
+		//fmt.Printf("[GetNextKmer] base: %v, kb.Seq[%d]: %b\n", base, i, kb.Seq[i])
+		if i == nLen-1 {
+			offset := (uint64(kmerlen)%bnt.NumBaseInUint64 - 1) * bnt.NumBitsInBase
+			tb := (kb.Seq[i] >> offset) & bnt.BaseMask
+			mask := uint64(1<<offset) - 1
+			next.Seq[i] = kb.Seq[i] & mask
+			next.Seq[i] = (next.Seq[i] << bnt.NumBitsInBase) | base
+			base = tb
+		} else {
+			tb := (kb.Seq[i] >> 62) & bnt.BaseMask
+			next.Seq[i] = (kb.Seq[i] << bnt.NumBitsInBase) | base
+			base = tb
+		}
+		//fmt.Printf("[GetNextKmer] base: %v, next.Seq[%d]: %b\n", base, i, next.Seq[i])
+	}
+	return
+}
+
+func GetPreviousKmer(kb KmerBnt, base uint64, kmerlen int) (pkb KmerBnt) {
+	nLen := (kmerlen + bnt.NumBaseInUint64 - 1) / bnt.NumBaseInUint64
+	pkb.Len = kmerlen
+	pkb.Seq = make([]uint64, nLen)
+	if kb.Len != kmerlen-1 && kb.Len != kmerlen {
+		log.Fatalf("[GetPreviousKmer] length of kb set error, kmerlen:%d,   kb length: %v\n", kmerlen, kb.Len)
+	}
+	for i := 0; i < nLen; i++ {
+		if i == nLen-1 {
+			offset := (uint64(kmerlen)%bnt.NumBaseInUint64 - 1) * bnt.NumBitsInBase
+			if kb.Len == kmerlen {
+				pkb.Seq[i] = kb.Seq[i] >> bnt.NumBitsInBase
+			} else {
+				pkb.Seq[i] = kb.Seq[i]
+			}
+			pkb.Seq[i] |= (base << offset)
+		} else {
+			tb := kb.Seq[i] & bnt.BaseMask
+			pkb.Seq[i] = kb.Seq[i] >> bnt.NumBitsInBase
+			pkb.Seq[i] |= (base << 62)
+			base = tb
+		}
+	}
+	return
+}
+
+func ParaConstructCF(cf cuckoofilter.CuckooFilter, cs chan ReadSeqBucket, wc chan KmerBntBucket) {
+
+	var wrsb KmerBntBucket
+	for {
+		rsb, ok := <-cs
+		if !ok {
+			if wrsb.Count > 0 {
+				wc <- wrsb
+			}
+			var tmp KmerBntBucket
+			wc <- tmp
+			break
+		}
+		if rsb.Count < ReadSeqSize {
+			fmt.Printf("[ParaConstructCF]rsb.ReadBuf length is :%d\n", len(rsb.ReadBuf))
+		}
+		for i := 0; i < rsb.Count; i++ {
+			rBntSeq := rsb.ReadBuf[i]
+			//fmt.Printf("[ParaConstructCF]rBntSeq :%v\n", rBntSeq)
+			lenS := len(rBntSeq)
+			ks := GetReadBntKmer(rBntSeq, 0, cf.Kmerlen-1)
+			rs := ReverseComplet(ks)
+			for j := cf.Kmerlen - 1; j < lenS; j++ {
+				ks = GetNextKmer(ks, uint64(rBntSeq[j]), cf.Kmerlen)
+				rs = GetPreviousKmer(rs, uint64(bnt.BntRev[rBntSeq[j]]), cf.Kmerlen)
+				//extRBntks := ExtendKmerBnt2Byte(ks)
+				//extRBntrs := ExtendKmerBnt2Byte(rs)
+				//fmt.Printf("[ParaConstructCF] j: %d, kmerSeq: %v\n\tks: %v\n\trs: %v\n", j, rBntSeq[j+1-cf.Kmerlen:j+1], extRBntks, extRBntrs)
+				min := ks
+				if ks.BiggerThan(rs) {
+					min = rs
+				}
+				//fmt.Printf("ks: %v, rs: %v\n", ks, rs)
+				count, suc := cf.Insert(min.Seq)
+				if suc == false {
+					log.Fatal("[ParaConstructCF] Insert to the CuckooFilter false")
+				}
+				//fmt.Printf("retrun count : %d\n", count)
+				//fmt.Printf("count set: %d\n", cf.GetCount(ks.Seq))
+				if count == 2 {
+					if wrsb.Count >= ReadSeqSize {
+						wc <- wrsb
+						var nrsb KmerBntBucket
+						wrsb = nrsb
 					}
-					//fmt.Printf("ks: %v, rs: %v\n", ks, rs)
-					count, suc := cf.Insert(ks.Seq)
-					if suc == false {
-						log.Fatal("Insert to the CuckooFilter false")
-					}
-					//fmt.Printf("retrun count : %d\n", count)
-					//fmt.Printf("count set: %d\n", cf.GetCount(ks.Seq))
-					if count == 1 {
-						if wrsb.Count >= ReadSeqSize {
-							wc <- wrsb
-							var nrsb ReadSeqBucket
-							wrsb = nrsb
-						}
-						//fmt.Printf("[paraConstructCF] wrsb.count: %d\n", wrsb.count)
-						wrsb.ReadBuf[wrsb.Count] = ks
-						wrsb.Count++
-					}
+					//fmt.Printf("[paraConstructCF] wrsb.count: %d\n", wrsb.count)
+					wrsb.KmerBntBuf[wrsb.Count] = ks
+					wrsb.Count++
 				}
 			}
 		}
 	}
 }
 
-func WriteKmer(wrfn string, wc <-chan ReadSeqBucket, Kmerlen, numCPU int) {
+func WriteKmer(wrfn string, wc <-chan KmerBntBucket, Kmerlen, numCPU int) {
 	outfp, err := os.Create(wrfn)
 	if err != nil {
 		log.Fatal(err)
 	}
-	gzwriter := gzip.NewWriter(outfp)
+	defer outfp.Close()
+	brfp := cbrotli.NewWriter(outfp, cbrotli.WriterOptions{Quality: 1})
 	// bufwriter := bufio.NewWriter(gzwriter)
 	// defer outfp.Close()
-	defer gzwriter.Close()
-
+	buffp := bufio.NewWriterSize(brfp, 1<<25)
 	// KBntByteNum := (Kmerlen + bnt.NumBaseInByte - 1) / bnt.NumBaseInByte
 	endFlagCount := 0
 	writeKmerCount := 0
@@ -290,7 +408,7 @@ func WriteKmer(wrfn string, wc <-chan ReadSeqBucket, Kmerlen, numCPU int) {
 		}
 		// fmt.Printf("[writeKmer] rsb.count: %d\n", rsb.count)
 		for i := 0; i < rsb.Count; i++ {
-			err := binary.Write(gzwriter, binary.LittleEndian, rsb.ReadBuf[i].Seq)
+			err := binary.Write(buffp, binary.LittleEndian, rsb.KmerBntBuf[i].Seq)
 			if err != nil {
 				log.Fatalf("[writeKmer] write kmer seq err: %v\n", err)
 			}
@@ -301,11 +419,17 @@ func WriteKmer(wrfn string, wc <-chan ReadSeqBucket, Kmerlen, numCPU int) {
 			writeKmerCount++
 		}
 	}
-	gzwriter.Flush()
+	if err := buffp.Flush(); err != nil {
+		log.Fatalf("[writeKmer] write kmer seq err: %v\n", err)
+	}
+	if err := brfp.Flush(); err != nil {
+		log.Fatalf("[writeKmer] write kmer seq err: %v\n", err)
+	}
+
 	fmt.Printf("[writeKmer] total write kmer number is : %d\n", writeKmerCount)
 }
 
-func Trans2Byte(s string) (rb ReadBnt) {
+/*func Trans2Byte(s string) (rb ReadBnt) {
 	rb.Length = len(s)
 	rb.Seq = make([]byte, (rb.Length+bnt.NumBaseInByte-1)/bnt.NumBaseInByte)
 	for i := 0; i < rb.Length; i++ {
@@ -319,6 +443,16 @@ func Trans2Byte(s string) (rb ReadBnt) {
 	}
 
 	return rb
+}*/
+
+func Transform2BntByte(ks []byte) []byte {
+	ls := make([]byte, len(ks))
+	for i, b := range ks {
+		//ls = append(ls, alphabet.Letter(bnt.BitNtCharUp[b]))
+		ls[i] = bnt.Base2Bnt[b]
+	}
+
+	return ls
 }
 
 type Options struct {
@@ -339,6 +473,23 @@ func checkArgs(c cli.Command) (opt Options, suc bool) {
 	return opt, suc
 }
 
+func GetReadsFileFormat(fn string) (format string) {
+	sfn := strings.Split(fn, ".")
+	if len(sfn) < 3 {
+		log.Fatalf("[GetReadsFileFormat] reads file: %v need suffix end with '*.fa.br | *.fasta.br | *.fq.br | *.fastq.br'\n", fn)
+	}
+	tmp := sfn[len(sfn)-2]
+	if tmp == "fa" || tmp == "fasta" {
+		format = "fa"
+	} else if tmp == "fq" || tmp == "fastq" {
+		format = "fq"
+	} else {
+		log.Fatalf("[GetReadsFileFormat] reads file: %v need suffix end with '*.fa.gz | *.fasta.gz | *.fq.gz | *.fastq.gz'\n", fn)
+	}
+
+	return format
+}
+
 func GetReadSeqBucket(libs []LibInfo, cs chan<- ReadSeqBucket) {
 	var processNumReads int
 	var rsb ReadSeqBucket
@@ -350,66 +501,69 @@ func GetReadSeqBucket(libs []LibInfo, cs chan<- ReadSeqBucket) {
 			continue
 		}
 		for _, fn := range lib.FnName {
-			sfn := strings.Split(fn, ".")
-			tmp := sfn[len(sfn)-2]
-			var format bool // fa format == true, fq format == false
-			if tmp == "fa" || tmp == "fasta" {
-				format = true
-			} else if tmp == "fq" || tmp == "fastq" {
-				format = false
+			format := GetReadsFileFormat(fn)
+			fp, err := os.Open(fn)
+			if err != nil {
+				log.Fatalf("[GetReadSeqBucket] file: %v open failed, err: %v\n", fn, err)
+			}
+			defer fp.Close()
+			brfp := cbrotli.NewReaderSize(fp, 1<<25)
+			defer brfp.Close()
+			buffp := bufio.NewReader(brfp)
+			var blockLineNum int
+			if format == "fa" {
+				blockLineNum = 2
 			} else {
-				log.Fatalf("[GetReadSeqBucket] reads file: %v need suffix end with '*.fa.gz | *.fasta.gz | *.fq.gz | *.fastq.gz'\n", fn)
+				blockLineNum = 4
 			}
-			infile, err := os.Open(fn)
-			if err != nil {
-				log.Fatal(err)
-			}
-			gzreader, err := gzip.NewReader(infile)
-			if err != nil {
-				log.Fatalf("[GetReadSeqBucket] file: %v maybe not gzip compressed file, err: %v\n", fn, err)
-			}
-			defer gzreader.Close()
-			defer infile.Close()
-			bufin := bufio.NewReader(gzreader)
 
-			eof := false
-			count := 0
-			for !eof {
-				var line string
-				line, err = bufin.ReadString('\n')
-				if err != nil {
-					if err == io.EOF {
-						eof = true
-						continue
+			//var count int
+			var EOF error
+			for EOF != io.EOF {
+				var b [][]byte
+				b = make([][]byte, blockLineNum)
+				var x int
+				var err1 error
+				for ; x < blockLineNum; x++ {
+					b[x], err1 = buffp.ReadBytes('\n')
+					if err1 != nil {
+						break
+					}
+				}
+				if err1 != nil {
+					if err1 == io.EOF {
+						if x == 0 {
+							break
+						}
+						if x != blockLineNum-1 {
+							log.Fatalf("[GetReadSeqBucket] x: %d, file: %s found not unbroken record\n", x, fn)
+						}
+						EOF = io.EOF
 					} else {
-						log.Fatal(err)
+						log.Fatalf("[GetReadSeqBucket] file : %v encounter err: %v\n", fn, err1)
 					}
 				}
-
-				if (format && count%2 == 1) || (!format && count%4 == 1) {
-					s := strings.TrimSpace(line)
-					bs := Trans2Byte(s)
-					if rsb.Count >= ReadSeqSize {
-						cs <- rsb
-						var nsb ReadSeqBucket
-						rsb = nsb
-					}
-					rsb.ReadBuf[rsb.Count] = bs
-					rsb.Count++
-					//fmt.Printf("%s\n", s)
-					processNumReads++
-					if processNumReads%(1024*1024) == 0 {
-						fmt.Printf("processed reads number: %d\n", processNumReads)
-					}
+				/*id, err2 := strconv.Atoi(string(b[0][1 : len(b[0])-1]))
+				if err2 != nil {
+					log.Fatalf("[LoadNGSReads] load fn: '%v' file, read ID: %v not digits, please convert to digits...\n", fn, b[0][:len(b[0])-1])
+				}*/
+				bs := Transform2BntByte(b[1][:len(b[1])-1])
+				if rsb.Count >= ReadSeqSize {
+					cs <- rsb
+					var nsb ReadSeqBucket
+					rsb = nsb
 				}
-				count++
+				rsb.ReadBuf[rsb.Count] = bs
+				rsb.Count++
+				processNumReads++
+			}
+			if rsb.Count > 0 {
+				cs <- rsb
 			}
 		}
 	}
-	if rsb.Count > 0 {
-		cs <- rsb
-	}
 	// send read finish signal
+	fmt.Printf("[GetReadSeqBucket] processed reads number is: %d\n", processNumReads)
 	close(cs)
 }
 
@@ -427,9 +581,10 @@ func CCF(c cli.Command) {
 	}
 	opt.CFSize = tmp.CFSize
 	fmt.Printf("[CCF] opt: %v\n", opt)
-	cpuprofilefp, err := os.Create(opt.Cpuprofile)
+	profileFn := opt.Prefix + ".CCF.prof"
+	cpuprofilefp, err := os.Create(profileFn)
 	if err != nil {
-		log.Fatalf("[CCF] open cpuprofile file: %v failed\n", opt.Cpuprofile)
+		log.Fatalf("[CCF] open cpuprofile file: %v failed\n", profileFn)
 	}
 	pprof.StartCPUProfile(cpuprofilefp)
 	defer pprof.StopCPUProfile()
@@ -445,19 +600,18 @@ func CCF(c cli.Command) {
 	cf := cuckoofilter.MakeCuckooFilter(uint64(opt.CFSize), opt.Kmer)
 	numCPU := opt.NumCPU
 	runtime.GOMAXPROCS(numCPU + 2)
-	bufsize := 10
+	bufsize := 20
 	cs := make(chan ReadSeqBucket, bufsize)
-	wc := make(chan ReadSeqBucket, bufsize)
-	we := make(chan int)
-	defer close(we)
+	wc := make(chan KmerBntBucket, bufsize)
+	//we := make(chan int)
+	//defer close(we)
 	defer close(wc)
-	defer close(cs)
 	go GetReadSeqBucket(cfgInfo.Libs, cs)
 	for i := 0; i < numCPU; i++ {
 		go ParaConstructCF(cf, cs, wc)
 	}
 	// write goroutinue
-	wrfn := opt.Prefix + ".uniqkmerseq.gz"
+	wrfn := opt.Prefix + ".uniqkmerseq.br"
 	WriteKmer(wrfn, wc, opt.Kmer, numCPU)
 
 	// end signal from write goroutinue

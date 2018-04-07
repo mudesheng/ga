@@ -1,7 +1,7 @@
 package preprocess
 
 import (
-	"compress/gzip"
+	"bufio"
 	"fmt"
 	"io"
 	"log"
@@ -9,13 +9,13 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 
-	"github.com/biogo/biogo/alphabet"
-	"github.com/biogo/biogo/io/seqio/fastq"
-	"github.com/biogo/biogo/seq/linear"
+	//"github.com/google/brotli/cbrotli"
 	"github.com/jwaldrip/odin/cli"
+	"github.com/mudesheng/ga/cbrotli"
 	"github.com/mudesheng/ga/constructcf"
 	"github.com/mudesheng/ga/constructdbg"
 	"github.com/mudesheng/ga/utils"
@@ -30,12 +30,12 @@ type Options struct {
 }
 
 func checkArgs(c cli.Command) (opt Options, suc bool) {
-	tmp, err := strconv.Atoi(c.Flag("s").String())
+	tmp, err := strconv.Atoi(c.Flag("S").String())
 	if err != nil {
-		log.Fatalf("[checkArgs] argument 's': %v set error: %v\n", c.Flag("s"), err)
+		log.Fatalf("[checkArgs] argument 'S': %v set error: %v\n", c.Flag("S"), err)
 	}
 	if tmp < 1024*1024 {
-		log.Fatalf("the argument 's': %v must bigger than 1024 * 1024\n", c.Flag("s"))
+		log.Fatalf("the argument 'S': %v must bigger than 1024 * 1024\n", c.Flag("S"))
 	}
 	opt.CFSize = int64(tmp)
 	tmp, err = strconv.Atoi(c.Flag("MaxNGSReadLen").String())
@@ -43,6 +43,14 @@ func checkArgs(c cli.Command) (opt Options, suc bool) {
 		log.Fatalf("[checkArgs] argument 'MaxNGSReadLen': %v set error: %v\n", c.Flag("MaxNGSReadLen"), err)
 	}
 	opt.MaxNGSReadLen = tmp
+	tmp, err = strconv.Atoi(c.Flag("WinSize").String())
+	if err != nil {
+		log.Fatalf("[checkArgs] argument 'MaxNGSReadLen': %v set error: %v\n", c.Flag("MaxNGSReadLen"), err)
+	}
+	if tmp < 3 || tmp > 20 {
+		log.Fatalf("[checkArgs] argument 'WinSize': %v, must bewteen [3~20] set error: %v\n", c.Flag("WinSize"), err)
+	}
+	opt.WinSize = tmp
 	if 81 < opt.Kmer && opt.Kmer < 149 && opt.Kmer%2 == 0 {
 		log.Fatalf("the argument 'K': %v must between [81~149] and tmp must been even\n", c.Parent().Flag("K"))
 	}
@@ -63,79 +71,115 @@ func checkArgs(c cli.Command) (opt Options, suc bool) {
 	return opt, suc
 }
 
-func LoadNGSReads(fn1, fn2 string, cs chan<- [2]constructdbg.ReadInfo, kmerlen int) {
-	fp1, err1 := os.Open(fn1)
+func LoadNGSReads(brfn1, brfn2 string, cs chan<- [2]constructdbg.ReadInfo, kmerlen int) {
+	fp1, err1 := os.Open(brfn1)
 	if err1 != nil {
-		log.Fatalf("[paraLoadNGSReads] open file: %v failed..., err: %v\n", fn1, err1)
+		log.Fatalf("[LoadNGSReads] open file: %v failed..., err: %v\n", brfn1, err1)
 	}
-	fp2, err2 := os.Open(fn2)
-	if err2 != nil {
-		log.Fatalf("[paraLoadNGSReads] open file: %v failed..., err: %v\n", fn2, err2)
-	}
-
-	gzfp1, err3 := gzip.NewReader(fp1)
-	if err3 != nil {
-		log.Fatalf("[paraLoadNGSReads]gz read file: %v failed..., err: %v\n", fn1, err3)
-	}
-	gzfp2, err4 := gzip.NewReader(fp2)
-	if err4 != nil {
-		log.Fatalf("[paraLoadNGSReads]gz read file: %v failed..., err: %v\n", fn2, err4)
-	}
-	// brfp, err := brotli.NewReader(fp, nil)
-	defer gzfp1.Close()
-	defer gzfp2.Close()
 	defer fp1.Close()
+	fp2, err2 := os.Open(brfn2)
+	if err2 != nil {
+		log.Fatalf("[LoadNGSReads] open file: %v failed..., err: %v\n", brfn2, err2)
+	}
 	defer fp2.Close()
-	// defer fp.Close()
-	// buffp := bufio.NewReader(gzfp)
-	fqfp1 := fastq.NewReader(gzfp1, linear.NewQSeq("", nil, alphabet.DNA, alphabet.Sanger))
-	fqfp2 := fastq.NewReader(gzfp2, linear.NewQSeq("", nil, alphabet.DNA, alphabet.Sanger))
-	s1, err1 := fqfp1.Read()
-	s2, err2 := fqfp2.Read()
+
+	//brfp1 := cbrotli.NewReader(fp1)
+	brfp1 := cbrotli.NewReaderSize(fp1, 1<<25)
+	defer brfp1.Close()
+	brfp2 := cbrotli.NewReaderSize(fp2, 1<<25)
+	defer brfp2.Close()
+	// brfp, err := brotli.NewReader(fp, nil)
+	buffp1 := bufio.NewReader(brfp1) // 1<<24 == 2**24
+	buffp2 := bufio.NewReader(brfp2)
+	format1 := constructcf.GetReadsFileFormat(brfn1)
+	format2 := constructcf.GetReadsFileFormat(brfn2)
+	var blockLineNum1, blockLineNum2 int
+	if format1 == "fa" {
+		blockLineNum1 = 2
+	} else {
+		blockLineNum1 = 4
+	}
+	if format2 == "fa" {
+		blockLineNum2 = 2
+	} else {
+		blockLineNum2 = 4
+	}
 	var count int
-	for err1 == nil && err2 == nil {
-		var ri1, ri2 constructdbg.ReadInfo
-		fq1 := s1.(*linear.QSeq)
-		fq2 := s2.(*linear.QSeq)
-		if len(fq1.Seq) < kmerlen+10 || len(fq2.Seq) < kmerlen+10 { // read length is short for found DBG paths
-			continue
+	var EOF error
+	for EOF != io.EOF {
+		var b1, b2 [][]byte
+		b1 = make([][]byte, blockLineNum1)
+		b2 = make([][]byte, blockLineNum2)
+		var i1, i2 int
+		var error1, error2 error
+		for ; i1 < blockLineNum1; i1++ {
+			b1[i1], error1 = buffp1.ReadBytes('\n')
+			if error1 != nil {
+				break
+			}
 		}
-		id1, err := strconv.Atoi(fq1.Name())
-		if err != nil {
-			log.Fatalf("[paraLoadNGSReads] load fn: '%v' file, read ID: %v not digits, please convert to digits...\n", fn1, fq1.Name())
+		for ; i2 < blockLineNum2; i2++ {
+			b2[i2], error2 = buffp2.ReadBytes('\n')
+			if error2 != nil {
+				break
+			}
 		}
-		id2, err := strconv.Atoi(fq2.Name())
+		//fmt.Printf("[paraLoadNGSReads] b1: %v\n\tb2: %v\n", b1, b2)
+		if error1 != nil || error2 != nil {
+			if error1 == io.EOF || error2 == io.EOF {
+				if !(error1 == io.EOF && error2 == io.EOF) {
+					log.Fatalf("[LoadNGSReads] file : %v not consis with file : %v\n", brfn1, brfn2)
+				}
+				if i1 == 0 && i2 == 0 {
+					break
+				}
+				if i1 != blockLineNum1-1 || i2 != blockLineNum2-1 {
+					log.Fatalf("[LoadNGSReads] file1: %v, file2: %v,i1: %v, i2: %v, found not unbroken record\n", brfn1, brfn2, i1, i2)
+				}
+				EOF = io.EOF
+			} else {
+				if error1 != nil {
+					log.Fatalf("[LoadNGSReads] file : %v encounter err: %v\n", brfn1, error1)
+				}
+				if error2 != nil {
+					log.Fatalf("[LoadNGSReads] file : %v encounter err: %v\n", brfn2, error2)
+				}
+			}
+		}
+		id1, err := strconv.Atoi(string(b1[0][1 : len(b1[0])-1]))
 		if err != nil {
-			log.Fatalf("[paraLoadNGSReads] load fn: '%v' file, read ID: %v not digits, please convert to digits...\n", fn2, fq2.Name())
+			log.Fatalf("[LoadNGSReads] load fn: '%v' file, read ID: %v not digits, please convert to digits...\n", brfn1, b1[0][:len(b1[0])-1])
+		}
+		id2, err := strconv.Atoi(string(b2[0][1 : len(b2[0])-1]))
+		if err != nil {
+			log.Fatalf("[LoadNGSReads] load fn: '%v' file, read ID: %v not digits, please convert to digits...\n", brfn2, b2[0][:len(b2[0])-1])
 		}
 		if id1 != id2 {
-			log.Fatalf("[paraLoadNGSReads] read1 ID : %v != read2 ID: %v\n", id1, id2)
+			log.Fatalf("[LoadNGSReads] read1 ID : %v != read2 ID: %v\n", id1, id2)
 		}
-		ri1.ID = int64(id1)
-		ri2.ID = int64(id2)
-		ri1.Seq = constructdbg.Transform2Unitig(fq1.Seq, false).Ks
-		ri2.Seq = constructdbg.Transform2Unitig(fq2.Seq, false).Ks
 		var pairRI [2]constructdbg.ReadInfo
-		pairRI[0], pairRI[1] = ri1, ri2
+		pairRI[0].ID = int64(id1)
+		pairRI[1].ID = int64(id2)
+		b1[1], b2[1] = b1[1][:len(b1[1])-1], b2[1][:len(b2[1])-1]
+		if len(b1[1]) < kmerlen+20 || len(b2[1]) < kmerlen+20 {
+			continue
+		}
+		pairRI[0].Seq = constructdbg.Transform2BntByte(b1[1])
+		pairRI[1].Seq = constructdbg.Transform2BntByte(b2[1])
 		cs <- pairRI
 		count++
-		s1, err1 = fqfp1.Read()
-		s2, err2 = fqfp2.Read()
 	}
-	if err1 != io.EOF {
-		log.Fatalf("[LoadNGSReads] Failed to read file %v, err: %v\n", fn2, err1)
-	}
-	if err2 != io.EOF {
-		log.Fatalf("[LoadNGSReads] Failed to read file %v, err: %v\n", fn2, err2)
-	}
-
+	fmt.Printf("[LoadNGSReads] processed %d pair reads from pair files: %s , %s\n", count, brfn1, brfn2)
 	close(cs)
 }
 
 type ReadMapInfo struct {
 	ID           int64
 	StartP, EndP int
-	Path         []constructdbg.DBG_MAX_INT
+	//NID          constructdbg.DBG_MAX_INT
+	Seq     []byte
+	Path    []constructdbg.DBG_MAX_INT
+	Strands []bool
 }
 
 func GetExtendPathArr(path []constructdbg.DBG_MAX_INT, nID constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, kmerlen, extLen int) (epArr [][]constructdbg.DBG_MAX_INT) {
@@ -177,59 +221,139 @@ func GetExtendPathArr(path []constructdbg.DBG_MAX_INT, nID constructdbg.DBG_MAX_
 }
 
 func GetPathSeq(m ReadMapInfo, edgesArr []constructdbg.DBGEdge, kmerlen int) (seq []byte) {
+	//fmt.Printf("[GetPathSeq] m: %v\n", m)
 	if len(m.Path) == 1 {
-		seq = edgesArr[m.Path[0]].Utg.Ks[m.StartP+1 : m.EndP]
 		if m.StartP > m.EndP {
-			seq = constructdbg.GetReverseCompByteArr(seq)
+			seq = constructdbg.GetReverseCompByteArr(edgesArr[m.Path[0]].Utg.Ks[m.EndP+1 : m.StartP])
+		} else {
+			seq = edgesArr[m.Path[0]].Utg.Ks[m.StartP+1 : m.EndP]
 		}
 		return seq
 	}
-	var strand bool
+	strand := m.Strands[0]
 	e0, e1 := edgesArr[m.Path[0]], edgesArr[m.Path[1]]
-	nID := constructdbg.GetLinkNodeID(e0, e1)
-	if nID == e0.EndNID {
-		strand = constructdbg.PLUS
+	/*if m.NID == 0 {
+		log.Fatalf("[GetPathSeq] m.NID: %v not set\n", m.NID)
+	}*/
+	//nID := m.NID
+	var nID constructdbg.DBG_MAX_INT
+	if strand == constructdbg.PLUS {
 		seq = e0.Utg.Ks[m.StartP+1:]
+		nID = e0.EndNID
 	} else {
-		strand = constructdbg.MINUS
 		seq = constructdbg.GetReverseCompByteArr(e0.Utg.Ks[:m.StartP])
+		nID = e0.StartNID
 	}
 	for _, eID := range m.Path[1 : len(m.Path)-1] {
-		e := edgesArr[eID]
-		if e.EndNID == nID {
-			strand = !strand
-			nID = e.StartNID
+		e1 = edgesArr[eID]
+		if e1.StartNID == e1.EndNID {
+			if strand == constructdbg.PLUS {
+				if reflect.DeepEqual(e0.Utg.Ks[len(e0.Utg.Ks)-kmerlen+1:], e1.Utg.Ks[:kmerlen-1]) {
+
+				} else {
+					strand = !strand
+				}
+			} else {
+				if reflect.DeepEqual(e0.Utg.Ks[:kmerlen-1], e1.Utg.Ks[len(e1.Utg.Ks)-kmerlen+1:]) {
+
+				} else {
+					strand = !strand
+				}
+			}
 		} else {
-			nID = e.EndNID
+			if e0.EndNID == nID {
+				if e1.StartNID == nID {
+					nID = e1.EndNID
+				} else {
+					strand = !strand
+					nID = e1.StartNID
+				}
+			} else {
+				if e1.EndNID == nID {
+					nID = e1.StartNID
+				} else {
+					strand = !strand
+					nID = e1.EndNID
+				}
+			}
 		}
+
 		var es []byte
 		if strand == constructdbg.PLUS {
-			es = e.Utg.Ks[kmerlen-1:]
+			es = e1.Utg.Ks[kmerlen-1:]
 		} else {
-			es = constructdbg.GetReverseCompByteArr(e.Utg.Ks[:len(e.Utg.Ks)-(kmerlen-1)])
+			es = constructdbg.GetReverseCompByteArr(e1.Utg.Ks[:len(e1.Utg.Ks)-(kmerlen-1)])
 		}
 		seq = append(seq, es...)
+		e0 = e1
 	}
-	e := edgesArr[m.Path[len(m.Path)-1]]
-	if e.EndNID == nID {
-		strand = !strand
-		nID = e.StartNID
+
+	e1 = edgesArr[m.Path[len(m.Path)-1]]
+	if e1.StartNID == e1.EndNID {
+		if strand == constructdbg.PLUS {
+			if reflect.DeepEqual(e0.Utg.Ks[len(e0.Utg.Ks)-kmerlen+1:], e1.Utg.Ks[:kmerlen-1]) {
+
+			} else {
+				strand = !strand
+			}
+		} else {
+			if reflect.DeepEqual(e0.Utg.Ks[:kmerlen-1], e1.Utg.Ks[len(e1.Utg.Ks)-kmerlen+1:]) {
+
+			} else {
+				strand = !strand
+			}
+		}
 	} else {
-		nID = e.EndNID
+		if e0.EndNID == nID {
+			if e1.StartNID == nID {
+			} else {
+				strand = !strand
+			}
+		} else {
+			if e1.EndNID == nID {
+			} else {
+				strand = !strand
+			}
+		}
 	}
+	//fmt.Printf("[GetPathSeq] len(e.Utg.Ks): %v, e: %v\n", len(e1.Utg.Ks), e1)
 	var es []byte
 	if strand == constructdbg.PLUS {
-		es = e.Utg.Ks[kmerlen-1 : m.EndP]
+		es = e1.Utg.Ks[kmerlen-1 : m.EndP]
 	} else {
-		es = constructdbg.GetReverseCompByteArr(e.Utg.Ks[m.EndP+1 : len(e.Utg.Ks)-(kmerlen-1)])
+		es = constructdbg.GetReverseCompByteArr(e1.Utg.Ks[m.EndP+1 : len(e1.Utg.Ks)-(kmerlen-1)])
 	}
 	seq = append(seq, es...)
 
 	return
 }
 
-func paraMapNGSAndMerge(cs <-chan [2]constructdbg.ReadInfo, wc chan<- constructdbg.ReadInfo, nodesArr []constructdbg.DBGNode, edgesArr []constructdbg.DBGEdge, cf constructdbg.CuckooFilter, winSize, MaxPairLen int) {
-	var notFoundSeedNum, notPerfectNum int
+func WriteChanPairReads(riArr [2]ReadMapInfo, edgesArr []constructdbg.DBGEdge, kmerlen int, wc chan<- constructdbg.ReadInfo) {
+	for x := 0; x < 2; x++ {
+		var mr constructdbg.ReadInfo
+		//mr.Seq = GetPathSeq(riArr[x], edgesArr, kmerlen)
+		mr.Seq = riArr[x].Seq
+		mr.ID = riArr[x].ID
+		mr.Anotition = fmt.Sprintf("%v:", riArr[x].StartP)
+		for _, eID := range riArr[x].Path {
+			mr.Anotition += fmt.Sprintf("%v:", eID)
+		}
+		mr.Anotition += fmt.Sprintf("%v", riArr[x].EndP)
+		wc <- mr
+	}
+}
+
+func GetReverseBoolArr(arr []bool) []bool {
+	revArr := make([]bool, len(arr))
+	for i, t := range arr {
+		revArr[len(arr)-1-i] = t
+	}
+
+	return revArr
+}
+
+func paraMapNGSAndMerge(cs <-chan [2]constructdbg.ReadInfo, wc chan<- constructdbg.ReadInfo, nodesArr []constructdbg.DBGNode, edgesArr []constructdbg.DBGEdge, cf constructdbg.CuckooFilter, winSize, MaxPairLen, SD int) {
+	var notFoundSeedNum, notPerfectNum, allNum int
 	for {
 		var mR constructdbg.ReadInfo
 		pairRI, ok := <-cs
@@ -238,49 +362,122 @@ func paraMapNGSAndMerge(cs <-chan [2]constructdbg.ReadInfo, wc chan<- constructd
 			break
 		}
 
+		allNum++
 		var riArr [2]ReadMapInfo
 		for j := 0; j < 2; j++ {
 			// found kmer seed position in the DBG edges
+			//fmt.Printf("[paraMapNGSAndMerge] pairRI[%v]: %v\n", j, pairRI[j])
 			dbgK, pos, strand := constructdbg.LocateSeedKmerCF(cf, pairRI[j], winSize, edgesArr)
 			if dbgK.GetCount() == 0 { // not found in the cuckoofilter
+				//fmt.Printf("[paraMapNGSAndMerge] read ID: %v not found seed!!!\n", pairRI[j].ID)
 				notFoundSeedNum++
 				break
 			}
 			// extend seed map to the edges
 			// map the start partition of read sequence
-			errorNum1, ar := constructdbg.MappingReadToEdgesBackWard(dbgK, pairRI[j], int(pos), strand, edgesArr, nodesArr, cf, false)
-			ar.Paths = constructdbg.ReverseDBG_MAX_INTArr(ar.Paths)
+			//fmt.Printf("[paraMapNGSAndMerge] dbgK: %v, pos: %v, strand: %v\n", dbgK, pos, strand)
+			errorNum1, aB := constructdbg.MappingReadToEdgesBackWard(dbgK, pairRI[j], int(pos), strand, edgesArr, nodesArr, cf.Kmerlen, true)
+			//func MappingReadToEdgesBackWard(dk DBGKmer, ri ReadInfo, rpos int, rstrand bool, edgesArr []DBGEdge, nodesArr []DBGNode, kmerlen int, correct bool) (errorNum int, ai AlignInfo) {
+			aB.Paths = constructdbg.ReverseDBG_MAX_INTArr(aB.Paths)
+			aB.Strands = GetReverseBoolArr(aB.Strands)
 			// map the end partition of read sequence
-			errorNum2, al := constructdbg.MappingReadToEdgesForWard(dbgK, pairRI[j], int(pos)+cf.Kmerlen, strand, edgesArr, nodesArr, cf, false)
+			errorNum2, aF := constructdbg.MappingReadToEdgesForWard(dbgK, pairRI[j], int(pos)+cf.Kmerlen, strand, edgesArr, nodesArr, cf.Kmerlen, true)
+			aB.ID, aF.ID = pairRI[j].ID, pairRI[j].ID
+			//fmt.Printf("[paraMapNGSAndMerge] aB: %v\n\taF: %v\n", aB, aF)
+			if aB.EndPos < -1 || aF.EndPos < -1 {
+				fmt.Printf("[paraMapNGSAndMerge] not found end boundary\n")
+				break
+			}
 			if errorNum1+errorNum2 > len(pairRI[j].Seq)*3/100 {
-				notPerfectNum++
 				fmt.Printf("[paraMapNGSAndMerge] errorNum: %v > %v\n", errorNum1+errorNum2, len(pairRI[j].Seq)*3/100)
+				break
 			}
-			if len(ar.Paths) > 0 && len(al.Paths) > 0 && ar.Paths[len(ar.Paths)-1] == al.Paths[0] {
-				riArr[j].Path = append(ar.Paths, al.Paths[1:]...)
+			if len(aB.Paths) > 0 && len(aF.Paths) > 0 && aB.Paths[len(aB.Paths)-1] == aF.Paths[0] {
+				riArr[j].Path = append(aB.Paths, aF.Paths[1:]...)
+				riArr[j].Strands = append(aB.Strands, aF.Strands[1:]...)
+				riArr[j].Seq = append(aB.Seq, aF.Seq[cf.Kmerlen:]...)
 				riArr[j].ID = pairRI[j].ID
-				riArr[j].StartP = ar.EndPos
-				riArr[j].EndP = al.EndPos
+				riArr[j].StartP = aB.EndPos
+				riArr[j].EndP = aF.EndPos
 			} else {
-				log.Fatalf("[paraMapNGS2DBG] ar: %v and al: %v not consis\n", ar, al)
+				log.Fatalf("[paraMapNGSAndMerge] aB: %v and aF: %v not consis\n", aB, aF)
 			}
+			//fmt.Printf("[paraMapNGSAndMerge] riArr[%v]: %v\n", j, riArr[j])
 		}
 
+		if len(riArr[0].Path) == 0 || len(riArr[1].Path) == 0 {
+			notPerfectNum++
+			continue
+		}
+		l0, l1 := len(riArr[0].Path), len(riArr[1].Path)
 		// find link Path
 		var ri constructdbg.ReadInfo
 		ri.ID = pairRI[0].ID
 		var m ReadMapInfo
-		if len(riArr[0].Path) == 1 && len(riArr[1].Path) == 1 && riArr[0].Path[0] == riArr[1].Path[0] {
+		if l0 == 1 && l1 == 1 && riArr[0].Path[0] == riArr[1].Path[0] {
+			// check if path has cycle
+			e := edgesArr[riArr[0].Path[0]]
+			merged := true
+			if e.StartNID == e.EndNID {
+				if len(e.Utg.Ks) > MaxPairLen-2*SD {
+					if riArr[0].StartP < riArr[0].EndP {
+						if riArr[1].StartP > riArr[1].EndP && riArr[1].EndP > riArr[0].StartP {
+
+						} else {
+							merged = false
+						}
+					} else {
+						if riArr[1].StartP < riArr[1].EndP && riArr[0].EndP > riArr[1].StartP {
+
+						} else {
+							merged = false
+						}
+					}
+				} else {
+					merged = false
+				}
+			}
+			if merged == false {
+				WriteChanPairReads(riArr, edgesArr, cf.Kmerlen, wc)
+				continue
+			}
 			m.StartP = riArr[0].StartP
 			m.Path = append(m.Path, riArr[0].Path[0])
+			m.Strands = append(m.Strands, riArr[0].Strands[0])
 			m.EndP = riArr[1].StartP
 		} else {
+			// check if path has single or two edges cycle
+			if l1 > l0 {
+				riArr[0], riArr[1] = riArr[1], riArr[0]
+				l0, l1 = l1, l0
+			}
+			if l0 > 1 {
+				merged := true
+				e1, e2 := edgesArr[riArr[0].Path[l0-2]], edgesArr[riArr[0].Path[l0-1]]
+				if e1.ID == e2.ID {
+					merged = false
+				} else if constructdbg.IsBubble(e1.ID, e2.ID, edgesArr) {
+					merged = false
+				}
+
+				if merged == false {
+					WriteChanPairReads(riArr, edgesArr, cf.Kmerlen, wc)
+					continue
+				}
+			}
 			extLen := cf.Kmerlen - (len(pairRI[0].Seq) + len(pairRI[1].Seq) - MaxPairLen) + 50
 			var nID constructdbg.DBG_MAX_INT
 			pl := len(riArr[0].Path)
 			if pl > 1 {
-				e1, e2 := edgesArr[riArr[0].Path[pl-2]], edgesArr[riArr[0].Path[pl-1]]
-				nID = constructdbg.GetInterNodeID(e1, e2)
+				e2 := edgesArr[riArr[0].Path[pl-1]]
+				for _, eID := range riArr[0].Path[1 : len(riArr[0].Path)-1] {
+					if edgesArr[eID].StartNID == nID {
+						nID = edgesArr[eID].EndNID
+					} else {
+						nID = edgesArr[eID].StartNID
+					}
+				}
+				//nID = constructdbg.GetInterNodeID(e1, e2)
 				if nID == e2.StartNID {
 					nID = e2.EndNID
 					extLen -= (len(e2.Utg.Ks) - riArr[0].EndP)
@@ -298,26 +495,41 @@ func paraMapNGSAndMerge(cs <-chan [2]constructdbg.ReadInfo, wc chan<- constructd
 					extLen -= (riArr[0].EndP)
 				}
 			}
-			if extLen < 0 {
-				log.Fatalf("[paraMapNGS2DBG] extLen: %v < 0, riArr: %v\n", extLen, riArr)
-			}
-			epArr := GetExtendPathArr(riArr[0].Path, nID, edgesArr, nodesArr, cf.Kmerlen, extLen)
-			riArr[1].Path = constructdbg.GetReverseDBG_MAX_INTArr(riArr[1].Path)
+			var rev1 ReadMapInfo
+			rev1.Path = constructdbg.GetReverseDBG_MAX_INTArr(riArr[1].Path)
+			rev1.StartP, rev1.EndP = riArr[1].EndP, riArr[1].StartP
 			var linkPathArr [][]constructdbg.DBG_MAX_INT
-			for _, ep := range epArr {
-				idx := constructdbg.IndexEID(riArr[1].Path, ep[len(ep)-1])
-				if idx > len(ep)-1 {
-					continue
+			if extLen <= 0 {
+				min := constructdbg.Min(len(riArr[0].Path), len(rev1.Path))
+				for j := len(riArr[0].Path) - min; j < len(riArr[0].Path); j++ {
+					if reflect.DeepEqual(riArr[0].Path[j:], rev1.Path[:len(riArr[0].Path)-j]) {
+						var mergeP []constructdbg.DBG_MAX_INT
+						mergeP = append(mergeP, riArr[0].Path...)
+						mergeP = append(mergeP, rev1.Path[len(riArr[0].Path)-j:]...)
+						linkPathArr = append(linkPathArr, mergeP)
+						break
+					}
 				}
-				if reflect.DeepEqual(ep[len(ep)-1-idx:], riArr[1].Path[:idx+1]) {
-					ep = append(ep, riArr[1].Path[idx+1:]...)
-					linkPathArr = append(linkPathArr, ep)
+				//log.Fatalf("[paraMapNGSAndMerge] extLen: %v < 0, riArr: %v\n", extLen, riArr)
+			} else {
+				epArr := GetExtendPathArr(riArr[0].Path, nID, edgesArr, nodesArr, cf.Kmerlen, extLen)
+				for _, ep := range epArr {
+					idx := constructdbg.IndexEID(rev1.Path, ep[len(ep)-1])
+					if len(ep)-1 < idx || idx < 0 {
+						continue
+					}
+					//fmt.Printf("[paraMapNGSAndMerge]ep: %v,  riArr[1]: %v\n", ep, rev1)
+					if reflect.DeepEqual(ep[len(ep)-1-idx:], rev1.Path[:idx+1]) {
+						ep = append(ep, rev1.Path[idx+1:]...)
+						linkPathArr = append(linkPathArr, ep)
+					}
 				}
 			}
 			if len(linkPathArr) == 1 {
 				m.StartP = riArr[0].StartP
 				m.Path = append(m.Path, linkPathArr[0]...)
-				m.EndP = riArr[1].StartP
+				m.Strands = append(m.Strands, riArr[0].Strands...)
+				m.EndP = rev1.EndP
 			}
 		}
 
@@ -332,20 +544,27 @@ func paraMapNGSAndMerge(cs <-chan [2]constructdbg.ReadInfo, wc chan<- constructd
 			}
 			mr.Anotition += fmt.Sprintf("%v", m.EndP)
 			wc <- mr
+		} else {
+			WriteChanPairReads(riArr, edgesArr, cf.Kmerlen, wc)
 		}
 	}
-	fmt.Printf("[paraMapNGS2DBG] not found seed read pair number is : %v\n", notFoundSeedNum)
-	fmt.Printf("[paraMapNGS2DBG] too more error mapping read pair number is : %v\n", notPerfectNum)
+	fmt.Printf("[paraMapNGSAndMerge] not found seed read pair number is : %v, percent: %v\n", notFoundSeedNum, float32(notFoundSeedNum)/float32(allNum))
+	fmt.Printf("[paraMapNGSAndMerge] too more error mapping read pair number is : %v\n", notPerfectNum-notFoundSeedNum)
 }
 
-func writeCorrectReads(gzwfn string, wc <-chan constructdbg.ReadInfo, numCPU int) (readNum int) {
-	fp, err := os.Create(gzwfn)
+func writeCorrectReads(browfn string, wc <-chan constructdbg.ReadInfo, numCPU int) (readNum int) {
+	fp, err := os.Create(browfn)
 	if err != nil {
-		log.Fatalf("[writeCorrectReads] failed to create file: %s, err: %v\n", gzwfn, err)
+		log.Fatalf("[writeCorrectReads] failed to create file: %s, err: %v\n", browfn, err)
 	}
-	gzfp := gzip.NewWriter(fp)
-	defer gzfp.Close()
 	defer fp.Close()
+	cbrofp := cbrotli.NewWriter(fp, cbrotli.WriterOptions{Quality: 1})
+	//cbrofp := cbrotli.NewWriter(fp, cbrotli.WriterOptions{Quality: 1})
+	defer cbrofp.Close()
+	//buffp := bufio.NewWriter(cbrofp)
+	buffp := bufio.NewWriterSize(cbrofp, 1<<25) // 1<<24 == 2**24
+	//gzfp := gzip.NewWriter(fp)
+	//defer gzfp.Close()
 	var finishNum int
 	for {
 		ri := <-wc
@@ -357,27 +576,54 @@ func writeCorrectReads(gzwfn string, wc <-chan constructdbg.ReadInfo, numCPU int
 				continue
 			}
 		}
-		s := fmt.Sprintf(">%v\tpath:%s\n%s\n", ri.ID, ri.Anotition, string(ri.Seq))
-		gzfp.Write([]byte(s))
+		//seq := constructdbg.Transform2Letters(ri.Seq).String()
+		seq := constructdbg.Transform2Char(ri.Seq)
+		s := fmt.Sprintf(">%v\tpath:%s\n%s\n", ri.ID, ri.Anotition, string(seq))
+		//cbrofp.Write([]byte(s))
+		buffp.WriteString(s)
 		readNum++
 	}
+	if err := buffp.Flush(); err != nil {
+		log.Fatalf("[writeCorrectReads] failed to flush file: %s, err: %v\n", browfn, err)
+	}
 
-	if err := gzfp.Flush(); err != nil {
-		log.Fatalf("[writeCorrectReads] failed to flush file: %s, err: %v\n", gzwfn, err)
+	if err := cbrofp.Flush(); err != nil {
+		log.Fatalf("[writeCorrectReads] failed to flush file: %s, err: %v\n", browfn, err)
 	}
 
 	return
+}
+
+func paraProcessReadsFile(fn1, fn2 string, concurrentNum int, nodesArr []constructdbg.DBGNode, edgesArr []constructdbg.DBGEdge, cf constructdbg.CuckooFilter, opt Options, MaxPairLen, InsertSD int, processT chan int) {
+	idx1 := strings.LastIndex(fn1, "1")
+	idx2 := strings.LastIndex(fn2, "2")
+	if !(idx1 > 0 && idx2 > 0 && fn1[:idx1] == fn2[:idx2]) {
+		log.Fatalf("[paraProcessReadsFile] fn1: %v, fn2: %v, must used suffix *[1|2].[fasta|fa|fq|fastq].br\n", fn1, fn2)
+	}
+
+	bufSize := 60000
+	cs := make(chan [2]constructdbg.ReadInfo, bufSize)
+	wc := make(chan constructdbg.ReadInfo, bufSize)
+	go LoadNGSReads(fn1, fn2, cs, opt.Kmer)
+	for j := 0; j < concurrentNum; j++ {
+		go paraMapNGSAndMerge(cs, wc, nodesArr, edgesArr, cf, opt.WinSize, MaxPairLen, InsertSD)
+	}
+	// write function
+	brwfn := fn1[:idx1] + ".Correct.fa.br"
+	writeNum := writeCorrectReads(brwfn, wc, concurrentNum)
+	fmt.Printf("[paraProcessReadsFile] write correct reads num: %d to file: %s\n", writeNum, brwfn)
+	processT <- 1
 }
 
 // MappingNGSAndCorrect() function parallel Map NGS reads to the DBG edges, then merge path output long single read
 func MappingNGSAndMerge(opt Options, nodesArr []constructdbg.DBGNode, edgesArr []constructdbg.DBGEdge) {
 	// construct cuckoofilter of DBG sample
 	// use all edge seq, so set MaxNGSReadLen to MaxInt
-	cfSize := constructdbg.GetCuckoofilterDBGSampleSize(edgesArr, opt.WinSize, math.MaxInt64, opt.Kmer)
+	cfSize := constructdbg.GetCuckoofilterDBGSampleSize(edgesArr, int64(opt.WinSize), int64(math.MaxInt32), int64(opt.Kmer))
 	fmt.Printf("[MappingNGSAndCorrect] cfSize: %v\n", cfSize)
 	cf := constructdbg.MakeCuckooFilter(uint64(cfSize*5), opt.Kmer)
 	fmt.Printf("[MappingNGSAndCorrect] cf.numItems: %v\n", cf.NumItems)
-	count := constructdbg.ConstructCFDBGMinimizers(cf, edgesArr, opt.WinSize, math.MaxInt64)
+	count := constructdbg.ConstructCFDBGMinimizers(cf, edgesArr, opt.WinSize, math.MaxInt32)
 	fmt.Printf("[MappingNGSAndCorrect]construct Smaple of DBG edges cuckoofilter number is : %v\n", count)
 
 	cfgInfo, err := constructcf.ParseCfg(opt.CfgFn)
@@ -388,6 +634,12 @@ func MappingNGSAndMerge(opt Options, nodesArr []constructdbg.DBGNode, edgesArr [
 
 	runtime.GOMAXPROCS(opt.NumCPU + 2)
 
+	concurrentNum := 3
+	totalNumT := opt.NumCPU/(concurrentNum+1) + 1
+	processT := make(chan int, totalNumT)
+	for i := 0; i < totalNumT; i++ {
+		processT <- 1
+	}
 	for _, lib := range cfgInfo.Libs {
 		if lib.AsmFlag != constructcf.AllState && lib.SeqProfile != 1 {
 			continue
@@ -395,41 +647,25 @@ func MappingNGSAndMerge(opt Options, nodesArr []constructdbg.DBGNode, edgesArr [
 		MaxPairLen := lib.InsertSize + lib.InsertSD
 
 		for i := 0; i < len(lib.FnName)-1; i += 2 {
-			fn1, fn2 := lib.FnName[i], lib.FnName[i+1]
-			idx1 := strings.LastIndex(fn1, "1")
-			idx2 := strings.LastIndex(fn2, "2")
-			if idx1 > 0 && idx2 > 0 && fn1[:idx1] == fn2[:idx2] {
-
-			} else {
-				log.Fatalf("[MappingNGSAndCorrect] fn1: %v, fn2: %v, must used suffix *[1|2].[fasta|fa|fq|fastq].gz\n", fn1, fn2)
-			}
-
-			bufSize := opt.NumCPU
-			cs := make(chan [2]constructdbg.ReadInfo, bufSize)
-			wc := make(chan constructdbg.ReadInfo, bufSize)
-			go LoadNGSReads(fn1, fn2, cs, opt.Kmer)
-			for j := 0; j < opt.NumCPU; j++ {
-				go paraMapNGSAndMerge(cs, wc, nodesArr, edgesArr, cf, opt.WinSize, MaxPairLen)
-			}
-			// write function
-			gzwfn := fn1[:idx1] + ".Correct.fa.gz"
-			writeCorrectReads(gzwfn, wc, opt.NumCPU)
+			<-processT
+			go paraProcessReadsFile(lib.FnName[i], lib.FnName[i+1], concurrentNum, nodesArr, edgesArr, cf, opt, MaxPairLen, lib.InsertSD, processT)
 		}
 	}
 
+	for i := 0; i < totalNumT; i++ {
+		<-processT
+	}
 }
 
 func Correct(c cli.Command) {
-	constructcf.CCF(c)
-	constructdbg.CDBG(c)
 	gOpt, suc := utils.CheckGlobalArgs(c.Parent())
 	if suc == false {
-		log.Fatalf("[Smfy] check global Arguments error, opt: %v\n", gOpt)
+		log.Fatalf("[Correct] check global Arguments error, opt: %v\n", gOpt)
 	}
 	opt := Options{gOpt, 0, 0, 0, 0}
 	tmp, suc := checkArgs(c)
 	if suc == false {
-		log.Fatalf("[Smfy] check Arguments error, opt: %v\n", tmp)
+		log.Fatalf("[Correct] check Arguments error, opt: %v\n", tmp)
 	}
 	opt.CFSize = tmp.CFSize
 	opt.MaxNGSReadLen = tmp.MaxNGSReadLen
@@ -437,10 +673,21 @@ func Correct(c cli.Command) {
 	opt.WinSize = tmp.WinSize
 	cfgInfo, err := constructcf.ParseCfg(opt.CfgFn)
 	if err != nil {
-		log.Fatalf("[CCF] ParseCfg 'C': %v err :%v\n", opt.CfgFn, err)
+		log.Fatalf("[Correct] ParseCfg 'C': %v err :%v\n", opt.CfgFn, err)
 	}
-	fmt.Println(cfgInfo)
+	fmt.Printf("[Correct] opt: %v\n\tcfgInfo: %v\n", opt, cfgInfo)
 
+	// construct cuckoofilter and construct DBG
+	constructcf.CCF(c)
+	constructdbg.CDBG(c)
+
+	profileFn := opt.Prefix + ".preprocess.prof"
+	cpuprofilefp, err := os.Create(profileFn)
+	if err != nil {
+		log.Fatalf("[Correct] open cpuprofile file: %v failed\n", profileFn)
+	}
+	pprof.StartCPUProfile(cpuprofilefp)
+	defer pprof.StopCPUProfile()
 	// smfy DBG
 	// read nodes file and transform to array mode for more quckly access
 	nodesfn := opt.Prefix + ".nodes.mmap"
@@ -448,12 +695,10 @@ func Correct(c cli.Command) {
 	DBGStatfn := opt.Prefix + ".DBG.stat"
 	nodesSize, edgesSize := constructdbg.DBGStatReader(DBGStatfn)
 	//nodesSize := len(nodeMap)
-	fmt.Printf("[Smfy] len(nodeMap): %v, length of edge array: %v\n", nodesSize, edgesSize)
+	fmt.Printf("[Correct] len(nodeMap): %v, length of edge array: %v\n", nodesSize, edgesSize)
 	// read edges file
-	edgesfn := opt.Prefix + ".edges"
+	edgesfn := opt.Prefix + ".edges.fq"
 	edgesArr := constructdbg.ReadEdgesFromFile(edgesfn, edgesSize)
-	gfn1 := opt.Prefix + ".beforeSmfyDBG.dot"
-	constructdbg.GraphvizDBG(nodeMap, edgesArr, gfn1)
 
 	nodesArr := make([]constructdbg.DBGNode, nodesSize)
 	constructdbg.NodeMap2NodeArr(nodeMap, nodesArr)
@@ -461,6 +706,9 @@ func Correct(c cli.Command) {
 	var copt constructdbg.Options
 	copt.CfgFn, copt.Kmer, copt.MaxNGSReadLen, copt.NumCPU, copt.Prefix, copt.TipMaxLen, copt.WinSize = opt.CfgFn, opt.Kmer, opt.MaxNGSReadLen, opt.NumCPU, opt.Prefix, opt.TipMaxLen, opt.WinSize
 	constructdbg.SmfyDBG(nodesArr, edgesArr, copt)
+
+	gfn1 := opt.Prefix + ".afterSmfyDBG.dot"
+	constructdbg.GraphvizDBGArr(nodesArr, edgesArr, gfn1)
 
 	// Mapping NGS to DBG and Correct
 	MappingNGSAndMerge(opt, nodesArr, edgesArr)
