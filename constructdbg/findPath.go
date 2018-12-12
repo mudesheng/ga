@@ -2828,7 +2828,7 @@ func GraphvizDBG(nodeMap map[[NODEMAP_KEY_LEN]uint64]DBGNode, edgesArr []DBGEdge
 		if v.GetDeleteFlag() > 0 || v.ID == 0 {
 			continue
 		}
-		fmt.Printf("[GraphvizDBG] v : %d\n", v)
+		//fmt.Printf("[GraphvizDBG] v : %d\n", v)
 		attr := make(map[string]string)
 		attr["color"] = "Green"
 		attr["shape"] = "record"

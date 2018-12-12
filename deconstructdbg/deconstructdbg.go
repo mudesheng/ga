@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"reflect"
+	"runtime/pprof"
 	"sort"
 	"strconv"
 
@@ -271,6 +272,7 @@ func ExtendPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode
 		// found left partition path
 		for i := idx - 1; i >= 0; i-- {
 			e2 := edgesArr[p.IDArr[i]]
+			//fmt.Printf("[ExtendPath] edgesArr[148] process Flag: %v, e2.ID: %d, i: %d, idx: %d\n", edgesArr[148].GetProcessFlag(), e2.ID, i, idx)
 			if e2.GetUniqueFlag() == 0 || e2.GetDeleteFlag() > 0 {
 				continue
 			}
@@ -299,9 +301,9 @@ func ExtendPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode
 						if p.Freq > ep.Freq {
 							p.Freq = ep.Freq
 						}
-						tmp := idx
-						idx = constructdbg.IndexEID(p.IDArr, e.ID)
-						i = idx - (tmp - i)
+						idx += (j - i)
+						//idx = constructdbg.IndexEID(p.IDArr, e.ID)
+						i += (j - i)
 					}
 					edgesArr[e2.ID].SetProcessFlag()
 				} else if i == 0 && j == 0 && len(ep.IDArr) <= len(p.IDArr) && reflect.DeepEqual(p.IDArr[:i+len(ep.IDArr)-j], ep.IDArr[j-i:]) {
@@ -371,6 +373,8 @@ func ExtendPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode
 				t[0] = idFreqArr[0].ID
 				copy(t[1:], p.IDArr)
 				p.IDArr = t
+				idx++
+				i++
 			}
 			if notConsis {
 				break
@@ -903,6 +907,7 @@ type Options struct {
 	MinMapFreq    int
 	ExtLen        int
 	ONTFn         string
+	Correct       bool
 }
 
 func checkArgs(c cli.Command) (opt Options, succ bool) {
@@ -968,6 +973,10 @@ func checkArgs(c cli.Command) (opt Options, succ bool) {
 	if opt.ExtLen < 1000 {
 		log.Fatalf("[checkArgs] argument 'ExtLen': %v must bigger than 1000\n", c.Flag("ExtLen").String())
 	}
+	opt.Correct, ok = c.Flag("Correct").Get().(bool)
+	if !ok {
+		log.Fatalf("[checkArgs] argument 'Correct': %v set error\n ", c.Flag("Correct").String())
+	}
 
 	opt.ONTFn = c.Flag("LongReadFile").String()
 
@@ -982,7 +991,7 @@ func DeconstructDBG(c cli.Command) {
 		log.Fatalf("[Smfy] check global Arguments error, opt: %v\n", gOpt)
 	}
 
-	opt := Options{gOpt, 0, 0, 0, 0, 0, ""}
+	opt := Options{gOpt, 0, 0, 0, 0, 0, "", false}
 	tmp, suc := checkArgs(c)
 	if suc == false {
 		log.Fatalf("[Smfy] check Arguments error, opt: %v\n", tmp)
@@ -995,8 +1004,17 @@ func DeconstructDBG(c cli.Command) {
 	//opt.MaxMapEdgeLen = tmp.MaxMapEdgeLen
 	opt.ExtLen = tmp.ExtLen
 	opt.ONTFn = tmp.ONTFn
+	opt.Correct = tmp.Correct
 	//constructdbg.Kmerlen = opt.Kmer
 	fmt.Printf("Arguments: %v\n", opt)
+
+	profileFn := opt.Prefix + ".decdbg.prof"
+	cpuprofilefp, err := os.Create(profileFn)
+	if err != nil {
+		log.Fatalf("[CCF] open cpuprofile file: %v failed\n", profileFn)
+	}
+	pprof.StartCPUProfile(cpuprofilefp)
+	defer pprof.StopCPUProfile()
 
 	// read files and construt DBG
 	DBGInfofn := opt.Prefix + ".smfy.DBGInfo"

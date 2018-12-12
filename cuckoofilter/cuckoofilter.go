@@ -15,7 +15,6 @@ import (
 	"log"
 	"math"
 	"os"
-	"unsafe"
 	//"log"
 
 	//"strings"
@@ -89,7 +88,7 @@ func MakeCuckooFilter(maxNumKeys uint64, kmerLen int) (cf CuckooFilter) {
 	cf.Hash = make([]Bucket, numBuckets)
 	cf.numItems = numBuckets * BucketSize
 	cf.Kmerlen = kmerLen
-	fmt.Printf("[MakeCuckooFilter]cf items number is: %d\n\tsizeof(cf.Hash): %d\n", cf.numItems, unsafe.Sizeof(cf.Hash))
+	fmt.Printf("[MakeCuckooFilter]cf items number is: %d\n", cf.numItems)
 
 	return cf
 

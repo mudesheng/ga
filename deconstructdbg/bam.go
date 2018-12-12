@@ -783,7 +783,7 @@ func GetNGSPath(extArr [2][]constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DB
 	}
 	for i := len(extArr[0]) - 1; i >= 0; i-- {
 		e := edgesArr[extArr[0][i]]
-		if e.GetUniqueFlag() > 0 && i < len(extArr[0])-1 {
+		if e.GetUniqueFlag() > 0 && e.GetTwoEdgesCycleFlag() == 0 && i < len(extArr[0])-1 {
 			//fmt.Printf("[GetNGSPath] eID: %v, pathMat: %v\n", e.ID, e.PathMat)
 			arr := GetConsisPath(e.PathMat, e.ID, extArr[0][i+1])
 			if len(arr) > len(extArr[0])-i && reflect.DeepEqual(extArr[0][i:], arr[:len(extArr[0])-i]) {
@@ -1584,13 +1584,13 @@ func DPLocalAlign(edgesSeq, readSeq []byte, chainA []Chain) (cg CIGAR, lastY int
 				continue
 			}
 		}
-		fmt.Printf("[DPLocalAlign] len(edgesSeq): %v, len(readSeq): %v, pch: %v, ch: %v\n", xlen, ylen, pch, ch)
+		//fmt.Printf("[DPLocalAlign] len(edgesSeq): %v, len(readSeq): %v, pch: %v, ch: %v\n", xlen, ylen, pch, ch)
 		//fmt.Printf("[DPLocalAlign] cg: %v,ch: %v\n", cg, ch)
-		fmt.Printf("[DPLocalAlign] edge part seq: %v\n", edgesSeq[pXEnd:ch.X])
-		fmt.Printf("[DPLocalAlign] read part seq: %v\n", readSeq[pYEnd:ch.Y])
+		//fmt.Printf("[DPLocalAlign] edge part seq: %v\n", edgesSeq[pXEnd:ch.X])
+		//fmt.Printf("[DPLocalAlign] read part seq: %v\n", readSeq[pYEnd:ch.Y])
 		// need DP alignment
 		cigar, y := GlobalAlignment(edgesSeq[pXEnd:ch.X], readSeq[pYEnd:ch.Y], localFirst)
-		fmt.Printf("[DPLocalAlign]ch: %v, cigar: %v, cg: %v, y: %v\n", ch, cigar, cg, y)
+		//fmt.Printf("[DPLocalAlign]ch: %v, cigar: %v, cg: %v, y: %v\n", ch, cigar, cg, y)
 		if i == len(chainA) {
 			if y < 0 {
 				log.Fatalf("[DPLocalAlign] found y[%v] < 0\n", y)
@@ -1654,16 +1654,16 @@ func DPAlignEdgePath(mi MapInfo, extArr []constructdbg.DBG_MAX_INT, edgesArr []c
 	}*/
 	interSecArr := GetInterSection(listA, listB, seedKmerLen)
 	sort.Sort(ChainArr(interSecArr))
-	/*for i, ch := range interSecArr {
+	for i, ch := range interSecArr {
 		fmt.Printf("[GetChainArr] interSecArr[%v]: %v\n", i, ch)
-	}*/
+	}
 	chainA := GetChainArr(interSecArr, seedKmerLen)
 	chainScore = GetChainScore(chainA)
 	fmt.Printf("[DPAlignEdgePath] chainScore: %v\n", chainScore)
 	//fmt.Printf("[DPAlignEdgePath] edgesSeq: %v\n\t\t\treadSeq: %v\nchainScore: %v\n", edgesSeq, readSeq, chainScore)
-	/*for i, ch := range chainA {
+	for i, ch := range chainA {
 		fmt.Printf("[DPAlignEdgePath] chainA[%v]: %v\n", i, ch)
-	}*/
+	}
 	AlignmentMinLen := constructdbg.Min(len(edgesSeq), len(readSeq))
 	if int(chainScore) < AlignmentMinLen/15 {
 		fmt.Printf("[DPAlignEdgePath] chainScore: %v < min(len(edgesSeq),len(readSeq))/15: %v\n", chainScore, AlignmentMinLen/15)

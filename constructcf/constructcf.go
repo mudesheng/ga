@@ -72,6 +72,13 @@ type ReadSeqBucket struct {
 	Count   int
 }
 
+type ReadInfo struct {
+	ID        int64
+	Seq       []byte
+	Qual      []byte
+	Anotition string
+}
+
 /*type ChanStruct struct {
 	readseq chan []string
 	state   chan int // note if goroutinue can return
@@ -109,7 +116,7 @@ func (k1 KmerBnt) BiggerThan(k2 KmerBnt) bool {
 	return true
 } */
 
-func ParseCfg(fn string) (cfgInfo CfgInfo, e error) {
+func ParseCfg(fn string, correct bool) (cfgInfo CfgInfo, e error) {
 	var inFile *os.File
 	var err error
 	if inFile, err = os.Open(fn); err != nil {
@@ -168,7 +175,18 @@ func ParseCfg(fn string) (cfgInfo CfgInfo, e error) {
 			v, err = strconv.Atoi(fields[2])
 			libInfo.QualBenchmark = uint8(v)
 		case "f1", "f2":
-			libInfo.FnName = append(libInfo.FnName, fields[2])
+			if correct == true {
+				libInfo.FnName = append(libInfo.FnName, fields[2])
+			} else { // correct == false, need read corrected file
+				if fields[0] == "f1" {
+					idx := strings.LastIndex(fields[2], "1")
+					if idx < 0 || (fields[2][idx+1:] != ".fa.br" && fields[2][idx+1:] != ".fasta.br" && fields[2][idx+1:] != ".fq.br" && fields[2][idx+1:] != ".fastq.br") {
+						log.Fatalf("[paraProcessReadsFile] fn: %v, must used suffix *[1|2].[fasta|fa|fq|fastq].br\n", fields[2])
+					}
+					brfn := fields[2][:idx] + ".Correct.fa.br"
+					libInfo.FnName = append(libInfo.FnName, brfn)
+				}
+			}
 		default:
 			if fields[0][0] != '#' && fields[0][0] != ';' {
 				log.Fatalf("noknown line: %s", line)
@@ -209,6 +227,7 @@ func ExtendKmerBnt2Byte(rb KmerBnt) (extRB []byte) {
 func GetReadBntKmer(seq []byte, startPos, kmerlen int) (kBnt KmerBnt) {
 	kBnt.Len = kmerlen
 	kBnt.Seq = make([]uint64, (kBnt.Len+bnt.NumBaseInUint64-1)/bnt.NumBaseInUint64)
+	//fmt.Printf("[GetReadBntKmer] len(seq): %d, seq: %v\n\tstartPos: %d, kmerlen: %d\n", len(seq), seq, startPos, kmerlen)
 
 	for i := 0; i < kmerlen; i++ {
 		kBnt.Seq[i/bnt.NumBaseInUint64] <<= bnt.NumBitsInBase
@@ -457,7 +476,8 @@ func Transform2BntByte(ks []byte) []byte {
 
 type Options struct {
 	utils.ArgsOpt
-	CFSize int64
+	CFSize  int64
+	Correct bool
 }
 
 func checkArgs(c cli.Command) (opt Options, suc bool) {
@@ -466,9 +486,17 @@ func checkArgs(c cli.Command) (opt Options, suc bool) {
 		log.Fatalf("[checkArgs] argument 'S': %v set error: %v\n", c.Flag("S"), err)
 	}
 	if tmp < 1024*1024 {
-		log.Fatalf("the argument 'S': %v must bigger than 1024 * 1024\n", c.Flag("S"))
+		log.Fatalf("[checkArgs]the argument 'S': %v must bigger than 1024 * 1024\n", c.Flag("S"))
 	}
 	opt.CFSize = int64(tmp)
+	cor := c.Flag("Correct").Get().(bool)
+	if cor == true {
+		opt.Correct = true
+	} else if cor == false {
+		opt.Correct = false
+	} else {
+		log.Fatalf("[checkArgs] argument 'Correct': %v set error, must set true|false\n", c.Flag("Correct"))
+	}
 	suc = true
 	return opt, suc
 }
@@ -490,7 +518,51 @@ func GetReadsFileFormat(fn string) (format string) {
 	return format
 }
 
-func GetReadSeqBucket(libs []LibInfo, cs chan<- ReadSeqBucket) {
+func GetReadFileRecord(buffp *bufio.Reader, format string, annotion bool) (ri ReadInfo, err error) {
+	var blockLineNum int
+	if format == "fa" {
+		blockLineNum = 2
+	} else { // format == "fq"
+		blockLineNum = 4
+	}
+	b := make([][]byte, blockLineNum)
+	i := 0
+	for ; i < blockLineNum; i++ {
+		b[i], err = buffp.ReadBytes('\n')
+		if err != nil {
+			break
+		}
+	}
+	if err != nil {
+		if err == io.EOF {
+			if i == 0 {
+				return
+			}
+			if i != blockLineNum-1 {
+				log.Fatalf("[GetReadSeqBucket] x: %d, fp: %v found not unbroken record\n", i, buffp)
+			}
+		} else {
+			log.Fatalf("[GetReadSeqBucket] fp : %v encounter err: %v\n", buffp, err)
+		}
+	}
+	flist := strings.Fields(string(b[0]))
+	id, err2 := strconv.Atoi(flist[0][1:])
+	if err2 != nil {
+		log.Fatalf("[LoadNGSReads] load fp: '%v' file, read ID: %v not digits, please convert to digits...\n", buffp, flist[0][1:])
+	}
+	ri.ID = int64(id)
+	if annotion {
+		ri.Anotition = strings.Join(flist[1:], "\t")
+	}
+	ri.Seq = Transform2BntByte(b[1][:len(b[1])-1])
+	if format == "fq" {
+		ri.Qual = b[3][:len(b[3])-1]
+	}
+
+	return
+}
+
+func GetReadSeqBucket(libs []LibInfo, cs chan<- ReadSeqBucket, kmerlen int) {
 	var processNumReads int
 	var rsb ReadSeqBucket
 	//var bucketCount int
@@ -510,50 +582,27 @@ func GetReadSeqBucket(libs []LibInfo, cs chan<- ReadSeqBucket) {
 			brfp := cbrotli.NewReaderSize(fp, 1<<25)
 			defer brfp.Close()
 			buffp := bufio.NewReader(brfp)
-			var blockLineNum int
-			if format == "fa" {
-				blockLineNum = 2
-			} else {
-				blockLineNum = 4
-			}
 
 			//var count int
-			var EOF error
-			for EOF != io.EOF {
-				var b [][]byte
-				b = make([][]byte, blockLineNum)
-				var x int
-				var err1 error
-				for ; x < blockLineNum; x++ {
-					b[x], err1 = buffp.ReadBytes('\n')
-					if err1 != nil {
-						break
-					}
-				}
-				if err1 != nil {
+			var err1 error
+			for err1 != io.EOF {
+				ri, err1 := GetReadFileRecord(buffp, format, false)
+				if ri.ID == 0 {
 					if err1 == io.EOF {
-						if x == 0 {
-							break
-						}
-						if x != blockLineNum-1 {
-							log.Fatalf("[GetReadSeqBucket] x: %d, file: %s found not unbroken record\n", x, fn)
-						}
-						EOF = io.EOF
+						break
 					} else {
-						log.Fatalf("[GetReadSeqBucket] file : %v encounter err: %v\n", fn, err1)
+						log.Fatalf("[GetReadSeqBucket] file: %s encounter err: %v\n", fn, err1)
 					}
 				}
-				/*id, err2 := strconv.Atoi(string(b[0][1 : len(b[0])-1]))
-				if err2 != nil {
-					log.Fatalf("[LoadNGSReads] load fn: '%v' file, read ID: %v not digits, please convert to digits...\n", fn, b[0][:len(b[0])-1])
-				}*/
-				bs := Transform2BntByte(b[1][:len(b[1])-1])
 				if rsb.Count >= ReadSeqSize {
 					cs <- rsb
 					var nsb ReadSeqBucket
 					rsb = nsb
 				}
-				rsb.ReadBuf[rsb.Count] = bs
+				if len(ri.Seq) < kmerlen+10 {
+					continue
+				}
+				rsb.ReadBuf[rsb.Count] = ri.Seq
 				rsb.Count++
 				processNumReads++
 			}
@@ -574,12 +623,13 @@ func CCF(c cli.Command) {
 	if suc == false {
 		log.Fatalf("[CCF] check global Arguments error, opt: %v\n", gOpt)
 	}
-	opt := Options{gOpt, 0}
+	opt := Options{gOpt, 0, false}
 	tmp, suc := checkArgs(c)
 	if suc == false {
 		log.Fatalf("[CCF] check Arguments error, opt: %v\n", tmp)
 	}
 	opt.CFSize = tmp.CFSize
+	opt.Correct = tmp.Correct
 	fmt.Printf("[CCF] opt: %v\n", opt)
 	profileFn := opt.Prefix + ".CCF.prof"
 	cpuprofilefp, err := os.Create(profileFn)
@@ -588,7 +638,7 @@ func CCF(c cli.Command) {
 	}
 	pprof.StartCPUProfile(cpuprofilefp)
 	defer pprof.StopCPUProfile()
-	cfgInfo, err := ParseCfg(opt.CfgFn)
+	cfgInfo, err := ParseCfg(opt.CfgFn, opt.Correct)
 	if err != nil {
 		log.Fatalf("[CCF] ParseCfg 'C': %v err :%v\n", opt.CfgFn, err)
 	}
@@ -600,13 +650,13 @@ func CCF(c cli.Command) {
 	cf := cuckoofilter.MakeCuckooFilter(uint64(opt.CFSize), opt.Kmer)
 	numCPU := opt.NumCPU
 	runtime.GOMAXPROCS(numCPU + 2)
-	bufsize := 20
+	bufsize := 40
 	cs := make(chan ReadSeqBucket, bufsize)
 	wc := make(chan KmerBntBucket, bufsize)
 	//we := make(chan int)
 	//defer close(we)
 	defer close(wc)
-	go GetReadSeqBucket(cfgInfo.Libs, cs)
+	go GetReadSeqBucket(cfgInfo.Libs, cs, opt.Kmer)
 	for i := 0; i < numCPU; i++ {
 		go ParaConstructCF(cf, cs, wc)
 	}
