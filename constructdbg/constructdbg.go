@@ -32,7 +32,7 @@ import (
 	"github.com/jwaldrip/odin/cli"
 )
 
-type DBG_MAX_INT uint32
+type DBG_MAX_INT uint32 // use marker DBG node ID and DBG edge
 
 type DBGNode struct {
 	ID              DBG_MAX_INT
@@ -400,6 +400,18 @@ func ExtendNodeKmer(nkb, rkb constructcf.KmerBnt, cf cuckoofilter.CuckooFilter, 
 	}
 
 	return
+}
+
+func ChangeEdgeIDComing(nd DBGNode) DBGNode {
+	for i := 0; i < bnt.BaseTypeNum; i++ {
+		if nd.EdgeIDIncoming[i] == math.MaxUint32 {
+			nd.EdgeIDIncoming[i] = 1
+		}
+		if nd.EdgeIDOutcoming[i] == math.MaxUint32 {
+			nd.EdgeIDOutcoming[i] = 1
+		}
+	}
+	return nd
 }
 
 func GetMinDBGNode(nd DBGNode, kmerlen int) (minN DBGNode) {
@@ -993,103 +1005,142 @@ func WriteEdgesToFn(edgesfn string, wc <-chan EdgeNode, numCPU int, nodeMap map[
 			}
 			continue
 		}
-		hasWrite := false
+		//fmt.Printf("[WriteEdgesToFn] edgeID: %v, en: %v\n", edgeID, en)
+		fmt.Printf("[WriteEdgesToFn] edgeID: %v,len(en.Edge.Utg.Ks): %v,  en.NodeS: %v, en.NodeE: %v\n", edgeID, len(en.Edge.Utg.Ks), en.NodeS, en.NodeE)
 		// set edge's node info
 		{
 			//muRW.Lock()
-			var key [NODEMAP_KEY_LEN]uint64
+			var keyS, keyE [NODEMAP_KEY_LEN]uint64
+			var vS, vE, tnS, tnE DBGNode
+			var okS, okE bool
 			if len(en.NodeS.Seq) > 0 {
-				tn := GetMinDBGNode(en.NodeS, kmerlen)
-				copy(key[:], tn.Seq)
-				v, ok := nodeMap[key]
-				if ok {
-					if reflect.DeepEqual(v.Seq, en.NodeS.Seq) {
-						for j := 0; j < bnt.BaseTypeNum; j++ {
-							if en.NodeS.EdgeIDOutcoming[j] == math.MaxUint32 {
-								if v.EdgeIDOutcoming[j] == 1 || v.EdgeIDOutcoming[j] == math.MaxUint32 {
-									v.EdgeIDOutcoming[j] = edgeID
-								} else {
-									//fmt.Printf("[WriteEdgesToFn] repeat edge, nodeMap edgeID: %v,v: %v\n\tcurrent edge: %v\n", v.EdgeIDOutcoming[j], v, ei)
-									//fmt.Fprintf(os.Stderr, ">%d\trepeat edgeID: %d\n%s\n", edgeID, v.EdgeIDOutcoming[j], Transform2Char(ei.Utg.Ks))
-									hasWrite = true
-								}
-								break
-							}
-						}
-					} else {
-						for j := 0; j < bnt.BaseTypeNum; j++ {
-							if en.NodeS.EdgeIDOutcoming[j] == math.MaxUint32 {
-								if v.EdgeIDIncoming[bnt.BaseTypeNum-1-j] == 1 || v.EdgeIDIncoming[bnt.BaseTypeNum-1-j] == math.MaxUint32 {
-									v.EdgeIDIncoming[bnt.BaseTypeNum-1-j] = edgeID
-								} else {
-									//fmt.Printf("[WriteEdgesToFn] repeat edge, nodeMap edgeID: %v,v: %v\n\tcurrent edge: %v\n", v.EdgeIDIncoming[bnt.BaseTypeNum-1-j], v, ei)
-									//fmt.Fprintf(os.Stderr, ">%d\trepeat edgeID: %d\n%s\n", edgeID, v.EdgeIDIncoming[bnt.BaseTypeNum-1-j], Transform2Char(ei.Utg.Ks))
-									hasWrite = true
-								}
-								break
-							}
-						}
-					}
-					if hasWrite {
-						continue
-					}
+				tnS = GetMinDBGNode(en.NodeS, kmerlen)
+				copy(keyS[:], tnS.Seq)
+				muRW.RLock()
+				vS, okS = nodeMap[keyS]
+				muRW.RUnlock()
+				if !okS {
+					tnS = ChangeEdgeIDComing(tnS)
+					anc <- tnS
+				}
 
-					muRW.Lock()
-					nodeMap[key] = v
-					muRW.Unlock()
-					if ei.StartNID == 0 {
-						ei.StartNID = v.ID
-					}
+				//test code
+				{
+					var rb constructcf.KmerBnt
+					rb.Seq = en.NodeS.Seq
+					rb.Len = kmerlen - 1
+					extNode := constructcf.ExtendKmerBnt2Byte(rb)
+					fmt.Printf("[WriteEdgesToFn] extNodeS: %v\n", extNode)
 				}
 			}
 
 			if len(en.NodeE.Seq) > 0 {
-				tn := GetMinDBGNode(en.NodeE, kmerlen)
-				copy(key[:], tn.Seq)
-				v, ok := nodeMap[key]
-				if ok {
-					if reflect.DeepEqual(v.Seq, en.NodeE.Seq) {
-						for j := 0; j < bnt.BaseTypeNum; j++ {
-							if en.NodeE.EdgeIDIncoming[j] == math.MaxUint32 {
-								if v.EdgeIDIncoming[j] == 1 || v.EdgeIDIncoming[j] == math.MaxUint32 {
-									v.EdgeIDIncoming[j] = edgeID
-								} else {
-									hasWrite = true
-									//log.Fatalf("[WriteEdgesToFn] corrupt with has writed edge ID: %v,v: %v\n\tcurrent edge: %v\n", v.EdgeIDIncoming[j], v, ei)
-								}
-								break
-							}
-						}
-					} else {
-						for j := 0; j < bnt.BaseTypeNum; j++ {
-							if en.NodeE.EdgeIDIncoming[j] == math.MaxUint32 {
-								if v.EdgeIDOutcoming[bnt.BaseTypeNum-1-j] == 1 || v.EdgeIDOutcoming[bnt.BaseTypeNum-1-j] == math.MaxUint32 {
-									v.EdgeIDOutcoming[bnt.BaseTypeNum-1-j] = edgeID
-								} else {
-									hasWrite = true
-									//log.Fatalf("[WriteEdgesToFn] corrupt with has writed edge ID: %v,v: %v\n\tcurrent edge: %v\n", v.EdgeIDOutcoming[bnt.BaseTypeNum-1-j], v, ei)
-								}
-								break
-							}
-						}
-					}
+				tnE = GetMinDBGNode(en.NodeE, kmerlen)
+				copy(keyE[:], tnE.Seq)
+				muRW.RLock()
+				vE, okE = nodeMap[keyE]
+				muRW.RUnlock()
+				if !okE {
+					tnE = ChangeEdgeIDComing(tnE)
+					anc <- tnE
+				}
 
-					if hasWrite {
-						continue
-					}
-					muRW.Lock()
-					nodeMap[key] = v
-					muRW.Unlock()
-					if ei.EndNID == 0 {
-						ei.EndNID = v.ID
-					}
+				//test code
+				{
+					var rb constructcf.KmerBnt
+					rb.Seq = en.NodeE.Seq
+					rb.Len = kmerlen - 1
+					extNode := constructcf.ExtendKmerBnt2Byte(rb)
+					fmt.Printf("[WriteEdgesToFn] extNodeE: %v\n", extNode)
 				}
 			}
+			if okS == false || okE == false {
+				fmt.Printf("[WriteEdgesToFn] okS: %v, okE: %v\n", okS, okE)
+				continue
+			}
+			{ // change nodeMap nodeS EdgeIDComing
+				hasWrite := false
+				if reflect.DeepEqual(vS.Seq, en.NodeS.Seq) {
+					for j := 0; j < bnt.BaseTypeNum; j++ {
+						if en.NodeS.EdgeIDOutcoming[j] == math.MaxUint32 {
+							if vS.EdgeIDOutcoming[j] == 1 || vS.EdgeIDOutcoming[j] == math.MaxUint32 {
+								vS.EdgeIDOutcoming[j] = edgeID
+							} else {
+								//fmt.Printf("[WriteEdgesToFn] repeat edge, nodeMap edgeID: %v,v: %v\n\tcurrent edge: %v\n", v.EdgeIDOutcoming[j], v, ei)
+								//fmt.Fprintf(os.Stderr, ">%d\trepeat edgeID: %d\n%s\n", edgeID, v.EdgeIDOutcoming[j], Transform2Char(ei.Utg.Ks))
+								hasWrite = true
+							}
+							break
+						}
+					}
+				} else {
+					for j := 0; j < bnt.BaseTypeNum; j++ {
+						if en.NodeS.EdgeIDOutcoming[j] == math.MaxUint32 {
+							if vS.EdgeIDIncoming[bnt.BaseTypeNum-1-j] == 1 || vS.EdgeIDIncoming[bnt.BaseTypeNum-1-j] == math.MaxUint32 {
+								vS.EdgeIDIncoming[bnt.BaseTypeNum-1-j] = edgeID
+							} else {
+								//fmt.Printf("[WriteEdgesToFn] repeat edge, nodeMap edgeID: %v,v: %v\n\tcurrent edge: %v\n", v.EdgeIDIncoming[bnt.BaseTypeNum-1-j], v, ei)
+								//fmt.Fprintf(os.Stderr, ">%d\trepeat edgeID: %d\n%s\n", edgeID, v.EdgeIDIncoming[bnt.BaseTypeNum-1-j], Transform2Char(ei.Utg.Ks))
+								hasWrite = true
+							}
+							break
+						}
+					}
+				}
+				if hasWrite {
+					fmt.Printf("[WriteEdgesToFn] hasWrite: %v\n", hasWrite)
+					continue
+				}
+
+				muRW.Lock()
+				nodeMap[keyS] = vS
+				muRW.Unlock()
+				if ei.StartNID == 0 {
+					ei.StartNID = vS.ID
+				}
+			}
+
+			{ // change nodeMap nodeE EdgeIDComing
+				//hasWrite := false
+				if reflect.DeepEqual(vE.Seq, en.NodeE.Seq) {
+					for j := 0; j < bnt.BaseTypeNum; j++ {
+						if en.NodeE.EdgeIDIncoming[j] == math.MaxUint32 {
+							if vE.EdgeIDIncoming[j] == 1 || vE.EdgeIDIncoming[j] == math.MaxUint32 {
+								vE.EdgeIDIncoming[j] = edgeID
+							} else {
+								//hasWrite = true
+								log.Fatalf("[WriteEdgesToFn] corrupt with has writed edge ID: %v,v: %v\n\tcurrent edge: %v\nvS: %v\n", vE.EdgeIDIncoming[j], vE, en.Edge, vS)
+							}
+							break
+						}
+					}
+				} else {
+					for j := 0; j < bnt.BaseTypeNum; j++ {
+						if en.NodeE.EdgeIDIncoming[j] == math.MaxUint32 {
+							if vE.EdgeIDOutcoming[bnt.BaseTypeNum-1-j] == 1 || vE.EdgeIDOutcoming[bnt.BaseTypeNum-1-j] == math.MaxUint32 {
+								vE.EdgeIDOutcoming[bnt.BaseTypeNum-1-j] = edgeID
+							} else {
+								//hasWrite = true
+								log.Fatalf("[WriteEdgesToFn] corrupt with has writed edge ID: %v,v: %v\n\tcurrent edge: %v\nvS: %v\n", vE.EdgeIDOutcoming[bnt.BaseTypeNum-1-j], vE, en.Edge, vS)
+							}
+							break
+						}
+					}
+				}
+
+				muRW.Lock()
+				nodeMap[keyE] = vE
+				muRW.Unlock()
+				if ei.EndNID == 0 {
+					ei.EndNID = vE.ID
+				}
+			}
+			ei.ID = edgeID
+			edgeID++
+			WritefqRecord(edgesbuffp, ei)
+			edgesNum++
+			fmt.Printf("[WriteEdgesToFn] the writed edgeID: %v, ei.StartNID: %v, ei.EndNID: %v\n\tei.Utg.Ks: %v\n", edgeID-1, ei.StartNID, ei.EndNID, ei.Utg.Ks)
 		}
-		ei.ID = edgeID
-		edgeID++
-		WritefqRecord(edgesbuffp, ei)
-		edgesNum++
 	}
 	edgesbuffp.Flush()
 
@@ -1844,6 +1895,7 @@ func GraphvizDBGArr(nodesArr []DBGNode, edgesArr []DBGEdge, graphfn string) {
 		g.AddNode("G", strconv.Itoa(int(v.ID)), attr)
 	}
 	g.AddNode("G", "0", nil)
+	//fmt.Printf("[GraphvizDBGArr] finished Add Nodes\n")
 
 	for i := 1; i < len(edgesArr); i++ {
 		e := edgesArr[i]
@@ -1852,11 +1904,17 @@ func GraphvizDBGArr(nodesArr []DBGNode, edgesArr []DBGEdge, graphfn string) {
 		}
 		attr := make(map[string]string)
 		attr["color"] = "Blue"
-		labels := "\"ID:" + strconv.Itoa(int(e.ID)) + " len:" + strconv.Itoa(len(e.Utg.Ks)) + "\""
 		//labels := strconv.Itoa(int(e.ID)) + "len" + strconv.Itoa(len(e.Utg.Ks))
 		//labels := strconv.Itoa(int(e.ID))
-		attr["label"] = labels
-		g.AddEdge(strconv.Itoa(int(e.StartNID)), strconv.Itoa(int(e.EndNID)), true, attr)
+		if e.StartNID == e.EndNID {
+			//labels := "\"ID:" + strconv.Itoa(int(e.ID)) + " len:" + strconv.Itoa(len(e.Utg.Ks)) + "self cycle edge" + "\""
+			//attr["label"] = labels
+			//g.AddEdge(strconv.Itoa(int(e.StartNID)), strconv.Itoa(0), true, attr)
+		} else {
+			labels := "\"ID:" + strconv.Itoa(int(e.ID)) + " len:" + strconv.Itoa(len(e.Utg.Ks)) + "\""
+			attr["label"] = labels
+			g.AddEdge(strconv.Itoa(int(e.StartNID)), strconv.Itoa(int(e.EndNID)), true, attr)
+		}
 	}
 	// output := graph.String()
 	gfp, err := os.Create(graphfn)
@@ -1869,7 +1927,7 @@ func GraphvizDBGArr(nodesArr []DBGNode, edgesArr []DBGEdge, graphfn string) {
 
 func GetEdgeIDComing(coming [bnt.BaseTypeNum]DBG_MAX_INT) (num int, edgeID DBG_MAX_INT) {
 	for _, v := range coming {
-		if v > 0 {
+		if v > 1 {
 			num++
 			edgeID = v
 		}
@@ -2062,8 +2120,8 @@ func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt Options) {
 			if outNum == 1 {
 				id = outID
 			}
-			fmt.Printf("[SmfyDBG]v: %v,id: %v", v, id)
-			fmt.Printf("[SmfyDBG]edgesArr[id]: %v", edgesArr[id])
+			fmt.Printf("[SmfyDBG]v: %v,id: %v\n", v, id)
+			//fmt.Printf("[SmfyDBG]edgesArr[%v]: %v\n",id, edgesArr[id])
 			if edgesArr[id].StartNID == v.ID {
 				edgesArr[id].StartNID = 0
 			} else {
@@ -2146,6 +2204,9 @@ func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt Options) {
 
 func CheckDBGSelfCycle(nodesArr []DBGNode, edgesArr []DBGEdge, kmerlen int) {
 	for _, e := range edgesArr {
+		if e.ID < 2 || e.StartNID < 2 || e.EndNID < 2 || e.GetDeleteFlag() > 0 {
+			continue
+		}
 		if e.StartNID == e.EndNID {
 			var nb constructcf.KmerBnt
 			nb.Seq = nodesArr[e.StartNID].Seq
@@ -2422,6 +2483,21 @@ func SetDBGEdgesUniqueFlag(edgesArr []DBGEdge, nodesArr []DBGNode) (uniqueNum, s
 	ID DBG_MAX_INT
 	Strand bool
 }*/
+type PathSeq struct {
+	ID         DBG_MAX_INT
+	NID        DBG_MAX_INT // the path end node ID
+	Start, End int
+}
+
+type ReadMapInfo struct {
+	ID           int64
+	StartP, EndP int
+	//NID          constructdbg.DBG_MAX_INT
+	Seq        []byte
+	PathSeqArr []PathSeq
+	Strands    []bool
+}
+
 type AlignInfo struct {
 	ID      int64
 	EndPos  int
@@ -2862,6 +2938,9 @@ func MappingReadToEdgesBackWard(dk DBGKmer, ri constructcf.ReadInfo, rpos int, r
 	copy(ai.Seq[rpos:rpos+kmerlen], ri.Seq[rpos:rpos+kmerlen])
 	ai.EndPos = math.MinInt32
 	if rpos == 0 {
+		var ps PathSeq
+		ps.Start = int(dk.Pos) + kmerlen - 1
+		ps.End = int(dk.Pos) - 1
 		ai.Paths = append(ai.Paths, dk.ID)
 		ai.Strands = append(ai.Strands, strand)
 		if strand == PLUS {
@@ -3028,6 +3107,159 @@ func MappingReadToEdgesBackWard(dk DBGKmer, ri constructcf.ReadInfo, rpos int, r
 			}
 		}
 	}
+	return
+}
+
+func MappingReadToEdges(dk DBGKmer, ri constructcf.ReadInfo, rpos int, rstrand bool, edgesArr []DBGEdge, nodesArr []DBGNode, kmerlen int, correct bool) (errorNum, mappingNum int, rmi ReadMapInfo) {
+	var strand bool
+	var ps PathSeq
+	ps.ID = dk.ID
+	if dk.Strand == rstrand {
+		ps.Start = int(dk.Pos)
+		dk.Pos += uint32(kmerlen)
+		strand = PLUS
+	} else {
+		dk.Pos -= 1
+		ps.Start = int(dk.Pos) + kmerlen
+		strand = MINUS
+	}
+	rpos += kmerlen
+	mappingNum += kmerlen
+
+	for i := rpos; i < len(ri.Seq); {
+		e := edgesArr[dk.ID]
+		b := len(ri.Seq)
+		var j int
+		fmt.Printf("[MappingReadToEdges]rpos: %v, len(ri.Seq): %v, strand: %v, dk.Pos: %v\n", rpos, len(ri.Seq), strand, dk.Pos)
+		if strand == PLUS {
+			if len(e.Utg.Ks)-int(dk.Pos) < len(ri.Seq)-rpos {
+				b = rpos + (len(e.Utg.Ks) - int(dk.Pos))
+			}
+			j = int(dk.Pos)
+			for ; i < b; i++ {
+				if ri.Seq[i] != e.Utg.Ks[j] {
+					errorNum++
+					if !correct {
+						break
+					}
+				}
+				mappingNum++
+				j++
+			}
+		} else { // strand == MINUS
+			if len(ri.Seq)-rpos > int(dk.Pos)+1 {
+				b = rpos + (int(dk.Pos) + 1)
+			}
+			j = int(dk.Pos)
+			for ; i < b; i++ {
+				if ri.Seq[i] != bnt.BntRev[e.Utg.Ks[j]] {
+					errorNum++
+					if !correct {
+						break
+					}
+				}
+				mappingNum++
+				j--
+			}
+		}
+
+		if !correct && errorNum > 0 {
+			fmt.Printf("[MappingReadToEdges]not perfect end i: %v,edge ID: %v,len(e.Utg.Ks): %v,  dk.Pos: %v, pos: %v, b: %v\n", i, dk.ID, len(e.Utg.Ks), dk.Pos, rpos, b)
+			break
+		}
+
+		ps.End = j
+		if strand == PLUS {
+			ps.NID = e.EndNID
+		} else {
+			ps.NID = e.StartNID
+		}
+		rmi.PathSeqArr = append(rmi.PathSeqArr, ps)
+		fmt.Printf("[MappingReadToEdges]ps: %v, strand: %v, i : %v\n", ps, strand, i)
+
+		// check if move to the end of read
+		if i >= len(ri.Seq) {
+			break
+		}
+		// find next edge
+		{
+			rpos = i
+			var node DBGNode
+			var base byte
+			// if is a self cycle edge
+
+			if strand == PLUS {
+				if e.EndNID < 2 {
+					break
+				}
+				node = nodesArr[e.EndNID]
+				base = bnt.BntRev[ri.Seq[i]]
+				if e.StartNID == e.EndNID { // self cycle
+					if IsInComing(node.EdgeIDIncoming, e.ID) && node.EdgeIDOutcoming[ri.Seq[i]] > 1 {
+						dk.ID = node.EdgeIDOutcoming[ri.Seq[i]]
+						if edgesArr[dk.ID].StartNID != node.ID {
+							strand = !strand
+						}
+					} else {
+						break
+					}
+				} else {
+					if IsInComing(node.EdgeIDIncoming, e.ID) && node.EdgeIDOutcoming[ri.Seq[i]] > 1 {
+						dk.ID = node.EdgeIDOutcoming[ri.Seq[i]]
+					} else if IsInComing(node.EdgeIDOutcoming, e.ID) && node.EdgeIDIncoming[base] > 1 {
+						dk.ID = node.EdgeIDIncoming[base]
+					} else {
+						break
+					}
+					ne := edgesArr[dk.ID]
+					if e.EndNID == ne.EndNID || e.StartNID == ne.StartNID {
+						strand = !strand
+					}
+				}
+
+			} else { // strand == MINUS
+				if e.StartNID == 0 {
+					break
+				}
+				node = nodesArr[e.StartNID]
+				base = bnt.BntRev[ri.Seq[i]]
+				if e.StartNID == e.EndNID { // self cycle
+					if IsInComing(node.EdgeIDOutcoming, e.ID) && node.EdgeIDIncoming[base] > 1 {
+						dk.ID = node.EdgeIDIncoming[base]
+						if edgesArr[dk.ID].EndNID != node.ID {
+							strand = !strand
+						}
+					} else {
+						break
+					}
+				} else {
+					if IsInComing(node.EdgeIDIncoming, e.ID) && node.EdgeIDOutcoming[base] > 1 {
+						dk.ID = node.EdgeIDOutcoming[base]
+					} else if IsInComing(node.EdgeIDOutcoming, e.ID) && node.EdgeIDIncoming[ri.Seq[i]] > 1 {
+						dk.ID = node.EdgeIDIncoming[ri.Seq[i]]
+					} else {
+						break
+					}
+					ne := edgesArr[dk.ID]
+					if e.EndNID == ne.EndNID || e.StartNID == ne.StartNID {
+						strand = !strand
+					}
+				}
+
+			}
+
+			ne := edgesArr[dk.ID]
+			ps.ID = dk.ID
+			if strand == PLUS {
+				dk.Pos = uint32(kmerlen - 1)
+				ps.Start = 0
+			} else { // strand == MINUS
+				dk.Pos = uint32(len(ne.Utg.Ks) - (kmerlen - 1) - 1)
+				ps.Start = len(ne.Utg.Ks) - 1
+			}
+		}
+	}
+
 	return
 }
 
