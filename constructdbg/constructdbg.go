@@ -916,11 +916,12 @@ func paraGenerateDBGEdges(nc <-chan DBGNode, cf cuckoofilter.CuckooFilter, wc ch
 				if len(nd.Seq) > 0 || len(edge.Utg.Ks) > 2*cf.Kmerlen {
 					edge.EndNID = node.ID
 					var en EdgeNode
-					en.NodeE = node
-					en.NodeE.EdgeIDIncoming[i] = math.MaxUint32
+					en.NodeE.Seq = constructcf.GetReadBntKmer(edge.Utg.Ks, len(edge.Utg.Ks)-(cf.Kmerlen-1), cf.Kmerlen-1).Seq
+					en.NodeE.EdgeIDIncoming[edge.Utg.Ks[len(edge.Utg.Ks)-cf.Kmerlen]] = math.MaxUint32
 					en.Edge = edge
 					if len(nd.Seq) > 0 {
-						en.NodeS = nd
+						en.NodeS.Seq = constructcf.GetReadBntKmer(edge.Utg.Ks, 0, cf.Kmerlen-1).Seq
+						en.NodeS.EdgeIDOutcoming[edge.Utg.Ks[cf.Kmerlen-1]] = math.MaxUint32
 					}
 					wc <- en
 				}
@@ -944,10 +945,11 @@ func paraGenerateDBGEdges(nc <-chan DBGNode, cf cuckoofilter.CuckooFilter, wc ch
 					edge.StartNID = node.ID
 					var en EdgeNode
 					en.Edge = edge
-					en.NodeS = node
-					en.NodeS.EdgeIDOutcoming[i] = math.MaxUint32
+					en.NodeS.Seq = constructcf.GetReadBntKmer(edge.Utg.Ks, 0, cf.Kmerlen-1).Seq
+					en.NodeS.EdgeIDOutcoming[edge.Utg.Ks[cf.Kmerlen-1]] = math.MaxUint32
 					if len(nd.Seq) > 0 {
-						en.NodeE = nd
+						en.NodeE.Seq = constructcf.GetReadBntKmer(edge.Utg.Ks, len(edge.Utg.Ks)-(cf.Kmerlen-1), cf.Kmerlen-1).Seq
+						en.NodeE.EdgeIDIncoming[edge.Utg.Ks[len(edge.Utg.Ks)-cf.Kmerlen]] = math.MaxUint32
 					}
 					wc <- en
 				}
@@ -1029,8 +1031,9 @@ func WriteEdgesToFn(edgesfn string, wc <-chan EdgeNode, numCPU int, nodeMap map[
 					var rb constructcf.KmerBnt
 					rb.Seq = en.NodeS.Seq
 					rb.Len = kmerlen - 1
+					//revRb := constructcf.GetReadBntKmer(en.Edge.Utg.Ks[:kmerlen-1], 0, kmerlen)
 					extNode := constructcf.ExtendKmerBnt2Byte(rb)
-					fmt.Printf("[WriteEdgesToFn] extNodeS: %v\n", extNode)
+					fmt.Printf("[WriteEdgesToFn]base: %v, extNodeS: %v\n", en.Edge.Utg.Ks[kmerlen-1], extNode)
 				}
 			}
 
@@ -1051,7 +1054,7 @@ func WriteEdgesToFn(edgesfn string, wc <-chan EdgeNode, numCPU int, nodeMap map[
 					rb.Seq = en.NodeE.Seq
 					rb.Len = kmerlen - 1
 					extNode := constructcf.ExtendKmerBnt2Byte(rb)
-					fmt.Printf("[WriteEdgesToFn] extNodeE: %v\n", extNode)
+					fmt.Printf("[WriteEdgesToFn]base: %v, extNodeE: %v\n", en.Edge.Utg.Ks[len(en.Edge.Utg.Ks)-kmerlen], extNode)
 				}
 			}
 			if okS == false || okE == false {
