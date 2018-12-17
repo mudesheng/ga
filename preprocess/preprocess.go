@@ -130,7 +130,7 @@ func LoadNGSReads(brfn1, brfn2 string, cs chan<- [2]constructcf.ReadInfo, kmerle
 	close(cs)
 }
 
-func GetExtendPathArr(path []constructdbg.DBG_MAX_INT, nID constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, kmerlen, extLen int) (epArr [][]constructdbg.DBG_MAX_INT) {
+/*func GetExtendPathArr(path []constructdbg.DBG_MAX_INT, nID constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, kmerlen, extLen int) (epArr [][]constructdbg.DBG_MAX_INT) {
 	type pathExtend struct {
 		Path      []constructdbg.DBG_MAX_INT
 		NID       constructdbg.DBG_MAX_INT
@@ -166,7 +166,7 @@ func GetExtendPathArr(path []constructdbg.DBG_MAX_INT, nID constructdbg.DBG_MAX_
 	}
 
 	return
-}
+}*/
 
 func ReversePathSeqArr(psArr []constructdbg.PathSeq) {
 	la := len(psArr)

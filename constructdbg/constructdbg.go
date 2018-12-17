@@ -2123,6 +2123,26 @@ func CleanDBGEdgeIDComing(nodesArr []DBGNode) {
 	}
 }
 
+func MakeSelfCycleEdgeOutcomingToIncoming(nodesArr []DBGNode, edgesArr []DBGEdge, opt Options) {
+	for i, e := range edgesArr {
+		if i < 2 || e.GetDeleteFlag() > 0 {
+			continue
+		}
+		if e.StartNID == e.EndNID { // self cycle edge
+			nd := nodesArr[e.StartNID]
+			bn := constructcf.GetReadBntKmer(e.Utg.Ks, 0, opt.Kmer-1)
+			if !reflect.DeepEqual(bn.Seq, nd.Seq) {
+				e.Utg.Ks = GetReverseCompByteArr(e.Utg.Ks)
+				ReverseByteArr(e.Utg.Kq)
+			}
+			if (nd.EdgeIDOutcoming[e.Utg.Ks[opt.Kmer-1]] != e.ID) || (nd.EdgeIDIncoming[e.Utg.Ks[len(e.Utg.Ks)-opt.Kmer]] != e.ID) {
+				log.Fatalf("[MakeSelfCycleEdgeOutcomingToIncoming] error cycle edge set, e: %v\n\tv: %v\n", e, nd)
+			}
+
+		}
+	}
+}
+
 func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt Options) {
 	kmerlen := opt.Kmer
 	deleteNodeNum, deleteEdgeNum := 0, 0
@@ -2487,11 +2507,19 @@ func SetDBGEdgesUniqueFlag(edgesArr []DBGEdge, nodesArr []DBGNode) (uniqueNum, s
 		var ea1, ea2 []DBG_MAX_INT
 		if e.StartNID > 0 {
 			nd := nodesArr[e.StartNID]
-			ea1 = GetNearEdgeIDArr(nd, e.ID)
+			if IsInComing(nd.EdgeIDIncoming, e.ID) {
+				ea1 = GetNearEdgeIDArr(nd, e.ID, true)
+			} else {
+				ea1 = GetNearEdgeIDArr(nd, e.ID, false)
+			}
 		}
 		if e.EndNID > 0 {
 			nd := nodesArr[e.EndNID]
-			ea2 = GetNearEdgeIDArr(nd, e.ID)
+			if IsInComing(nd.EdgeIDIncoming, e.ID) {
+				ea2 = GetNearEdgeIDArr(nd, e.ID, true)
+			} else {
+				ea2 = GetNearEdgeIDArr(nd, e.ID, false)
+			}
 		}
 
 		if len(ea1) == 1 && len(ea2) == 1 && ea1[0] == ea2[0] {
@@ -2956,7 +2984,7 @@ func GetSelfCycleNextMapEdgeInfo(eID DBG_MAX_INT, nd DBGNode, edgesArr []DBGEdge
 	return
 }
 
-func MappingReadToEdgesBackWard(dk DBGKmer, ri constructcf.ReadInfo, rpos int, rstrand bool, edgesArr []DBGEdge, nodesArr []DBGNode, kmerlen int, correct bool) (errorNum int, ai AlignInfo) {
+/*func MappingReadToEdgesBackWard(dk DBGKmer, ri constructcf.ReadInfo, rpos int, rstrand bool, edgesArr []DBGEdge, nodesArr []DBGNode, kmerlen int, correct bool) (errorNum int, ai AlignInfo) {
 	var strand bool
 	if dk.Strand != rstrand {
 		dk.Pos += kmerlen
@@ -3139,7 +3167,7 @@ func MappingReadToEdgesBackWard(dk DBGKmer, ri constructcf.ReadInfo, rpos int, r
 		}
 	}
 	return
-}
+}*/
 
 func MappingReadToEdges(dk DBGKmer, ri constructcf.ReadInfo, rpos int, rstrand bool, edgesArr []DBGEdge, nodesArr []DBGNode, kmerlen int, correct bool) (errorNum, mappingNum int, rmi ReadMapInfo) {
 	var strand bool
@@ -3322,7 +3350,7 @@ func MappingReadToEdges(dk DBGKmer, ri constructcf.ReadInfo, rpos int, rstrand b
 	return
 }
 
-func MappingReadToEdgesForWard(dk DBGKmer, ri constructcf.ReadInfo, rpos int, rstrand bool, edgesArr []DBGEdge, nodesArr []DBGNode, Kmerlen int, correct bool) (errorNum int, ai AlignInfo) {
+/*func MappingReadToEdgesForWard(dk DBGKmer, ri constructcf.ReadInfo, rpos int, rstrand bool, edgesArr []DBGEdge, nodesArr []DBGNode, Kmerlen int, correct bool) (errorNum int, ai AlignInfo) {
 	var strand bool
 	if dk.Strand == rstrand {
 		dk.Pos += Kmerlen
@@ -3497,10 +3525,10 @@ func MappingReadToEdgesForWard(dk DBGKmer, ri constructcf.ReadInfo, rpos int, rs
 		}
 	}
 	return
-}
+}*/
 
 // parallel Map NGS reads to the DBG edges, then output alignment path for the DBG
-func paraMapNGS2DBG(cs chan constructcf.ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edgesArr []DBGEdge, cf CuckooFilter, winSize int) {
+/*func paraMapNGS2DBG(cs chan constructcf.ReadInfo, wc chan AlignInfo, nodesArr []DBGNode, edgesArr []DBGEdge, cf CuckooFilter, winSize int) {
 	var notFoundSeedNum, mapOneEdgeNum, notPerfectNum int
 	for {
 		ri, ok := <-cs
@@ -3570,7 +3598,7 @@ func paraMapNGS2DBG(cs chan constructcf.ReadInfo, wc chan AlignInfo, nodesArr []
 	fmt.Printf("[paraMapNGS2DBG] map one edge reads number is : %v\n", mapOneEdgeNum)
 	fmt.Printf("[paraMapNGS2DBG] not perfect mapping reads number is : %v\n", notPerfectNum)
 
-	/*ai.ID = ri.ID
+	ai.ID = ri.ID
 	e := edgesArr[dbgK.ID]
 	var overAll bool // note if overall length match
 	for i < len(ri.Seq)-k {
@@ -3679,10 +3707,10 @@ func paraMapNGS2DBG(cs chan constructcf.ReadInfo, wc chan AlignInfo, nodesArr []
 			dbgK.Pos = uint32(len(e.Utg.Ks) - k)
 		}
 		i = x - k + 1
-	} */
-}
+	}
+}*/
 
-func MapNGS2DBG(opt Options, nodesArr []DBGNode, edgesArr []DBGEdge, wrFn string) {
+/*func MapNGS2DBG(opt Options, nodesArr []DBGNode, edgesArr []DBGEdge, wrFn string) {
 	// construct cuckoofilter of DBG sample
 	cfSize := GetCuckoofilterDBGSampleSize(edgesArr, int64(opt.WinSize), int64(opt.MaxNGSReadLen), int64(opt.Kmer))
 	fmt.Printf("[MapNGS2DBG] cfSize: %v\n", cfSize)
@@ -3712,7 +3740,7 @@ func MapNGS2DBG(opt Options, nodesArr []DBGNode, edgesArr []DBGEdge, wrFn string
 
 	// write function
 	writeAlignToFile(wrFn, wc, numCPU)
-}
+}*/
 
 func AtoiArr(sa []string) []DBG_MAX_INT {
 	da := make([]DBG_MAX_INT, len(sa))
@@ -3812,26 +3840,40 @@ func FindConsisPath(pID DBG_MAX_INT, e DBGEdge) (consisP Path) {
 	return consisP
 }
 
-func GetNearEdgeIDArr(nd DBGNode, eID DBG_MAX_INT) (eArr []DBG_MAX_INT) {
+// coming denote node EdgeIDcoming, true is Outcoming, false is Incoming
+func GetNearEdgeIDArr(nd DBGNode, eID DBG_MAX_INT, coming bool) (eArr []DBG_MAX_INT) {
 	if eID <= 0 {
 		log.Fatalf("[GetNearEdgeIDArr] eID must bigger than zero, eID: %v\n", eID)
 	}
-	in := false
-	for _, id := range nd.EdgeIDIncoming {
-		if id == eID {
-			in = true
-			break
+	var ok bool
+	if coming {
+		for _, id := range nd.EdgeIDIncoming {
+			if id == eID {
+				ok = true
+				break
+			}
+		}
+	} else {
+		for _, id := range nd.EdgeIDOutcoming {
+			if id == eID {
+				ok = true
+				break
+			}
 		}
 	}
-	if in {
+	if !ok {
+		log.Fatalf("[GetNearEdgeIDArr] coming: %v, not found eID: %v, in nd: %v\n", coming, eID, nd)
+	}
+
+	if coming {
 		for _, id := range nd.EdgeIDOutcoming {
-			if id > 0 {
+			if id > 1 {
 				eArr = append(eArr, id)
 			}
 		}
 	} else {
 		for _, id := range nd.EdgeIDIncoming {
-			if id > 0 {
+			if id > 1 {
 				eArr = append(eArr, id)
 			}
 		}
@@ -3851,7 +3893,7 @@ func FreqNumInDBG_MAX_INTArr(arr []DBG_MAX_INT, eID DBG_MAX_INT) (count int) {
 }
 
 // merge DBGEdge's pathMat
-func MergePathMat(edgesArr []DBGEdge, nodesArr []DBGNode, minMapFreq int) {
+/*func MergePathMat(edgesArr []DBGEdge, nodesArr []DBGNode, minMapFreq int) {
 	for i, e := range edgesArr {
 		//if e.GetUniqueFlag() > 0 {
 		//	fmt.Printf("[MergePathMat]unique edge : %v\n", e)
@@ -3909,13 +3951,13 @@ func MergePathMat(edgesArr []DBGEdge, nodesArr []DBGNode, minMapFreq int) {
 		}
 
 		// alignment PathMat
-		/*for j, p := range pm {
+		for j, p := range pm {
 			fmt.Printf("[MergePathMat] pm[%v]: %v\n", j, p)
-		}*/
+		}
 
 		// find consis Path
 		var path Path
-		path.Freq = math.MaxInt64
+		path.Freq = math.MaxInt
 		// add left==0 and right==1 partition
 		for z := 0; z < 2; z++ {
 			var j, step int
@@ -3981,15 +4023,24 @@ func MergePathMat(edgesArr []DBGEdge, nodesArr []DBGNode, minMapFreq int) {
 			edgesArr[i].PathMat = nil
 		}
 	}
-}
+}*/
 
 func IsTwoEdgesCyclePath(edgesArr []DBGEdge, nodesArr []DBGNode, eID DBG_MAX_INT) bool {
 	e := edgesArr[eID]
 	if e.StartNID == 0 || e.EndNID == 0 {
 		return false
 	}
-	arr1 := GetNearEdgeIDArr(nodesArr[e.StartNID], eID)
-	arr2 := GetNearEdgeIDArr(nodesArr[e.EndNID], eID)
+	var arr1, arr2 []DBG_MAX_INT
+	if IsInComing(nodesArr[e.StartNID].EdgeIDIncoming, eID) {
+		arr1 = GetNearEdgeIDArr(nodesArr[e.StartNID], eID, true)
+	} else {
+		arr1 = GetNearEdgeIDArr(nodesArr[e.StartNID], eID, false)
+	}
+	if IsInComing(nodesArr[e.EndNID].EdgeIDIncoming, eID) {
+		arr2 = GetNearEdgeIDArr(nodesArr[e.EndNID], eID, true)
+	} else {
+		arr2 = GetNearEdgeIDArr(nodesArr[e.EndNID], eID, false)
+	}
 	if len(arr1) == 1 && len(arr2) == 1 && arr1[0] == arr2[0] {
 		return true
 	}
@@ -4694,10 +4745,21 @@ func CleanEdgesArr(edgesArr []DBGEdge, nodesArr []DBGNode) (deleteNodeNum, delet
 		if e.ID == 0 || e.GetDeleteFlag() > 0 || e.StartNID == 0 || e.EndNID == 0 {
 			continue
 		}
-		arr := GetNearEdgeIDArr(nodesArr[e.StartNID], e.ID)
-		num := len(arr)
-		arr = GetNearEdgeIDArr(nodesArr[e.EndNID], e.ID)
-		num += len(arr)
+		var num int
+		if IsInComing(nodesArr[e.StartNID].EdgeIDIncoming, e.ID) {
+			arr := GetNearEdgeIDArr(nodesArr[e.StartNID], e.ID, true)
+			num = len(arr)
+		} else {
+			arr := GetNearEdgeIDArr(nodesArr[e.StartNID], e.ID, false)
+			num = len(arr)
+		}
+		if IsInComing(nodesArr[e.EndNID].EdgeIDIncoming, e.ID) {
+			arr := GetNearEdgeIDArr(nodesArr[e.EndNID], e.ID, true)
+			num += len(arr)
+		} else {
+			arr := GetNearEdgeIDArr(nodesArr[e.EndNID], e.ID, false)
+			num += len(arr)
+		}
 		if num == 0 {
 			deleteEdgeNum++
 			edgesArr[i].SetDeleteFlag()
@@ -4864,15 +4926,23 @@ func findPathOverlap(jp Path, pathArr []DBG_MAX_INT, edgesArr []DBGEdge) (id DBG
 	return id, num
 }
 
-func CheckPathDirection(edgesArr []DBGEdge, nodesArr []DBGNode, eID DBG_MAX_INT) {
+/*func CheckPathDirection(edgesArr []DBGEdge, nodesArr []DBGNode, eID DBG_MAX_INT) {
 	e := edgesArr[eID]
 	step := 1
 	var ea1, ea2 []DBG_MAX_INT
 	if e.StartNID > 0 {
-		ea1 = GetNearEdgeIDArr(nodesArr[e.StartNID], eID)
+		if IsInComing(nodesArr[e.StartNID].EdgeIDIncoming, eID) {
+			ea1 = GetNearEdgeIDArr(nodesArr[e.StartNID], eID, true)
+		} else {
+			ea1 = GetNearEdgeIDArr(nodesArr[e.StartNID], eID, false)
+		}
 	}
 	if e.EndNID > 0 {
-		ea2 = GetNearEdgeIDArr(nodesArr[e.EndNID], eID)
+		if IsInComing(nodesArr[e.EndNID].EdgeIDIncoming, eID) {
+			ea2 = GetNearEdgeIDArr(nodesArr[e.EndNID], eID, true)
+		} else {
+			ea2 = GetNearEdgeIDArr(nodesArr[e.EndNID], eID, false)
+		}
 	}
 
 	// found two edge cycle
@@ -4915,7 +4985,7 @@ func CheckPathDirection(edgesArr []DBGEdge, nodesArr []DBGNode, eID DBG_MAX_INT)
 
 	//fmt.Printf("[CheckPathDirection] ea1: %v, ea2: %v, PathMat: %v\n", ea1, ea2, edgesArr[eID].PathMat)
 
-}
+}*/
 
 func AdjustEIDPath(e DBGEdge, joinPathArr []Path, IDMapPath map[DBG_MAX_INT]uint32) (p Path) {
 	ep := e.PathMat[0]
@@ -4979,7 +5049,7 @@ func AdjustEIDPath(e DBGEdge, joinPathArr []Path, IDMapPath map[DBG_MAX_INT]uint
 	return p
 }
 
-func AdjustPathMat(edgesArr []DBGEdge, nodesArr []DBGNode, joinPathArr []Path, IDMapPath map[DBG_MAX_INT]uint32) {
+/*func AdjustPathMat(edgesArr []DBGEdge, nodesArr []DBGNode, joinPathArr []Path, IDMapPath map[DBG_MAX_INT]uint32) {
 
 	// adjust pathMat
 	for i, e := range edgesArr {
@@ -5066,7 +5136,7 @@ func AdjustPathMat(edgesArr []DBGEdge, nodesArr []DBGNode, joinPathArr []Path, I
 		edgesArr[i].PathMat[0] = np
 		fmt.Printf("[AdjustPathMat] before adjust path: %v\n\tafter path: %v\n", p, np)
 	}
-}
+}*/
 
 func IsContainBoundaryArr(a1, a2 []DBG_MAX_INT) bool {
 	if reflect.DeepEqual(a1[:len(a2)], a2) {
@@ -5138,7 +5208,7 @@ func DeleteJoinPathArrEnd(edgesArr []DBGEdge, joinPathArr []Path) {
 	}
 }
 
-func SimplifyByNGS(opt Options, nodesArr []DBGNode, edgesArr []DBGEdge, mapNGSFn string) {
+/*func SimplifyByNGS(opt Options, nodesArr []DBGNode, edgesArr []DBGEdge, mapNGSFn string) {
 	// add to the DBGEdge pathMat
 	AddPathToDBGEdge(edgesArr, mapNGSFn)
 
@@ -5154,10 +5224,10 @@ func SimplifyByNGS(opt Options, nodesArr []DBGNode, edgesArr []DBGEdge, mapNGSFn
 	// because semi-unique path maybe been contained in the uinque path,
 	// that will cause collison when  ReconstructDBG()
 	joinPathArr = append(joinPathArr, joinPathArr1...)
-	/*i := 125
+	i := 125
 	if edgesArr[i].GetDeleteFlag() == 0 {
 		log.Fatalf("[SimplifyByNGS]edgesArr[%v]: %v\n", i, edgesArr[i])
-	}*/
+	}
 	// constuct map edge ID to the path
 	//DeleteJoinPathArrEnd(edgesArr, joinPathArr)
 	ReconstructDBG(edgesArr, nodesArr, joinPathArr, opt.Kmer)
@@ -5166,7 +5236,7 @@ func SimplifyByNGS(opt Options, nodesArr []DBGNode, edgesArr []DBGEdge, mapNGSFn
 	//GraphvizDBGArr(nodesArr, edgesArr, graphfn)
 
 	//AdjustPathMat(edgesArr, nodesArr, joinPathArr, IDMapPath)
-}
+}*/
 
 func CheckInterConnectivity(edgesArr []DBGEdge, nodesArr []DBGNode) {
 	for _, e := range edgesArr {
@@ -5316,6 +5386,7 @@ func Smfy(c cli.Command) {
 
 	t1 := time.Now()
 	SmfyDBG(nodesArr, edgesArr, opt)
+	MakeSelfCycleEdgeOutcomingToIncoming(nodesArr, edgesArr, opt)
 	// set the unique edge of edgesArr
 	uniqueNum, semiUniqueNum := SetDBGEdgesUniqueFlag(edgesArr, nodesArr)
 	//CheckInterConnectivity(edgesArr, nodesArr)

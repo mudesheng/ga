@@ -409,6 +409,7 @@ func WriteKmer(wrfn string, wc <-chan KmerBntBucket, Kmerlen, numCPU int) {
 	}
 	defer outfp.Close()
 	brfp := cbrotli.NewWriter(outfp, cbrotli.WriterOptions{Quality: 1})
+	defer brfp.Close()
 	// bufwriter := bufio.NewWriter(gzwriter)
 	// defer outfp.Close()
 	buffp := bufio.NewWriterSize(brfp, 1<<25)
