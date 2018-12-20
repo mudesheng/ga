@@ -36,7 +36,7 @@ var app = cli.New("1.0.0", "Graph Assembler for complex genome", func(c cli.Comm
 
 func init() {
 	go func() {
-		log.Println(http.ListenAndServe("localhost:6060", nil))
+		log.Println(http.ListenAndServe("localhost:6090", nil))
 	}()
 	app.DefineStringFlag("C", "ga.cfg", "configure file")
 	app.DefineStringFlag("cpuprofile", "cpu.prof", "write cpu profile to file")

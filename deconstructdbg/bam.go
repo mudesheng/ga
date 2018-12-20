@@ -1198,6 +1198,11 @@ func GetChainArr(interSecArr []Chain, seedKmerLen uint32) (chainA []Chain) {
 	return
 }
 
+func GetMaxChainArr(interSecArr []Chain, seedKmerLen uint32) (maxChainArr []Chain) {
+
+	return
+}
+
 type CIGAR struct {
 	Ins, Del, Mis, Mch uint32
 }
@@ -1608,9 +1613,10 @@ func DPAlignEdgePathExtend(pathSeq, readSeq []byte, edgesArr []constructdbg.DBGE
 	}*/
 	interSecArr := GetInterSection(listA, listB, seedKmerLen)
 	sort.Sort(ChainArr(interSecArr))
-	//for i, ch := range interSecArr {
-	//fmt.Printf("[GetChainArr] interSecArr[%v]: %v\n", i, ch)
-	//}
+	for i, ch := range interSecArr {
+		fmt.Printf("[GetChainArr] interSecArr[%v]: %v\n", i, ch)
+	}
+	//maxChain := GetMaxChainArr(interSecArr, seedKmerLen)
 	chainA := GetChainArr(interSecArr, seedKmerLen)
 	chainScore = GetChainScore(chainA)
 	//fmt.Printf("[DPAlignEdgePath] chainScore: %v\n", chainScore)
@@ -1646,9 +1652,9 @@ func GetMinLen(ea []constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, k
 	return
 }
 
-func IndexCigarArr(arr []CIGAR, item int) int {
+func IndexCigarArr(arr []CIGAR, score int) int {
 	for i, v := range arr {
-		if item == int(v.Mch)-int(v.Del)-int(v.Ins)-int(v.Mis) {
+		if score == int(v.Mch) {
 			return i
 		}
 	}

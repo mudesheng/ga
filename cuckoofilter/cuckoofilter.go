@@ -18,9 +18,11 @@ import (
 	//"log"
 
 	//"strings"
+	"encoding/binary"
 	"encoding/gob"
 
-	"github.com/mudesheng/highwayhash"
+	"github.com/mudesheng/ga/cbrotli"
+	//"github.com/mudesheng/highwayhash"
 	// "syscall"
 )
 
@@ -34,7 +36,7 @@ const (
 
 const BucketSize = 4
 const MaxLoad = 0.95
-const KMaxCount = 512
+const KMaxCount = 500000
 
 // KEY used for highwayhash function, must len(KEY) == 32
 //var KEY = []byte{35, 158, 189, 243, 123, 39, 95, 219, 58, 253, 127, 163, 91, 235, 248, 177, 139, 67, 229, 171, 195, 81, 95, 149, 191, 249, 148, 45, 155, 235}
@@ -58,7 +60,7 @@ type Bucket struct {
 
 type CuckooFilter struct {
 	Hash     []Bucket
-	numItems uint64
+	NumItems uint64
 	Kmerlen  int
 }
 
@@ -86,30 +88,50 @@ func MakeCuckooFilter(maxNumKeys uint64, kmerLen int) (cf CuckooFilter) {
 	} */
 
 	cf.Hash = make([]Bucket, numBuckets)
-	cf.numItems = numBuckets * BucketSize
+	cf.NumItems = numBuckets
 	cf.Kmerlen = kmerLen
-	fmt.Printf("[MakeCuckooFilter]cf items number is: %d\n", cf.numItems)
+	fmt.Printf("[MakeCuckooFilter]cf items number is: %d\n", cf.NumItems)
 
 	return cf
 
 }
 
 func (cf CuckooFilter) IndexHash(v uint64) uint64 {
-	v = (v >> 37) ^ (v >> 27) ^ v
+	//v = (v >> 37) ^ (v >> 27) ^ v
 
-	return v % uint64(len(cf.Hash))
+	return v % uint64(cf.NumItems)
 }
 
-func FingerHash(v uint64) uint16 {
-	v = (v >> 47) ^ (v >> 33) ^ (v >> 19) ^ (v >> 13) ^ v
-	v &= FPMASK
-	return uint16(v)
+func FingerHash(x []uint64) uint16 {
+	//v = (v >> 47) ^ (v >> 33) ^ (v >> 19) ^ (v >> 13) ^ v
+	m := uint64(0xc6a4a7935bd1e995)
+	var hash uint64
+	hash = 0x5bd1e995
+	for i := len(x) - 1; i >= 0; i-- {
+		a := x[i]
+		hash ^= (a & FPMASK)
+		hash *= m
+		a >>= 14 // NUM_FP_BITS
+		hash ^= (a & FPMASK)
+		hash *= m
+		a >>= 14 // NUM_FP_BITS
+		hash ^= (a & FPMASK)
+		hash *= m
+		a >>= 14 // NUM_FP_BITS
+		hash ^= (a & FPMASK)
+		hash *= m
+		a >>= 14
+		hash ^= (a & FPMASK)
+		hash *= m
+	}
+
+	return uint16(hash & FPMASK)
 }
 
 func (cf CuckooFilter) AltIndex(index uint64, finger uint16) uint64 {
 	index ^= uint64(finger)
 
-	return index % uint64(len(cf.Hash))
+	return index % uint64(cf.NumItems)
 }
 
 func combineCFItem(fp uint16, count uint16) (cfi CFItem) {
@@ -269,28 +291,46 @@ func (cf CuckooFilter) Add(index uint64, fingerprint uint16) (oldcount int, succ
 
 	return v
 }*/
+const FnvPrime = uint64(1099511628211)
+const FnvOffsetBias = uint64(14695981039346656037)
+const MASK32 = (1 << 32) - 1
+
+func HashUint64Arr(arr []uint64, len int) uint64 {
+	hash := FnvOffsetBias
+	for i := 0; i < len; i++ {
+		hash ^= (arr[i] & MASK32)
+		hash *= FnvPrime
+		hash ^= (arr[i] >> 32)
+		hash *= FnvPrime
+	}
+	return hash
+}
+
+var key = []uint64{uint64(0x32b87ef98934abcf), uint64(0x4f4f28a7931afc1b), uint64(0xf56a8aa814946e08), uint64(0xefebe623f41cd45d)}
 
 // return last count of kmer fingerprint and have been successed inserted
 func (cf CuckooFilter) Insert(kb []uint64) (int, bool) {
+	fingerprint := FingerHash(kb)
+	//hash := highwayhash.SumInput64Arr64(kb, key)
+
 	//hk := sha1.Sum(kb)
 	//v := hk2uint64(hk)
-	v := highwayhash.SumInput64Arr64(kb, KEY)
-
+	hash := HashUint64Arr(kb, len(kb))
 	//fmt.Printf("%v\t", v)
-	index := cf.IndexHash(v)
-	fingerprint := FingerHash(v)
-	//fmt.Printf("[cf.Insert]%v\t%v\n", index, fingerprint)
+	index := cf.IndexHash(hash)
+	//fmt.Printf("[cf.Insert]index: %v\tfinger: %v\n", index, fingerprint)
 	//fmt.Printf(" sizeof cuckoofilter.Hash[0] : %d\n", unsafe.Sizeof(cf.Hash[0]))
 
 	return cf.Add(index, fingerprint)
 }
 
 func (cf CuckooFilter) Lookup(kb []uint64) bool {
+	fingerprint := FingerHash(kb)
 	//hk := sha1.Sum(kb)
 	//v := hk2uint64(hk)
-	v := highwayhash.SumInput64Arr64(kb, KEY)
-	index := cf.IndexHash(v)
-	fingerprint := FingerHash(v)
+	hash := HashUint64Arr(kb, len(kb))
+	//hash := highwayhash.SumInput64Arr64(kb, key)
+	index := cf.IndexHash(hash)
 
 	if cf.Hash[index].Contain(fingerprint) {
 		return true
@@ -301,11 +341,13 @@ func (cf CuckooFilter) Lookup(kb []uint64) bool {
 }
 
 func (cf CuckooFilter) GetCount(kb []uint64) uint16 {
+	fingerprint := FingerHash(kb)
 	//hk := sha1.Sum(kb)
 	//v := hk2uint64(hk)
-	v := highwayhash.SumInput64Arr64(kb, KEY)
-	index := cf.IndexHash(v)
-	fingerprint := FingerHash(v)
+	//v := highwayhash.SumInput64Arr64(kb, KEY)
+	hash := HashUint64Arr(kb, len(kb))
+	//hash := highwayhash.SumInput64Arr64(kb, key)
+	index := cf.IndexHash(hash)
 	for _, item := range cf.Hash[index].Bkt {
 		// fmt.Printf("index: %v, finger: %v\n", index, item.GetFinger())
 		if item.GetFinger() == fingerprint {
@@ -327,13 +369,15 @@ func (cf CuckooFilter) GetCount(kb []uint64) uint16 {
 
 /* allow function return zero version if kb not found in the CuckooFilter */
 func (cf CuckooFilter) GetCountAllowZero(kb []uint64) uint16 {
+	fingerprint := FingerHash(kb)
 	//hk := sha1.Sum(kb)
 	//v := hk2uint64(hk)
-	v := highwayhash.SumInput64Arr64(kb, KEY)
+	//v := highwayhash.SumInput64Arr64(kb, KEY)
+	hash := HashUint64Arr(kb, len(kb))
 	// fmt.Printf("[GetCountAllowZero] len(cf.Hash): %d\n", len(cf.Hash))
 	// fmt.Printf("[GetCountAllowZero] cf.Hash[0]: %v\n", cf.Hash[0])
-	index := cf.IndexHash(v)
-	fingerprint := FingerHash(v)
+	//hash := highwayhash.SumInput64Arr64(kb, key)
+	index := cf.IndexHash(hash)
 	for _, item := range cf.Hash[index].Bkt {
 		// fmt.Printf("index: %v, finger: %v\n", index, item.GetFinger())
 		if item.GetFinger() == fingerprint {
@@ -363,7 +407,7 @@ func (cf CuckooFilter) GetStat() {
 		}
 	}
 	fmt.Printf("count statisticas : %v\n", ca)
-	fmt.Printf("cuckoofilter numItems : %d, countItems: %d, load: %f\n", cf.numItems, countItems, float64(countItems)/float64(cf.numItems))
+	fmt.Printf("cuckoofilter numItems : %d, countItems: %d, load: %f\n", cf.NumItems, countItems, float64(countItems)/float64(cf.NumItems*BucketSize))
 }
 
 func (cf CuckooFilter) MmapWriter(cfmmapfn string) error {
@@ -373,8 +417,12 @@ func (cf CuckooFilter) MmapWriter(cfmmapfn string) error {
 	}
 	defer cfmmapfp.Close()
 
+	cbrofp := cbrotli.NewWriter(cfmmapfp, cbrotli.WriterOptions{Quality: 1})
+	defer cbrofp.Close()
+	buffp := bufio.NewWriterSize(cbrofp, 1<<25) // 1<<24 == 2**24
+
 	// write cuckoofilter to the memory map file
-	enc := gob.NewEncoder(cfmmapfp)
+	enc := gob.NewEncoder(buffp)
 	err = enc.Encode(cf)
 	if err != nil {
 		return err
@@ -386,6 +434,46 @@ func (cf CuckooFilter) MmapWriter(cfmmapfn string) error {
 	if n != cf.numItems*unsafe.Sizeof(bucket) {
 		log.Fatal("write byte number is not equal cf size")
 	}*/
+	if err := buffp.Flush(); err != nil {
+		log.Fatalf("[MmapWriter] failed to flush file: %s, err: %v\n", cfmmapfn, err)
+	}
+
+	if err := cbrofp.Flush(); err != nil {
+		log.Fatalf("[MmapWriter] failed to flush file: %s, err: %v\n", cfmmapfn, err)
+	}
+
+	return nil
+}
+
+func (cf CuckooFilter) HashWriter(cffn string) (err error) {
+	cffp, err := os.Create(cffn)
+	if err != nil {
+		return err
+	}
+	defer cffp.Close()
+
+	cbrofp := cbrotli.NewWriter(cffp, cbrotli.WriterOptions{Quality: 1})
+	defer cbrofp.Close()
+	buffp := bufio.NewWriterSize(cbrofp, 1<<25) // 1<<24 == 2**24
+
+	// write cuckoofilter to the memory map file
+	for _, b := range cf.Hash {
+		err = binary.Write(buffp, binary.LittleEndian, b)
+		if err != nil {
+			return err
+		}
+	}
+
+	/*if n != cf.numItems*unsafe.Sizeof(bucket) {
+		log.Fatal("write byte number is not equal cf size")
+	}*/
+	if err := buffp.Flush(); err != nil {
+		log.Fatalf("[MmapWriter] failed to flush file: %s, err: %v\n", cffn, err)
+	}
+
+	if err := cbrofp.Flush(); err != nil {
+		log.Fatalf("[MmapWriter] failed to flush file: %s, err: %v\n", cffn, err)
+	}
 
 	return nil
 }
@@ -397,7 +485,7 @@ func (cf CuckooFilter) WriteCuckooFilterInfo(cfinfofn string) error {
 	}
 	defer cfinfofp.Close()
 
-	_, err = cfinfofp.WriteString(fmt.Sprintf("numItems\t%d\n", cf.numItems))
+	_, err = cfinfofp.WriteString(fmt.Sprintf("NumItems\t%d\n", cf.NumItems))
 	if err != nil {
 		return err
 	}
@@ -409,8 +497,10 @@ func (cf CuckooFilter) WriteCuckooFilterInfo(cfinfofn string) error {
 	return nil
 }
 
-func RecoverCuckooFilterInfo(cfinfofn string) (cf CuckooFilter, err error) {
+func RecoverCuckooFilterInfo(cfinfofn string) (CuckooFilter, error) {
 	var cfinfofp *os.File
+	var err error
+	var cf CuckooFilter
 	cfinfofp, err = os.Open(cfinfofn)
 	if err != nil {
 		return cf, err
@@ -430,7 +520,7 @@ func RecoverCuckooFilterInfo(cfinfofn string) (cf CuckooFilter, err error) {
 	}
 	// var num int
 	// fmt.Printf("[RecoverCuckooFilterInfo] line: %s\n", line)
-	_, err = fmt.Sscanf(line, "numItems\t%d\n", &cf.numItems)
+	_, err = fmt.Sscanf(line, "NumItems\t%d\n", &cf.NumItems)
 	if err != nil {
 		return cf, err
 	}
@@ -443,7 +533,11 @@ func RecoverCuckooFilterInfo(cfinfofn string) (cf CuckooFilter, err error) {
 		err = nil
 	}
 
-	return
+	if cf.NumItems == 0 || cf.NumItems%2 != 0 {
+		log.Fatalf("[RecoverCuckooFilterInfo] cf.NumItems: %v, error\n", cf.NumItems)
+	}
+
+	return cf, err
 }
 
 func MmapReader(cfmmapfn string) (cf CuckooFilter, err error) {
@@ -455,7 +549,11 @@ func MmapReader(cfmmapfn string) (cf CuckooFilter, err error) {
 		return cf, err
 	}
 	defer cfmmapfp.Close()
-	dec := gob.NewDecoder(cfmmapfp)
+	brfp := cbrotli.NewReaderSize(cfmmapfp, 1<<25)
+	defer brfp.Close()
+	buffp := bufio.NewReader(brfp)
+
+	dec := gob.NewDecoder(buffp)
 	err = dec.Decode(&cf)
 	if err != nil {
 		log.Fatalf("[MmapReader] err : %v\n", err)
@@ -471,4 +569,29 @@ func MmapReader(cfmmapfn string) (cf CuckooFilter, err error) {
 	// cf.Hash = []Bucket(mmap)
 
 	return cf, nil
+}
+
+func (cf CuckooFilter) HashReader(cffn string) error {
+	// if cf.numItems <= 0 {
+	// 	log.Fatal("CuckooFilter number is <=0, please check")
+	// }
+	cffp, err := os.Open(cffn)
+	if err != nil {
+		return err
+	}
+	defer cffp.Close()
+	brfp := cbrotli.NewReaderSize(cffp, 1<<25)
+	defer brfp.Close()
+	buffp := bufio.NewReader(brfp)
+
+	// read hash array
+	fmt.Printf("[HashReader]cf.NumItems: %v, len(cf.Hash): %v, cf.Kmerlen: %v\n", cf.NumItems, len(cf.Hash), cf.Kmerlen)
+	for i := 0; i < int(cf.NumItems); i++ {
+		err := binary.Read(buffp, binary.LittleEndian, &cf.Hash[i])
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

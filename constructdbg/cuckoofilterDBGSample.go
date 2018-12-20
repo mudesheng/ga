@@ -24,7 +24,7 @@ const (
 
 const BucketSize = 4
 const MaxLoad = 0.95
-const KMaxCount = 512
+const KMaxCount = 1024
 
 //const MAXFREQ = math.MaxUint16
 
@@ -33,11 +33,11 @@ const KMaxCount = 512
 type CFItem uint16
 
 type DBGKmer struct {
+	ID     DBG_MAX_INT
+	Pos    int32
 	Item   CFItem
 	Strand bool
 	//Freq uint16
-	ID  DBG_MAX_INT
-	Pos int
 }
 
 /* type cfitem struct {
@@ -261,7 +261,7 @@ func (cf CuckooFilter) Insert(kb []byte, id DBG_MAX_INT, pos uint32, strand bool
 	var dbgK DBGKmer
 	dbgK.setCFItem(uint16(fingerprint), 1)
 	dbgK.ID = id
-	dbgK.Pos = int(pos)
+	dbgK.Pos = int32(pos)
 	dbgK.Strand = strand
 	//fmt.Printf("[cf.Insert]fingerprint: %v\tindex: %v\tdbgK.%v\n", fingerprint, index, dbgK)
 	//fmt.Printf(" sizeof cuckoofilter.Hash[0] : %d\n", unsafe.Sizeof(cf.Hash[0]))
@@ -278,7 +278,7 @@ func (cf CuckooFilter) Lookup(kb []byte, edgesArr []DBGEdge) (dbgK DBGKmer, coun
 		return
 	} else if len(da) == 1 {
 		d := da[0]
-		eb := edgesArr[d.ID].Utg.Ks[d.Pos : d.Pos+cf.Kmerlen]
+		eb := edgesArr[d.ID].Utg.Ks[d.Pos : int(d.Pos)+cf.Kmerlen]
 		//fmt.Printf("[cf.Lookup]\n\tkb: %v\n\teb: %v\n", kb, eb)
 		if d.Strand == MINUS {
 			eb = GetReverseCompByteArr(eb)
@@ -294,7 +294,7 @@ func (cf CuckooFilter) Lookup(kb []byte, edgesArr []DBGEdge) (dbgK DBGKmer, coun
 		//fmt.Printf("[cf.Lookup]\n\tkb: %v\n", kb)
 		for _, d := range da {
 			//fmt.Printf("[Lookup] fingerprint: %v\td: %v\n\tedgesArr[%v]: %v\n", d.GetFinger(), d, d.ID, edgesArr[d.ID])
-			eb := edgesArr[d.ID].Utg.Ks[d.Pos : d.Pos+cf.Kmerlen]
+			eb := edgesArr[d.ID].Utg.Ks[d.Pos : int(d.Pos)+cf.Kmerlen]
 			if d.Strand == MINUS {
 				eb = GetReverseCompByteArr(eb)
 			}
