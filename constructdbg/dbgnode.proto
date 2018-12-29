@@ -1,0 +1,25 @@
+syntax = "proto3";
+package constructdbg;
+
+message DBGNodeInfo {
+  uint32 ID = 1;
+  repeated uint32 EdgeIDIncoming = 2;
+  repeated uint32 EdgeIDOutcoming = 3;
+  repeated uint64 Seq = 4;
+  uint32 Flag = 5;
+  uint32  SubGID = 6;
+}
+
+message DBGNodeArr {
+  repeated DBGNodeInfo arr = 1;
+}
+
+message ReadPath {
+  uint32 ReadID = 1;
+  repeated uint32 Path0 = 2;
+  repeated uint32 Path1 = 3;
+}
+
+message PathArr {
+  repeated ReadPath arr = 1;
+}

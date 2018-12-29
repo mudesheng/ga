@@ -57,7 +57,7 @@ type CfgInfo struct {
 
 // KmerBnt compact kmer base sequence to the uint64 Array
 type KmerBnt struct {
-	Seq []uint64
+	Seq []byte
 	Len int // length of Sequence
 }
 
@@ -83,7 +83,7 @@ type ReadInfo struct {
 	state   chan int // note if goroutinue can return
 } */
 
-func (k1 KmerBnt) BiggerThan(k2 KmerBnt) bool {
+/*func (k1 KmerBnt) BiggerThan(k2 KmerBnt) bool {
 	if k1.Len < k2.Len {
 		return false
 	} else if k1.Len > k2.Len {
@@ -99,7 +99,7 @@ func (k1 KmerBnt) BiggerThan(k2 KmerBnt) bool {
 	}
 
 	return false
-}
+}*/
 
 /*func (s1 ReadBnt) Equal(s2 ReadBnt) bool {
 	if s1.Length != s2.Length {
@@ -203,34 +203,33 @@ func ParseCfg(fn string, correct bool) (cfgInfo CfgInfo, e error) {
 	return
 }
 
-func ExtendKmerBnt2Byte(rb KmerBnt) (extRB []byte) {
-	if rb.Len <= 0 || len(rb.Seq) == 0 {
-		log.Fatalf("[ExtendKmerBnt2Byte] rb: %v\n", rb)
+func ExtendKmerBnt2Byte(kb []uint64, kmerlen int) (extRB []byte) {
+	if kmerlen <= 0 || len(kb) == 0 {
+		log.Fatalf("[ExtendKmerBnt2Byte] rb: %v\n", kb)
 	}
-	extRB = make([]byte, rb.Len)
-	var crb KmerBnt
-	crb.Len = rb.Len
-	crb.Seq = make([]uint64, len(rb.Seq))
-	copy(crb.Seq, rb.Seq)
+	extRB = make([]byte, kmerlen)
+
+	tmp := make([]uint64, kmerlen)
+	copy(tmp, kb)
 	// fmt.Printf("[ExtendReadBnt2Byte] rb: %v, crb: %v\n", rb, crb)
 
-	for i := crb.Len - 1; i >= 0; i-- {
-		base := crb.Seq[i/bnt.NumBaseInUint64] & bnt.BaseMask
+	for i := kmerlen - 1; i >= 0; i-- {
+		base := tmp[i/bnt.NumBaseInUint64] & bnt.BaseMask
 		extRB[i] = uint8(base)
-		crb.Seq[i/bnt.NumBaseInUint64] >>= bnt.NumBitsInBase
+		tmp[i/bnt.NumBaseInUint64] >>= bnt.NumBitsInBase
 	}
 
 	return extRB
 }
 
-func GetReadBntKmer(seq []byte, startPos, kmerlen int) (kBnt KmerBnt) {
-	kBnt.Len = kmerlen
-	kBnt.Seq = make([]uint64, (kBnt.Len+bnt.NumBaseInUint64-1)/bnt.NumBaseInUint64)
+func GetReadBntKmer(seq []byte, startPos, kmerlen int) (sb []uint64) {
+	//kBnt.Len = kmerlen
+	sb = make([]uint64, (kmerlen+bnt.NumBaseInUint64-1)/bnt.NumBaseInUint64)
 	//fmt.Printf("[GetReadBntKmer] len(seq): %d, seq: %v\n\tstartPos: %d, kmerlen: %d\n", len(seq), seq, startPos, kmerlen)
 
 	for i := 0; i < kmerlen; i++ {
-		kBnt.Seq[i/bnt.NumBaseInUint64] <<= bnt.NumBitsInBase
-		kBnt.Seq[i/bnt.NumBaseInUint64] |= uint64(seq[i+startPos])
+		sb[i/bnt.NumBaseInUint64] <<= bnt.NumBitsInBase
+		sb[i/bnt.NumBaseInUint64] |= uint64(seq[i+startPos])
 	}
 
 	return
@@ -240,51 +239,35 @@ func NoAllocGetReadBntKmer(seq []byte, startPos, kmerlen int, kb KmerBnt) KmerBn
 	kb.Len = kmerlen
 	//kBnt.Seq = make([]uint64, (kBnt.Len+bnt.NumBaseInUint64-1)/bnt.NumBaseInUint64)
 	//fmt.Printf("[GetReadBntKmer] len(seq): %d, seq: %v\n\tstartPos: %d, kmerlen: %d\n", len(seq), seq, startPos, kmerlen)
-	for i := 0; i < len(kb.Seq); i++ {
-		kb.Seq[i] = 0
-	}
-	for i := 0; i < kmerlen; i++ {
-		kb.Seq[i/bnt.NumBaseInUint64] <<= bnt.NumBitsInBase
-		kb.Seq[i/bnt.NumBaseInUint64] |= uint64(seq[i+startPos])
-	}
+	copy(kb.Seq, seq[startPos:startPos+kmerlen])
 
 	return kb
 }
 
-func ReverseComplet(ks KmerBnt) (rs KmerBnt) {
-	rs.Len = ks.Len
-	rs.Seq = make([]uint64, len(ks.Seq))
-	var tmp KmerBnt
-	tmp.Len = ks.Len
-	tmp.Seq = make([]uint64, len(ks.Seq))
-	copy(tmp.Seq, ks.Seq)
-	for i := tmp.Len - 1; i >= 0; i-- {
-		base := tmp.Seq[i/bnt.NumBaseInUint64] & bnt.BaseMask
-		tmp.Seq[i/bnt.NumBaseInUint64] >>= bnt.NumBitsInBase
-		rs.Seq[(rs.Len-i-1)/bnt.NumBaseInUint64] <<= bnt.NumBitsInBase
-		rs.Seq[(rs.Len-i-1)/bnt.NumBaseInUint64] |= uint64(bnt.BntRev[base])
+func ReverseCompletBnt(kb []uint64, klen int) (rb []uint64) {
+	rb = make([]uint64, len(kb))
+	tmp := make([]uint64, len(kb))
+	copy(tmp, kb)
+	for i := klen - 1; i >= 0; i-- {
+		base := tmp[i/bnt.NumBaseInUint64] & bnt.BaseMask
+		tmp[i/bnt.NumBaseInUint64] >>= bnt.NumBitsInBase
+		rb[(klen-i-1)/bnt.NumBaseInUint64] <<= bnt.NumBitsInBase
+		rb[(klen-i-1)/bnt.NumBaseInUint64] |= uint64(bnt.BntRev[base])
 	}
-	return rs
+	return
 }
 
-func NoAllocReverseComplet(kb, rb, tb KmerBnt) KmerBnt {
+func GetReverseComplet(kb KmerBnt) KmerBnt {
+	var rb KmerBnt
 	rb.Len = kb.Len
-	tb.Len = kb.Len
-	copy(tb.Seq, kb.Seq)
-	for i := 0; i < len(rb.Seq); i++ {
-		rb.Seq[i] = 0
+	rb.Seq = make([]byte, rb.Len)
+	for i := 0; i < kb.Len; i++ {
+		rb.Seq[kb.Len-1-i] = bnt.BntRev[kb.Seq[i]]
 	}
-	for i := tb.Len - 1; i >= 0; i-- {
-		base := tb.Seq[i/bnt.NumBaseInUint64] & bnt.BaseMask
-		tb.Seq[i/bnt.NumBaseInUint64] >>= bnt.NumBitsInBase
-		rb.Seq[(rb.Len-i-1)/bnt.NumBaseInUint64] <<= bnt.NumBitsInBase
-		rb.Seq[(rb.Len-i-1)/bnt.NumBaseInUint64] |= uint64(bnt.BntRev[base])
-	}
-
 	return rb
 }
 
-func DeleteLastBaseKmer(kb KmerBnt) (dk KmerBnt, base uint64) {
+/*func DeleteLastBaseKmer(kb KmerBnt) (dk KmerBnt, base uint64) {
 	nLen := (kb.Len + bnt.NumBaseInUint64 - 1) / bnt.NumBaseInUint64
 	dk.Len = kb.Len - 1
 	base = kb.Seq[nLen-1] & bnt.BaseMask
@@ -297,9 +280,9 @@ func DeleteLastBaseKmer(kb KmerBnt) (dk KmerBnt, base uint64) {
 		dk.Seq[nLen-1] >>= bnt.NumBitsInBase
 	}
 	return
-}
+}*/
 
-func DeleteFirstBaseKmer(kb KmerBnt) (dk KmerBnt, base uint64) {
+/*func DeleteFirstBaseKmer(kb KmerBnt) (dk KmerBnt, base uint64) {
 	nLen := (kb.Len + bnt.NumBaseInUint64 - 1) / bnt.NumBaseInUint64
 	dk.Len = kb.Len - 1
 	seqLen := (dk.Len + bnt.NumBaseInUint64 - 1) / bnt.NumBaseInUint64
@@ -320,9 +303,9 @@ func DeleteFirstBaseKmer(kb KmerBnt) (dk KmerBnt, base uint64) {
 	}
 
 	return
-}
+}*/
 
-func GetNextKmer(kb KmerBnt, base uint64, kmerlen int) (next KmerBnt) {
+/*func GetNextKmer(kb KmerBnt, base uint64, kmerlen int) (next KmerBnt) {
 	nLen := (kmerlen + bnt.NumBaseInUint64 - 1) / bnt.NumBaseInUint64
 	next.Len = kmerlen
 	next.Seq = make([]uint64, nLen)
@@ -432,15 +415,37 @@ func NoAllocGetPreviousKmer(rb1, rb2 KmerBnt, base uint64, kmerlen int) KmerBnt 
 		}
 	}
 	return rb2
+}*/
+
+func BiggerThan(kb, rb []byte) bool {
+	if len(kb) != len(rb) {
+		log.Fatalf("[BiggerThan]len(kb):%v != len(rb):%v\n", len(kb), len(rb))
+	}
+	for i := 0; i < len(kb); i++ {
+		if kb[i] > rb[i] {
+			return true
+		} else if kb[i] < rb[i] {
+			return false
+		}
+	}
+	return false
+}
+
+func BiggerThanBnt(kb, rb []uint64) bool {
+	if len(kb) != len(rb) {
+		log.Fatalf("[BiggerThan]len(kb):%v != len(rb):%v\n", len(kb), len(rb))
+	}
+	for i := 0; i < len(kb); i++ {
+		if kb[i] > rb[i] {
+			return true
+		} else if kb[i] < rb[i] {
+			return false
+		}
+	}
+	return false
 }
 
 func ParaConstructCF(cf cuckoofilter.CuckooFilter, cs <-chan ReadSeqBucket, wc chan<- KmerBntBucket) {
-	var kb1, kb2, rb1, rb2, tb KmerBnt
-	kb1.Seq = make([]uint64, (cf.Kmerlen+bnt.NumBaseInUint64-1)/bnt.NumBaseInUint64)
-	kb2.Seq = make([]uint64, (cf.Kmerlen+bnt.NumBaseInUint64-1)/bnt.NumBaseInUint64)
-	rb1.Seq = make([]uint64, (cf.Kmerlen+bnt.NumBaseInUint64-1)/bnt.NumBaseInUint64)
-	rb2.Seq = make([]uint64, (cf.Kmerlen+bnt.NumBaseInUint64-1)/bnt.NumBaseInUint64)
-	tb.Seq = make([]uint64, (cf.Kmerlen+bnt.NumBaseInUint64-1)/bnt.NumBaseInUint64)
 	var wrsb KmerBntBucket
 	for {
 		rsb, ok := <-cs
@@ -459,16 +464,21 @@ func ParaConstructCF(cf cuckoofilter.CuckooFilter, cs <-chan ReadSeqBucket, wc c
 			rBntSeq := rsb.ReadBuf[i]
 			//fmt.Printf("[ParaConstructCF]rBntSeq :%v\n", rBntSeq)
 			lenS := len(rBntSeq)
-			kb1 = NoAllocGetReadBntKmer(rBntSeq, 0, cf.Kmerlen-1, kb1)
-			rb1 = NoAllocReverseComplet(kb1, rb1, tb)
+			var Bnt KmerBnt
+			Bnt.Len = len(rBntSeq)
+			Bnt.Seq = rBntSeq
+			//kb1 = NoAllocGetReadBntKmer(rBntSeq, 0, cf.Kmerlen-1, kb1)
+			cBntSeq := GetReverseComplet(Bnt)
 			/*ks := GetReadBntKmer(rBntSeq, 0, cf.Kmerlen-1)
 			rs := ReverseComplet(ks)
 			if !reflect.DeepEqual(kb1.Seq, ks.Seq) {
 				log.Fatalf("[ParaConstructCF]kb1.Seq: %v != ks.Seq: %v\n", kb1, ks)
 			}*/
-			for j := cf.Kmerlen - 1; j < lenS; j++ {
-				kb2 = NoAllocGetNextKmer(kb1, kb2, uint64(rBntSeq[j]), cf.Kmerlen)
-				rb2 = NoAllocGetPreviousKmer(rb1, rb2, uint64(bnt.BntRev[rBntSeq[j]]), cf.Kmerlen)
+			for j := 0; j < lenS-(cf.Kmerlen-1); j++ {
+				kb := rBntSeq[j : j+cf.Kmerlen]
+				rb := cBntSeq.Seq[cBntSeq.Len-cf.Kmerlen-j : cBntSeq.Len-j]
+				//kb2 = NoAllocGetNextKmer(kb1, kb2, uint64(rBntSeq[j]), cf.Kmerlen)
+				//rb2 = NoAllocGetPreviousKmer(rb1, rb2, uint64(bnt.BntRev[rBntSeq[j]]), cf.Kmerlen)
 				/*ks = GetNextKmer(ks, uint64(rBntSeq[j]), cf.Kmerlen)
 					rs = GetPreviousKmer(rs, uint64(bnt.BntRev[rBntSeq[j]]), cf.Kmerlen)
 					if !reflect.DeepEqual(kb2.Seq, ks.Seq) {
@@ -483,12 +493,12 @@ func ParaConstructCF(cf cuckoofilter.CuckooFilter, cs <-chan ReadSeqBucket, wc c
 				  extRBntrb2 := ExtendKmerBnt2Byte(rb2)
 				  fmt.Printf("[ParaConstructCF] j: %d, rBntSeq[j]: %v\n\tkb1: %v\n\tkb2: %v\n\trb1: %v\n\trb2: %v\n", j, rBntSeq[j], extRBntkb1, extRBntkb2, extRBntrb1, extRBntrb2)
 				*/
-				min := kb2
-				if kb2.BiggerThan(rb2) {
-					min = rb2
+				min := kb
+				if BiggerThan(kb, rb) {
+					min = rb
 				}
 				//fmt.Printf("ks: %v, rs: %v\n", ks, rs)
-				count, suc := cf.Insert(min.Seq)
+				count, suc := cf.Insert(min)
 				if suc == false {
 					log.Fatal("[ParaConstructCF] Insert to the CuckooFilter false")
 				}
@@ -502,14 +512,12 @@ func ParaConstructCF(cf cuckoofilter.CuckooFilter, cs <-chan ReadSeqBucket, wc c
 					}
 					//fmt.Printf("[ParaConstructCF] wrsb.count: %d\n", wrsb.Count)
 					var nb KmerBnt
-					nb.Len = min.Len
-					nb.Seq = make([]uint64, len(min.Seq))
-					copy(nb.Seq, min.Seq)
+					nb.Len = cf.Kmerlen
+					nb.Seq = make([]byte, nb.Len)
+					copy(nb.Seq, min)
 					wrsb.KmerBntBuf[wrsb.Count] = nb
 					wrsb.Count++
 				}
-				kb1, kb2 = kb2, kb1
-				rb1, rb2 = rb2, rb1
 			}
 		}
 	}
@@ -736,6 +744,10 @@ func GetReadSeqBucket(fn string, cs chan<- ReadSeqBucket, kmerlen int) {
 }
 
 func CCF(c cli.Command) {
+	CCFFunc(c)
+}
+
+func CCFFunc(c cli.Command) cuckoofilter.CuckooFilter {
 	fmt.Println(c.Flags(), c.Parent().Flags())
 	//argsCheck(c)
 	gOpt, suc := utils.CheckGlobalArgs(c.Parent())
@@ -787,6 +799,11 @@ func CCF(c cli.Command) {
 	//concurrentNum := 6
 	//totalNumT := opt.NumCPU/(concurrentNum+1) + 1
 	concurrentNum := 6
+	/*if opt.Kmer < 128 {
+		concurrentNum = 6
+	} else {
+		concurrentNum = 12
+	}*/
 	totalNumT := opt.NumCPU/(concurrentNum+1) + 1
 	if totalNumT > totalFileNum {
 		totalNumT = totalFileNum
@@ -812,6 +829,7 @@ func CCF(c cli.Command) {
 		<-processT
 	}
 	time.Sleep(time.Second * 3)
+	fmt.Printf("[CCF] construct CuckooFilter took %v to run\n", time.Now().Sub(t0))
 
 	// end signal from write goroutinue
 	// prefix := c.Parent().Flag("p").String()
@@ -819,22 +837,25 @@ func CCF(c cli.Command) {
 	// if err := cf.WriteCuckooFilterInfo(cfinfofn); err != nil {
 	// 	log.Fatal(err)
 	// }
-	cfinfofn := opt.Prefix + ".cf.Info"
-	err = cf.WriteCuckooFilterInfo(cfinfofn)
-	if err != nil {
-		log.Fatalf("[CCF]WriteCuckooFilterInfo file: %v error: %v\n", cfinfofn, err)
+	t0 = time.Now()
+	if !opt.Correct {
+		cfinfofn := opt.Prefix + ".cf.Info"
+		err = cf.WriteCuckooFilterInfo(cfinfofn)
+		if err != nil {
+			log.Fatalf("[CCF]WriteCuckooFilterInfo file: %v error: %v\n", cfinfofn, err)
+		}
+		cffn := opt.Prefix + ".cf.Hash.br"
+		err = cf.HashWriter(cffn)
+		if err != nil {
+			log.Fatalf("[CCF]HashWriter file: %v error: %v\n", cffn, err)
+		}
+		fmt.Printf("[CCF] write CuckooFilter hash used:  %v to run\n", time.Now().Sub(t0))
 	}
-	cffn := opt.Prefix + ".cf.Hash.br"
-	err = cf.HashWriter(cffn)
-	if err != nil {
-		log.Fatalf("[CCF]HashWriter file: %v error: %v\n", cffn, err)
-	}
+
 	// output stat
 	cf.GetStat()
-	t1 := time.Now()
-	fmt.Printf("[CCF] construct CuckooFilter took %v to run\n", t1.Sub(t0))
-
 	if err != nil {
 		log.Fatal("error found in the CCF")
 	}
+	return cf
 }

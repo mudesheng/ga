@@ -3823,6 +3823,15 @@ func IsInComing(eIDcoming [4]DBG_MAX_INT, eID DBG_MAX_INT) bool {
 	return false
 }
 
+func CountEdgeIDComing(eIDComing [4]DBG_MAX_INT, eID DBG_MAX_INT) (count int) {
+	for _, id := range eIDComing {
+		if id == eID {
+			count++
+		}
+	}
+	return
+}
+
 func GetNextDirection(eID DBG_MAX_INT, edge DBGEdge, nodesArr []DBGNode) (direction uint8) {
 	if edge.StartNID > 0 {
 		n1 := nodesArr[edge.StartNID]
@@ -5635,8 +5644,8 @@ func StaticsMergeMat(matArr [][]DBG_MAX_INT, edgesArr []DBGEdge) {
 
 func Fpath(c cli.Command) {
 	k := c.Parent().Flag("K").String()
-	var err error = nil
-	//Kmerlen, err = strconv.Atoi(k)
+	//var err error = nil
+	kmerlen, err := strconv.Atoi(k)
 	//Kmerlen = Kmerlen
 	if err != nil {
 		log.Fatalf("[Fpath] argument: %s set error: %v\n", k, err)
@@ -5649,9 +5658,9 @@ func Fpath(c cli.Command) {
 	// read nodes file and transform to array mode, for more quickly access
 	DBGStatfn := prefix + ".DBG.stat"
 	nodesSize, edgesSize := DBGStatReader(DBGStatfn)
-	nodesArr := make([]DBGNode, nodesSize)
 	smfyNodesfn := prefix + ".nodes.smfy.Arr"
-	nodesArr = NodesArrReader(smfyNodesfn)
+	nodesArr := make([]DBGNode, nodesSize)
+	NodesArrReader(smfyNodesfn, nodesArr, kmerlen)
 	// NodeMap2NodeArr(nodeMap, nodesArr)
 
 	// Restore edges info

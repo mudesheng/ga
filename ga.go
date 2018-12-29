@@ -6,11 +6,12 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/mudesheng/ga/constructcf"
+	"github.com/mudesheng/ga/constructdbg"
 	//"./constructdbg"
 	//"./findPath"
 
 	"github.com/jwaldrip/odin/cli"
-	"github.com/mudesheng/ga/constructdbg"
+	//"github.com/mudesheng/ga/constructdbg"
 	"github.com/mudesheng/ga/deconstructdbg"
 	"github.com/mudesheng/ga/preprocess"
 )
@@ -75,10 +76,13 @@ func init() {
 	}
 	decontdbg := app.DefineSubCommand("decdbg", "deconstruct DBG using Long Reads Mapping info", deconstructdbg.DeconstructDBG)
 	{
-		decontdbg.DefineIntFlag("MinCov", 2, "Mininum coverage by long reads")
+		decontdbg.DefineIntFlag("MinDepth", 2, "Mininum coverage by long reads")
+		decontdbg.DefineIntFlag("AvgDepth", 50, "average coverage estimate by long reads")
+		decontdbg.DefineIntFlag("MinUniqueEdgeLen", 5000, "min allow unique edge merge clean bubble")
+		decontdbg.DefineIntFlag("AvgReadLen", 12000, "average long read length")
 		decontdbg.DefineIntFlag("WinSize", 10, "th size of sliding window for DBG edge Sample")
 		decontdbg.DefineIntFlag("MaxNGSReadLen", 550, "Max NGS Read Length")
-		decontdbg.DefineIntFlag("MinMapFreq", 5, "Minimum reads Mapping Frequent")
+		decontdbg.DefineIntFlag("MinMapFreq", 3, "Minimum reads Mapping Frequent")
 		decontdbg.DefineIntFlag("ExtLen", 1000, "Extend Path length for distingush most probable path")
 		decontdbg.DefineStringFlag("LongReadFile", "ONT.fa", "Oxford Nanopore Technology long reads file")
 		decontdbg.DefineBoolFlag("Correct", false, "Correct NGS Read and merge pair reads")

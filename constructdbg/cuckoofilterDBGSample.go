@@ -4,11 +4,12 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"math/rand"
-	"reflect"
+	"time"
 
 	//"log"
 
 	//"strings"
+	"github.com/dgryski/go-metro"
 
 	// "syscall"
 	"unsafe"
@@ -24,7 +25,7 @@ const (
 
 const BucketSize = 4
 const MaxLoad = 0.95
-const KMaxCount = 1024
+const KMaxCount = 65536
 
 //const MAXFREQ = math.MaxUint16
 
@@ -79,7 +80,7 @@ func MakeCuckooFilter(maxNumKeys uint64, kmerLen int) (cf CuckooFilter) {
 	}*/
 
 	cf.Hash = make([]Bucket, numBuckets)
-	cf.NumItems = numBuckets * BucketSize
+	cf.NumItems = numBuckets
 	cf.Kmerlen = kmerLen
 
 	return cf
@@ -87,20 +88,21 @@ func MakeCuckooFilter(maxNumKeys uint64, kmerLen int) (cf CuckooFilter) {
 }
 
 func (cf CuckooFilter) IndexHash(v uint64) uint64 {
-	v >>= NUM_FP_BITS
+	//v >>= NUM_FP_BITS
 
-	return v % uint64(len(cf.Hash))
+	return v % cf.NumItems
 }
 
-func FingerHash(v uint64) uint64 {
-	v &= FPMASK
-	return v
+func FingerHash(data []byte) uint16 {
+	hash := metro.Hash64(data, 7539)
+
+	return uint16(hash%FPMASK + 1)
 }
 
-func (cf CuckooFilter) AltIndex(index uint64, finger uint64) uint64 {
-	index ^= finger
+func (cf CuckooFilter) AltIndex(index uint64, finger uint16) uint64 {
+	index ^= uint64(finger)
 
-	return index % uint64(len(cf.Hash))
+	return index
 }
 
 /*func combineCFItem(fp uint64, count uint64) (cfi CFItem) {
@@ -168,9 +170,16 @@ func (dbgK DBGKmer) GetFinger() uint16 {
 	return false
 }*/
 
-func (cf CuckooFilter) Contain(v uint64) (arr []DBGKmer) {
-	index := cf.IndexHash(v)
-	fingerprint := FingerHash(v)
+func (cf CuckooFilter) Contain(kb []byte) (arr []DBGKmer) {
+	hash := metro.Hash64(kb, 1337)
+	fingerprint := FingerHash(kb)
+	//hash := highwayhash.SumInput64Arr64(kb, key)
+
+	//hk := sha1.Sum(kb)
+	//v := hk2uint64(hk)
+	//hash := HashUint64Arr(kb, len(kb))
+	//fmt.Printf("%v\t", v)
+	index := cf.IndexHash(hash)
 	for _, dk := range cf.Hash[index].Bkt {
 		if dk.GetCount() > 0 && dk.GetFinger() == uint16(fingerprint) {
 			arr = append(arr, dk)
@@ -185,7 +194,7 @@ func (cf CuckooFilter) Contain(v uint64) (arr []DBGKmer) {
 	return arr
 }
 
-func (b *Bucket) AddBucket(dbgK DBGKmer, kickout bool) (old DBGKmer, suc bool) {
+/*func (b *Bucket) AddBucket(dbgK DBGKmer, kickout bool) (old DBGKmer, suc bool) {
 	//fmt.Printf("[AddBucket]b.Bkt: %v\n\tdbgK: %v\n", b.Bkt, dbgK)
 	for i := 0; i < BucketSize; i++ {
 		//fmt.Printf("i: %d\n", i)
@@ -210,9 +219,9 @@ func (b *Bucket) AddBucket(dbgK DBGKmer, kickout bool) (old DBGKmer, suc bool) {
 		return old, suc
 	}
 	return old, suc
-}
+}*/
 
-// return last count of kmer and if successed added
+/*// return last count of kmer and if successed added
 func (cf CuckooFilter) Add(index uint64, dbgK DBGKmer) bool {
 	ci := index
 	gK := dbgK
@@ -234,6 +243,80 @@ func (cf CuckooFilter) Add(index uint64, dbgK DBGKmer) bool {
 		ci = cf.AltIndex(ci, uint64(gK.GetFinger()))
 	}
 	return false
+}*/
+
+// return oldcount,  added
+/*func (dbgK *DBGKmer) NewAdd(ndbgK DBGKmer) (oldCount int, succ bool) {
+
+	oc := uint16(0)
+	a := (*uint16)(cfi)
+	if CompareAndSwapUint16(a, oc, uint16(ncfi)) {
+		oldCount = 0
+		succ = true
+	} else {
+		oldCount = int(cfi.GetCount())
+		succ = false
+	}
+	return
+}*/
+func (cf CuckooFilter) Switch(i uint64, idx int, dbgK DBGKmer) (kickDBGK DBGKmer, hashPos uint64) {
+	kickDBGK = cf.Hash[i].Bkt[idx]
+	cf.Hash[i].Bkt[idx] = dbgK
+	hashPos = i ^ uint64(kickDBGK.GetFinger())
+	return
+}
+
+// return if successed added
+func (cf CuckooFilter) Add1(index uint64, dbgK DBGKmer) (oldcount int, succ bool) {
+	fingerprint := dbgK.GetFinger()
+	i1 := index
+	i2 := cf.AltIndex(i1, fingerprint)
+	// if not found same fingerprint, need add bucket
+	for i := 0; i < BucketSize; i++ {
+		if cf.Hash[i1].Bkt[i].GetCount() == 0 {
+			cf.Hash[i1].Bkt[i] = dbgK
+			//fmt.Printf("[Add1]hashPos: %v, newCFI: %v, Bkt: %v\n", i1, newCFI, cf.Hash[i1])
+			return 0, true
+		}
+		if cf.Hash[i2].Bkt[i].GetCount() == 0 {
+			cf.Hash[i2].Bkt[i] = dbgK
+			return 0, true
+		}
+	}
+
+	// need kickout
+	var kickDBGK DBGKmer
+	var hashPos uint64
+	rand.Seed(time.Now().UnixNano())
+	idx := rand.Intn(2 * BucketSize)
+	if idx < BucketSize {
+		//fmt.Printf("[Add1]hashPos: %v, need kickout CFI: %v, Bkt: %v\n", i1, newCFI, cf.Hash[i1])
+		kickDBGK, hashPos = cf.Switch(i1, idx, dbgK)
+		//fmt.Printf("[Add1]hashPos: %v, need kickout CFI: %v, Bkt: %v\n", i1, kickCFI, cf.Hash[i1])
+	} else {
+		//fmt.Printf("[Add1]hashPos: %v, need kickout CFI: %v, Bkt: %v\n", i2, newCFI, cf.Hash[i2])
+		kickDBGK, hashPos = cf.Switch(i2, idx-BucketSize, dbgK)
+		//fmt.Printf("[Add1]hashPos: %v, need kickout CFI: %v, Bkt: %v\n", i2, kickCFI, cf.Hash[i2])
+	}
+	oldcount = 0
+	for i := 0; i < KMaxCount; i++ {
+		//fmt.Printf("[Add1]hashPos: %v, kickCFI: %v, Bkt: %v\n", hashPos, kickCFI, cf.Hash[hashPos])
+		for j := 0; j < BucketSize; j++ {
+			if cf.Hash[hashPos].Bkt[j].GetCount() == 0 {
+				cf.Hash[hashPos].Bkt[j] = kickDBGK
+				kickDBGK.setCFItem(0, 0)
+				break
+			}
+		}
+		if kickDBGK.GetCount() == 0 {
+			succ = true
+			return
+		}
+		idx = rand.Intn(BucketSize)
+		kickDBGK, hashPos = cf.Switch(hashPos, idx, kickDBGK)
+	}
+	succ = false
+	return
 }
 
 func hk2uint64(hk [sha1.Size]byte) (v uint64) {
@@ -251,7 +334,7 @@ func hk2uint64(hk [sha1.Size]byte) (v uint64) {
 	return v
 }
 
-// return last count of kmer fingerprint and have been successed inserted
+/*// return last count of kmer fingerprint and have been successed inserted
 func (cf CuckooFilter) Insert(kb []byte, id DBG_MAX_INT, pos uint32, strand bool) bool {
 	hk := sha1.Sum(kb)
 	v := hk2uint64(hk)
@@ -267,12 +350,34 @@ func (cf CuckooFilter) Insert(kb []byte, id DBG_MAX_INT, pos uint32, strand bool
 	//fmt.Printf(" sizeof cuckoofilter.Hash[0] : %d\n", unsafe.Sizeof(cf.Hash[0]))
 
 	return cf.Add(index, dbgK)
+}*/
+
+// return last count of kmer fingerprint and have been successed inserted
+func (cf CuckooFilter) Insert(kb []byte, id DBG_MAX_INT, pos uint32, strand bool) (int, bool) {
+	hash := metro.Hash64(kb, 1337)
+	fingerprint := FingerHash(kb)
+	//hash := highwayhash.SumInput64Arr64(kb, key)
+
+	//hk := sha1.Sum(kb)
+	//v := hk2uint64(hk)
+	//hash := HashUint64Arr(kb, len(kb))
+	//fmt.Printf("%v\t", v)
+	index := cf.IndexHash(hash)
+	var dbgK DBGKmer
+	dbgK.setCFItem(uint16(fingerprint), 1)
+	dbgK.ID = id
+	dbgK.Pos = int32(pos)
+	dbgK.Strand = strand
+	//fmt.Printf("[cf.Insert]index: %v\tfinger: %v\n", index, fingerprint)
+	//fmt.Printf(" sizeof cuckoofilter.Hash[0] : %d\n", unsafe.Sizeof(cf.Hash[0]))
+
+	return cf.Add1(index, dbgK)
 }
 
 func (cf CuckooFilter) Lookup(kb []byte, edgesArr []DBGEdge) (dbgK DBGKmer, count int) {
-	hk := sha1.Sum(kb)
-	v := hk2uint64(hk)
-	da := cf.Contain(v)
+	//hk := sha1.Sum(kb)
+	//v := hk2uint64(hk)
+	da := cf.Contain(kb)
 	//fmt.Printf("[cf.Lookup] da: %v\n", da)
 	if len(da) == 0 {
 		return
@@ -283,7 +388,7 @@ func (cf CuckooFilter) Lookup(kb []byte, edgesArr []DBGEdge) (dbgK DBGKmer, coun
 		if d.Strand == MINUS {
 			eb = GetReverseCompByteArr(eb)
 		}
-		if reflect.DeepEqual(kb, eb) {
+		if EqualByteArr(kb, eb) {
 			dbgK = d
 			count++
 		} else {
@@ -299,7 +404,7 @@ func (cf CuckooFilter) Lookup(kb []byte, edgesArr []DBGEdge) (dbgK DBGKmer, coun
 				eb = GetReverseCompByteArr(eb)
 			}
 			//fmt.Printf("\teb: %v\n", eb)
-			if reflect.DeepEqual(kb, eb) {
+			if EqualByteArr(kb, eb) {
 				dbgK = d
 				count++
 			}

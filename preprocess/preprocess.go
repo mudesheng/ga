@@ -8,10 +8,10 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
-
 	//"github.com/google/brotli/cbrotli"
 	"github.com/jwaldrip/odin/cli"
 	"github.com/mudesheng/ga/bnt"
@@ -204,7 +204,7 @@ func MappingReadToEdges(dk constructdbg.DBGKmer, ri constructcf.ReadInfo, rpos i
 		dk.Pos += int32(kmerlen)
 		strand = constructdbg.PLUS
 	} else {
-		rmi.StartP = int(dk.Pos) + kmerlen
+		rmi.StartP = int(dk.Pos) + kmerlen - 1
 		dk.Pos--
 		strand = constructdbg.MINUS
 	}
@@ -269,6 +269,7 @@ func MappingReadToEdges(dk constructdbg.DBGKmer, ri constructcf.ReadInfo, rpos i
 		} else {
 			rmi.EndP = j + 1
 		}
+		//rmi.EndP = j
 		if i >= len(ri.Seq) {
 			break
 		}
@@ -292,21 +293,51 @@ func MappingReadToEdges(dk constructdbg.DBGKmer, ri constructcf.ReadInfo, rpos i
 			}
 			base = bnt.BntRev[ri.Seq[i]]
 			if e.StartNID == e.EndNID { // self cycle
-				fmt.Printf("[MappingReadToEdges]cycle edge : %v\n", e)
-				if strand {
-					if node.EdgeIDOutcoming[ri.Seq[i]] > 1 {
-						dk.ID = node.EdgeIDOutcoming[ri.Seq[i]]
+				// if is a ring cycle, have same EdgeIDComing
+				if constructdbg.CountEdgeIDComing(nodesArr[e.StartNID].EdgeIDOutcoming, e.ID) == 2 {
+					if strand {
+						if node.EdgeIDIncoming[base] > 1 {
+							dk.ID = node.EdgeIDIncoming[base]
+						} else {
+							break
+						}
 					} else {
-						break
+						if node.EdgeIDIncoming[ri.Seq[i]] > 1 {
+							dk.ID = node.EdgeIDOutcoming[ri.Seq[i]]
+						} else {
+							break
+						}
+					}
+				} else if constructdbg.CountEdgeIDComing(nodesArr[e.StartNID].EdgeIDIncoming, e.ID) == 2 {
+					if strand {
+						if node.EdgeIDOutcoming[ri.Seq[i]] > 1 {
+							dk.ID = node.EdgeIDOutcoming[ri.Seq[i]]
+						} else {
+							break
+						}
+					} else {
+						if node.EdgeIDOutcoming[base] > 1 {
+							dk.ID = node.EdgeIDOutcoming[base]
+						} else {
+							break
+						}
 					}
 				} else {
-					if node.EdgeIDIncoming[base] > 1 {
-						dk.ID = node.EdgeIDIncoming[base]
+					//fmt.Printf("[MappingReadToEdges]cycle edge : %v\n", e.ID)
+					if strand {
+						if node.EdgeIDOutcoming[ri.Seq[i]] > 1 {
+							dk.ID = node.EdgeIDOutcoming[ri.Seq[i]]
+						} else {
+							break
+						}
 					} else {
-						break
+						if node.EdgeIDIncoming[base] > 1 {
+							dk.ID = node.EdgeIDIncoming[base]
+						} else {
+							break
+						}
 					}
 				}
-
 			} else {
 				if constructdbg.IsInComing(node.EdgeIDIncoming, e.ID) && node.EdgeIDOutcoming[ri.Seq[i]] > 1 {
 					dk.ID = node.EdgeIDOutcoming[ri.Seq[i]]
@@ -315,6 +346,9 @@ func MappingReadToEdges(dk constructdbg.DBGKmer, ri constructcf.ReadInfo, rpos i
 				} else {
 					break
 				}
+			}
+			if dk.ID < 2 {
+				break
 			}
 			ne := edgesArr[dk.ID]
 			strand = deconstructdbg.GetNextEdgeStrand(e, ne, nodesArr, strand)
@@ -389,7 +423,7 @@ func GetPairReadsLinkPathArr(e1, e2 constructdbg.DBGEdge, nID1, nID2 constructdb
 	return
 }
 
-func MergePathSeqArr(rmi1, rmi2 constructdbg.ReadMapInfo, maxPairLen int, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, kmerlen, SD int) (mergeRMI constructdbg.ReadMapInfo) {
+func MergePathSeqArr(rmi1, rmi2 constructdbg.ReadMapInfo, maxPairLen int, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, kmerlen, insertSize, SD int) (mergeRMI constructdbg.ReadMapInfo) {
 	pathSeqArr1 := rmi1.PathSeqArr
 	pathSeqArr2 := make([]constructdbg.PathSeq, len(rmi2.PathSeqArr))
 	copy(pathSeqArr2, rmi2.PathSeqArr)
@@ -409,16 +443,18 @@ func MergePathSeqArr(rmi1, rmi2 constructdbg.ReadMapInfo, maxPairLen int, edgesA
 	} else {
 		flank2 = rmi2.EndP
 	}
-	mergeRMI.StartP, mergeRMI.EndP = rmi1.StartP, rmi2.StartP
+	mergeRMI.StartP = rmi1.StartP
+	mergeRMI.EndP = rmi2.StartP
 	// reverse pathSeqArr2
 	ReversePathSeqArr(pathSeqArr2)
 	//fmt.Printf("[MergePathSeqArr]psArr1: %v\n\t\tpsArr2: %v\n", pathSeqArr1, pathSeqArr2)
 	var sharePathLen int
 	for i1, i2 := len(pathSeqArr1)-1, len(pathSeqArr2)-1; i1 >= 0 && i2 >= 0; i2-- {
 		if pathSeqArr1[i1].ID == pathSeqArr2[i2].ID {
-			for j1, j2 := i1, i2; j1 >= 0 && j2 >= 0; j1, j2 = j1-1, j2-1 {
+			j1, j2 := i1, i2
+			for ; j1 >= 0 && j2 >= 0; j1, j2 = j1-1, j2-1 {
 				if pathSeqArr1[j1].ID == pathSeqArr2[j2].ID {
-					if j2 < len(pathSeqArr2)-1 && pathSeqArr1[j1].NID != pathSeqArr2[j2].NID {
+					if pathSeqArr1[j1].Strand != pathSeqArr2[j2].Strand {
 						sharePathLen = 0
 						break
 					}
@@ -428,14 +464,16 @@ func MergePathSeqArr(rmi1, rmi2 constructdbg.ReadMapInfo, maxPairLen int, edgesA
 					break
 				}
 			}
-			if sharePathLen > 0 {
+			if sharePathLen > 0 && j2 < 0 {
 				break
+			} else {
+				sharePathLen = 0
 			}
 		}
 	}
 	if sharePathLen < 1 {
 		// maybe can find unique link path
-		maxAllowLen := kmerlen + SD - flank1 - flank2
+		maxAllowLen := insertSize - 500 + kmerlen + SD - flank1 - flank2
 		if maxAllowLen < 10 {
 			return
 		}
@@ -465,7 +503,9 @@ func MergePathSeqArr(rmi1, rmi2 constructdbg.ReadMapInfo, maxPairLen int, edgesA
 				mergeRMI.PathSeqArr = append(mergeRMI.PathSeqArr, t)
 			}
 			if strand != pathSeqArr2[0].Strand {
-				log.Fatalf("[MergePathSeqArr] deduce strand: %v not consis with BACKWARD read strand: %v\n", strand, pathSeqArr2[0].Strand)
+				mergeRMI.PathSeqArr = nil
+				fmt.Printf("[MergePathSeqArr] deduce strand: %v not consis with BACKWARD read strand: %v\n", strand, pathSeqArr2[0].Strand)
+				return
 			}
 			// add BACKWARD read path
 			mergeRMI.PathSeqArr = append(mergeRMI.PathSeqArr, pathSeqArr2[1:]...)
@@ -475,7 +515,20 @@ func MergePathSeqArr(rmi1, rmi2 constructdbg.ReadMapInfo, maxPairLen int, edgesA
 
 	mergeRMI.PathSeqArr = append(mergeRMI.PathSeqArr, pathSeqArr1...)
 	mergeRMI.PathSeqArr = append(mergeRMI.PathSeqArr, pathSeqArr2[sharePathLen:]...)
-
+	// check not a pair end reads
+	if len(mergeRMI.PathSeqArr) == 1 {
+		if pathSeqArr1[0].Strand == constructdbg.PLUS {
+			if mergeRMI.StartP > mergeRMI.EndP {
+				fmt.Printf("[MergePathSeqArr]Postion error, p1: %v, p2: %v\n", pathSeqArr1, pathSeqArr2)
+				mergeRMI.PathSeqArr = nil
+			}
+		} else {
+			if mergeRMI.StartP < mergeRMI.EndP {
+				fmt.Printf("[MergePathSeqArr]Postion error, p1: %v, p2: %v\n", pathSeqArr1, pathSeqArr2)
+				mergeRMI.PathSeqArr = nil
+			}
+		}
+	}
 	return
 }
 
@@ -484,9 +537,15 @@ func GetPathSeq(m constructdbg.ReadMapInfo, edgesArr []constructdbg.DBGEdge, nod
 	if len(m.PathSeqArr) == 1 {
 		ps := m.PathSeqArr[0]
 		if ps.Strand {
-			seq = edgesArr[ps.ID].Utg.Ks[m.StartP:m.EndP]
+			seq = edgesArr[ps.ID].Utg.Ks[m.StartP : m.EndP+1]
 		} else {
-			seq = constructdbg.GetReverseCompByteArr(edgesArr[ps.ID].Utg.Ks[m.EndP:m.StartP])
+			/*if m.EndP < 0 || m.StartP > len(edgesArr[ps.ID].Utg.Ks) {
+				fmt.Printf("[GetPathSeq] error set m: %v, len(e.Utg.Ks): %v\n", m, len(edgesArr[ps.ID].Utg.Ks))
+				seq = nil
+				return
+			}*/
+			//fmt.Printf("[GetPathSeq] m: %v, len(e.Utg.Ks): %v\n", m, len(edgesArr[ps.ID].Utg.Ks))
+			seq = constructdbg.GetReverseCompByteArr(edgesArr[ps.ID].Utg.Ks[m.EndP : m.StartP+1])
 		}
 		return seq
 	}
@@ -500,11 +559,11 @@ func GetPathSeq(m constructdbg.ReadMapInfo, edgesArr []constructdbg.DBGEdge, nod
 			if ps.Strand {
 				seq = append(seq, e.Utg.Ks[m.StartP:]...)
 			} else {
-				seq = append(seq, constructdbg.GetReverseCompByteArr(e.Utg.Ks[:m.StartP])...)
+				seq = append(seq, constructdbg.GetReverseCompByteArr(e.Utg.Ks[:m.StartP+1])...)
 			}
 		} else if i == len(m.PathSeqArr)-1 {
 			if ps.Strand {
-				seq = append(seq, e.Utg.Ks[kmerlen-1:m.EndP]...)
+				seq = append(seq, e.Utg.Ks[kmerlen-1:m.EndP+1]...)
 			} else {
 				seq = append(seq, constructdbg.GetReverseCompByteArr(e.Utg.Ks[m.EndP:len(e.Utg.Ks)-(kmerlen-1)])...)
 			}
@@ -764,8 +823,8 @@ func GetReverseBoolArr(arr []bool) []bool {
 	}
 } */
 
-func paraMapNGSAndMerge(cs <-chan [2]constructcf.ReadInfo, wc chan<- constructcf.ReadInfo, nodesArr []constructdbg.DBGNode, edgesArr []constructdbg.DBGEdge, cf constructdbg.CuckooFilter, winSize, MaxPairLen, SD, kmerlen int) {
-	var notFoundSeedNum, notPerfectNum, allNum, notMergeNum int
+func paraMapNGSAndMerge(cs <-chan [2]constructcf.ReadInfo, wc chan<- constructcf.ReadInfo, nodesArr []constructdbg.DBGNode, edgesArr []constructdbg.DBGEdge, cf constructdbg.CuckooFilter, winSize, MaxPairLen, insertSize, SD, kmerlen int) {
+	var notFoundSeedNum, shortMappingNum, highErrorNum, allNum, singleNum, mergeNum, unMergeNum int
 	for {
 		var mR constructcf.ReadInfo
 		pairRI, ok := <-cs
@@ -774,7 +833,7 @@ func paraMapNGSAndMerge(cs <-chan [2]constructcf.ReadInfo, wc chan<- constructcf
 			break
 		}
 
-		allNum++
+		allNum += 2
 		var riArr [2]constructdbg.ReadMapInfo
 		var errorNum [2]int
 		needMerge := true
@@ -784,7 +843,8 @@ func paraMapNGSAndMerge(cs <-chan [2]constructcf.ReadInfo, wc chan<- constructcf
 			if dbgK.GetCount() == 0 { // not found in the cuckoofilter
 				//fmt.Printf("[paraMapNGSAndMerge] read ID: %v not found seed!!!\n", pairRI[j].ID)
 				notFoundSeedNum++
-				break
+				needMerge = false
+				continue
 			}
 			//fmt.Printf("[paraMapNGSAndMerge] pairRI[%v]: %v\n", j, pairRI[j])
 
@@ -806,16 +866,20 @@ func paraMapNGSAndMerge(cs <-chan [2]constructcf.ReadInfo, wc chan<- constructcf
 			//	break
 			//}
 
-			if mappingNum < (len(pairRI[j].Seq)-pos)*9/10 {
+			if mappingNum < (len(pairRI[j].Seq)-pos)*8/10 {
 				needMerge = false
-				fmt.Printf("[paraMapNGSAndMerge] mappingNum: %v < %v\n", mappingNum, len(pairRI[j].Seq)*9/10)
-				break
+				fmt.Printf("[paraMapNGSAndMerge] mappingNum: %v < %v\n", mappingNum, len(pairRI[j].Seq)*8/10)
+				riArr[j].PathSeqArr = nil
+				shortMappingNum++
+				//continue
 			}
 
-			if errorNum[j] > (len(pairRI[j].Seq)-pos)*5/100 {
+			if errorNum[j] > (len(pairRI[j].Seq)-pos)*10/100 {
 				needMerge = false
-				fmt.Printf("[paraMapNGSAndMerge] errorNum: %v > %v\n", errorNum, len(pairRI[j].Seq)*5/100)
-				break
+				fmt.Printf("[paraMapNGSAndMerge] errorNum: %v > %v\n", errorNum[j], len(pairRI[j].Seq)*10/100)
+				riArr[j].PathSeqArr = nil
+				highErrorNum++
+				//break
 			}
 			/*if len(aB.Paths) > 0 && len(aF.Paths) > 0 && aB.Paths[len(aB.Paths)-1] == aF.Paths[0] {
 				riArr[j].PathSeqArr = append(aB.Paths, aF.Paths[1:]...)
@@ -830,16 +894,10 @@ func paraMapNGSAndMerge(cs <-chan [2]constructcf.ReadInfo, wc chan<- constructcf
 			//fmt.Printf("[paraMapNGSAndMerge] riArr[%v]: %v\n", j, riArr[j])
 		}
 
-		if !needMerge {
-			notPerfectNum++
-			continue
-		}
-
-		l0, l1 := len(riArr[0].PathSeqArr), len(riArr[1].PathSeqArr)
+		/*l0, l1 := len(riArr[0].PathSeqArr), len(riArr[1].PathSeqArr)
 		if l0 < 1 || l1 < 1 {
-			notPerfectNum++
 			continue
-		}
+		}*/
 
 		// find link Path
 		//var ri constructcf.ReadInfo
@@ -848,20 +906,31 @@ func paraMapNGSAndMerge(cs <-chan [2]constructcf.ReadInfo, wc chan<- constructcf
 		// get link path sequence and pass to wc
 		// program unknow how many times repeat cycle
 		var m constructdbg.ReadMapInfo
-		lasteID1 := riArr[0].PathSeqArr[len(riArr[0].PathSeqArr)-1]
-		lasteID2 := riArr[1].PathSeqArr[len(riArr[1].PathSeqArr)-1]
-		laste1, laste2 := edgesArr[lasteID1.ID], edgesArr[lasteID2.ID]
-		if laste1.GetTwoEdgesCycleFlag() > 0 || laste2.GetTwoEdgesCycleFlag() > 0 || laste1.StartNID == laste1.EndNID || laste2.StartNID == laste2.EndNID {
-			fmt.Printf("[paraMapNGSAndMerge] read end encounter cycle edge: %v or %v\n", lasteID1, lasteID2)
-		} else {
-			m = MergePathSeqArr(riArr[0], riArr[1], MaxPairLen, edgesArr, nodesArr, kmerlen, SD)
-			m.ID = pairRI[0].ID
-			//fmt.Printf("[paraMapNGSAndMerge] merge ReadMapInfo: %v\n", m)
+		if needMerge && len(riArr[0].PathSeqArr) > 0 && len(riArr[1].PathSeqArr) > 0 {
+			lasteID1 := riArr[0].PathSeqArr[len(riArr[0].PathSeqArr)-1]
+			lasteID2 := riArr[1].PathSeqArr[len(riArr[1].PathSeqArr)-1]
+			laste1, laste2 := edgesArr[lasteID1.ID], edgesArr[lasteID2.ID]
+			if laste1.GetTwoEdgesCycleFlag() > 0 || laste2.GetTwoEdgesCycleFlag() > 0 || laste1.StartNID == laste1.EndNID || laste2.StartNID == laste2.EndNID {
+				fmt.Printf("[paraMapNGSAndMerge] read end encounter cycle edge: %v or %v\n", lasteID1, lasteID2)
+			} else {
+				m = MergePathSeqArr(riArr[0], riArr[1], MaxPairLen, edgesArr, nodesArr, kmerlen, insertSize, SD)
+				m.ID = pairRI[0].ID
+				//fmt.Printf("[paraMapNGSAndMerge] merge ReadMapInfo: %v\n", m)
+			}
+			if len(m.PathSeqArr) == 0 {
+				unMergeNum++
+			}
 		}
 		if len(m.PathSeqArr) < 1 {
-			notMergeNum++
 			for j := 0; j < 2; j++ {
+				if len(riArr[j].PathSeqArr) < 1 {
+					continue
+				}
 				mR.Seq = GetPathSeq(riArr[j], edgesArr, nodesArr, cf.Kmerlen)
+				if len(mR.Seq) == 0 || len(mR.Seq) < len(pairRI[j].Seq)*4/5 {
+					continue
+				}
+				singleNum++
 				mR.ID = pairRI[j].ID
 				mR.Anotition = ""
 				for _, pathSeq := range riArr[j].PathSeqArr {
@@ -873,6 +942,10 @@ func paraMapNGSAndMerge(cs <-chan [2]constructcf.ReadInfo, wc chan<- constructcf
 			}
 		} else {
 			mR.Seq = GetPathSeq(m, edgesArr, nodesArr, cf.Kmerlen)
+			if len(mR.Seq) == 0 || len(mR.Seq) < len(pairRI[0].Seq) {
+				continue
+			}
+			mergeNum++
 			mR.ID = m.ID
 			for _, pathSeq := range m.PathSeqArr {
 				mR.Anotition += fmt.Sprintf("%v-", pathSeq.ID)
@@ -885,10 +958,11 @@ func paraMapNGSAndMerge(cs <-chan [2]constructcf.ReadInfo, wc chan<- constructcf
 		}
 	}
 	fmt.Printf("[paraMapNGSAndMerge] not found seed read pair number is : %v,allNum: %v,  percent: %v\n", notFoundSeedNum, allNum, float32(notFoundSeedNum)/float32(allNum))
-	fmt.Printf("[paraMapNGSAndMerge] too more error mapping read pair number is : %v, notMergeNum: %v\n", notPerfectNum-notFoundSeedNum, notMergeNum)
+	fmt.Printf("[paraMapNGSAndMerge] high error mapping read pair number is : %v\tshort mapping number is: %v\tsingle mapping number: %v\t merge number: %v, unMerge number: %v\n", highErrorNum, shortMappingNum, singleNum, mergeNum*2, unMergeNum*2)
 }
 
 func writeCorrectReads(browfn string, wc <-chan constructcf.ReadInfo, numCPU, bufSize int) (readNum int) {
+	t0 := time.Now()
 	fp, err := os.Create(browfn)
 	if err != nil {
 		log.Fatalf("[writeCorrectReads] failed to create file: %s, err: %v\n", browfn, err)
@@ -922,7 +996,7 @@ func writeCorrectReads(browfn string, wc <-chan constructcf.ReadInfo, numCPU, bu
 		//	fmt.Printf("[writeCorrectReads] write correct read delay, len(wc): %v\n", len(wc))
 		//}
 	}
-	fmt.Printf("[writeCorrectReads] write correct read num: %v to file: %v\n", readNum, browfn)
+	fmt.Printf("[writeCorrectReads] write correct read num: %v to file: %v, used time: %v\n", readNum, browfn, time.Now().Sub(t0))
 	if err := buffp.Flush(); err != nil {
 		log.Fatalf("[writeCorrectReads] failed to flush file: %s, err: %v\n", browfn, err)
 	}
@@ -934,7 +1008,7 @@ func writeCorrectReads(browfn string, wc <-chan constructcf.ReadInfo, numCPU, bu
 	return
 }
 
-func paraProcessReadsFile(fn1, fn2 string, concurrentNum int, nodesArr []constructdbg.DBGNode, edgesArr []constructdbg.DBGEdge, cf constructdbg.CuckooFilter, opt Options, MaxPairLen, InsertSD int, processT chan int) {
+func paraProcessReadsFile(fn1, fn2 string, concurrentNum int, nodesArr []constructdbg.DBGNode, edgesArr []constructdbg.DBGEdge, cf constructdbg.CuckooFilter, opt Options, MaxPairLen, insertSize, InsertSD int, processT chan int) {
 	idx1 := strings.LastIndex(fn1, "1")
 	idx2 := strings.LastIndex(fn2, "2")
 	if !(idx1 > 0 && idx2 > 0 && fn1[:idx1] == fn2[:idx2]) {
@@ -946,7 +1020,7 @@ func paraProcessReadsFile(fn1, fn2 string, concurrentNum int, nodesArr []constru
 	wc := make(chan constructcf.ReadInfo, bufSize)
 	go LoadNGSReads(fn1, fn2, cs, opt.Kmer, bufSize)
 	for j := 0; j < concurrentNum; j++ {
-		go paraMapNGSAndMerge(cs, wc, nodesArr, edgesArr, cf, opt.WinSize, MaxPairLen, InsertSD, opt.Kmer)
+		go paraMapNGSAndMerge(cs, wc, nodesArr, edgesArr, cf, opt.WinSize, MaxPairLen, insertSize, InsertSD, opt.Kmer)
 	}
 	// write function
 	brwfn := fn1[:idx1] + ".Correct.fa.br"
@@ -974,11 +1048,11 @@ func MappingNGSAndMerge(opt Options, nodesArr []constructdbg.DBGNode, edgesArr [
 
 	runtime.GOMAXPROCS(opt.NumCPU + 2)
 
-	concurrentNum := 6
-	totalNumT := opt.NumCPU/(concurrentNum+1) + 1
+	concurrentNum := 12
+	totalNumT := (opt.NumCPU + concurrentNum - 1) / concurrentNum
 	// test
 	//totalNumT := 1
-	//concurrentNum := 1
+	//concurrentNum := 6
 	processT := make(chan int, totalNumT)
 	for i := 0; i < totalNumT; i++ {
 		processT <- 1
@@ -991,7 +1065,7 @@ func MappingNGSAndMerge(opt Options, nodesArr []constructdbg.DBGNode, edgesArr [
 
 		for i := 0; i < len(lib.FnName)-1; i += 2 {
 			<-processT
-			go paraProcessReadsFile(lib.FnName[i], lib.FnName[i+1], concurrentNum, nodesArr, edgesArr, cf, opt, MaxPairLen, lib.InsertSD, processT)
+			go paraProcessReadsFile(lib.FnName[i], lib.FnName[i+1], concurrentNum, nodesArr, edgesArr, cf, opt, MaxPairLen, lib.InsertSize, lib.InsertSD, processT)
 		}
 	}
 
@@ -1011,6 +1085,7 @@ func Correct(c cli.Command) {
 	if suc == false {
 		log.Fatalf("[Correct] check Arguments error, opt: %v\n", tmp)
 	}
+	debug.PrintStack()
 	opt.CFSize = tmp.CFSize
 	opt.MaxNGSReadLen = tmp.MaxNGSReadLen
 	opt.TipMaxLen = tmp.TipMaxLen
@@ -1031,38 +1106,44 @@ func Correct(c cli.Command) {
 	defer pprof.StopCPUProfile()*/
 
 	// construct cuckoofilter and construct DBG
-	constructcf.CCF(c)
-	constructdbg.CDBG(c)
+	cf := constructcf.CCFFunc(c)
+	constructdbg.CDBGFunc(c, cf)
 	// smfy DBG
 	// read nodes file and transform to array mode for more quckly access
 	DBGStatfn := opt.Prefix + ".DBG.stat"
 	nodesSize, edgesSize := constructdbg.DBGStatReader(DBGStatfn)
 	//nodesSize := len(nodeMap)
 	fmt.Printf("[Correct] len(nodesArr): %v, length of edge array: %v\n", nodesSize, edgesSize)
+	nodesfn := opt.Prefix + ".nodes.Arr.br"
 	nodesArr := make([]constructdbg.DBGNode, nodesSize)
-	{
-		nodesfn := opt.Prefix + ".nodes.mmap"
-		nodeMap := constructdbg.NodeMapMmapReader(nodesfn)
-		constructdbg.NodeMap2NodeArr(nodeMap, nodesArr)
-		//nodeMap = nil // nodeMap any more used
-	}
+	constructdbg.NodesArrReader(nodesfn, nodesArr, opt.Kmer)
 	// read edges file
 	edgesfn := opt.Prefix + ".edges.fq"
 	edgesArr := constructdbg.ReadEdgesFromFile(edgesfn, edgesSize)
 
 	var copt constructdbg.Options
 	copt.CfgFn, copt.Kmer, copt.MaxNGSReadLen, copt.NumCPU, copt.Prefix, copt.TipMaxLen, copt.WinSize = opt.CfgFn, opt.Kmer, opt.MaxNGSReadLen, opt.NumCPU, opt.Prefix, opt.TipMaxLen, opt.WinSize
-	gfn := opt.Prefix + ".beforeSmfyDBG.dot"
-	constructdbg.GraphvizDBGArr(nodesArr, edgesArr, gfn)
+	//gfn := opt.Prefix + ".beforeSmfyDBG.dot"
+	//constructdbg.GraphvizDBGArr(nodesArr, edgesArr, gfn)
+	t0 := time.Now()
+	//constructdbg.PrintTmpDBG(nodesArr, edgesArr, opt.Prefix+".beforeSmfy")
+	//constructdbg.CheckInterConnectivity(edgesArr, nodesArr)
+	fmt.Printf("[Correct] first cycle Smfy DBG....\n")
+	constructdbg.SmfyDBG(nodesArr, edgesArr, copt)
+	fmt.Printf("[Correct] second cycle Smfy DBG....\n")
 	constructdbg.SmfyDBG(nodesArr, edgesArr, copt)
 	constructdbg.CheckDBGSelfCycle(nodesArr, edgesArr, copt.Kmer)
+	//constructdbg.PrintTmpDBG(nodesArr, edgesArr, opt.Prefix)
+	constructdbg.CheckInterConnectivity(edgesArr, nodesArr)
 
-	constructdbg.PrintTmpDBG(nodesArr, edgesArr, opt.Prefix)
-	uniqueNum, semiUniqNum, twoEdgeCycleNum, selfCycleNum := constructdbg.SetDBGEdgesUniqueFlag(edgesArr, nodesArr)
-	fmt.Printf("[DeconstructDBG] unique edge number is : %v, semiUniqNum: %v, twoEdgeCycleNum: %v,selfCycleNum: %v\n", uniqueNum, semiUniqNum, twoEdgeCycleNum, selfCycleNum)
-	gfn1 := opt.Prefix + ".afterSmfyDBG.dot"
-	constructdbg.GraphvizDBGArr(nodesArr, edgesArr, gfn1)
+	uniqueNum, semiUniqNum, twoEdgeCycleNum, selfCycleNum, selfCycleSameComingNum := constructdbg.SetDBGEdgesUniqueFlag(edgesArr, nodesArr, 5000)
+	fmt.Printf("[Correct] unique edge number is : %v, semiUniqNum: %v, twoEdgeCycleNum: %v,selfCycleNum: %v, selfCycleSameComingNum: %v\n", uniqueNum, semiUniqNum, twoEdgeCycleNum, selfCycleNum, selfCycleSameComingNum)
+	fmt.Printf("[Correct] Smfy DBG used : %v\n", time.Now().Sub(t0))
+	t0 = time.Now()
+	//gfn1 := opt.Prefix + ".afterSmfyDBG.dot"
+	//constructdbg.GraphvizDBGArr(nodesArr, edgesArr, gfn1)
 
 	// Mapping NGS to DBG and Correct
 	MappingNGSAndMerge(opt, nodesArr, edgesArr)
+	fmt.Printf("[Correct] Mapping and Merge NGS reads used : %v\n", time.Now().Sub(t0))
 }

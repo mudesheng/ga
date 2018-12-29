@@ -1,18 +1,26 @@
 package deconstructdbg
 
 import (
+	"bufio"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"log"
+	"math"
 	"os"
 	"reflect"
-	"runtime/pprof"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/biogo/biogo/alphabet"
 	"github.com/biogo/biogo/io/seqio/fasta"
 	"github.com/biogo/biogo/seq/linear"
+	"github.com/gogo/protobuf/proto"
 	"github.com/jwaldrip/odin/cli"
+	"github.com/mudesheng/ga/bnt"
+	"github.com/mudesheng/ga/cbrotli"
+	"github.com/mudesheng/ga/constructcf"
 	"github.com/mudesheng/ga/constructdbg"
 	"github.com/mudesheng/ga/utils"
 )
@@ -32,12 +40,22 @@ func addPathToPathMat(edgesArr []constructdbg.DBGEdge, eID constructdbg.DBG_MAX_
 	return false
 }
 
-func WriteLongPathToDBG(wc chan [2][]constructdbg.DBG_MAX_INT, edgesArr []constructdbg.DBGEdge, numCPU int) [][2][]constructdbg.DBG_MAX_INT {
+func WriteLongPathToFile(wc chan LongReadMappingInfo, pathfn string, numCPU int) {
+	pathfp, err := os.Create(pathfn)
+	if err != nil {
+		log.Fatalf("[WriteLongPathToFile] file %s create error, err: %v\n", pathfn, err)
+	}
+	defer pathfp.Close()
+	cbrofp := cbrotli.NewWriter(pathfp, cbrotli.WriterOptions{Quality: 1})
+	defer cbrofp.Close()
+	buffp := bufio.NewWriterSize(cbrofp, 1<<25) // 1<<25 == 2**25
 	var finishNum int
-	var pathArr [][2][]constructdbg.DBG_MAX_INT
+	//readID := uint32(1)
+	//var pathArr constructdbg.PathArr
 	for {
-		extArr := <-wc
-		fmt.Fprintf(os.Stderr, "[WriteLongPathToDBG] path: %v\n", extArr)
+		rmi := <-wc
+		extArr := rmi.Path
+		fmt.Fprintf(os.Stderr, "[WriteLongPathToFile] path: %v\n", extArr)
 		p := extArr[0]
 		if len(p) == 0 {
 			finishNum++
@@ -45,7 +63,27 @@ func WriteLongPathToDBG(wc chan [2][]constructdbg.DBG_MAX_INT, edgesArr []constr
 				break
 			}
 		}
-		pathArr = append(pathArr, extArr)
+		p0 := make([]uint32, len(extArr[0]))
+		p1 := make([]uint32, len(extArr[1]))
+		for j := 0; j < len(extArr[0]); j++ {
+			p0[j] = uint32(extArr[0][j])
+			p1[j] = uint32(extArr[1][j])
+		}
+		var rp constructdbg.ReadPath
+		rp = constructdbg.ReadPath{
+			ReadID: rmi.ID,
+			Path0:  p0,
+			Path1:  p1,
+		}
+		data, err := proto.Marshal(&rp)
+		if err != nil {
+			log.Fatalf("[WriteLongPathToFile] Mashal data error: %v\n", err)
+		}
+
+		buffp.Write(data)
+		//pathArr.Arr = append(pathArr.Arr, &rp)
+		//readID++
+		//pathArr = append(pathArr, extArr)
 		// write path to the DBG
 		// all long reads path store this pathArr, and store index of pathArr to the edge PathMat[1]
 		/*if len(p) > 2 {
@@ -66,8 +104,52 @@ func WriteLongPathToDBG(wc chan [2][]constructdbg.DBG_MAX_INT, edgesArr []constr
 			}
 		}*/
 	}
+	/*data, err := proto.Marshal(&pathArr)
+	if err != nil {
+		log.Fatalf("[WriteLongPathToFile] Mashal data error: %v\n", err)
+	}
+	buffp.Write(data)*/
 
-	return pathArr
+	if err := buffp.Flush(); err != nil {
+		log.Fatalf("[WriteLongPathToFile] failed to flush file: %s, err: %v\n", pathfn, err)
+	}
+
+	if err := cbrofp.Flush(); err != nil {
+		log.Fatalf("[WriteLongPathToFile] failed to flush file: %s, err: %v\n", pathfn, err)
+	}
+}
+
+func LoadLongPathFromFile(pathfn string) (pathArr [][2][]constructdbg.DBG_MAX_INT) {
+	pathfp, err := os.Open(pathfn)
+	if err != nil {
+		log.Fatalf("[LoadLongPathFromFile] file %s create error, err: %v\n", pathfn, err)
+	}
+	defer pathfp.Close()
+	cbrofp := cbrotli.NewReaderSize(pathfp, 1<<25)
+	defer cbrofp.Close()
+	buffp := bufio.NewReader(cbrofp) // 1<<25 == 2**25
+	buf, err := ioutil.ReadAll(buffp)
+	if err != nil {
+		log.Fatalf("[LoadLongPathFromFile] read file %s failed, err:%v\n", pathfn, err)
+	}
+	var arr constructdbg.PathArr
+	err = proto.Unmarshal(buf, &arr)
+	if err != nil {
+		log.Fatalf("[LoadLongPathFromFile] proto.Unmarshal() err:%v\n", err)
+	}
+	pathArr = make([][2][]constructdbg.DBG_MAX_INT, len(arr.Arr))
+	for i, path := range arr.Arr {
+		var p [2][]constructdbg.DBG_MAX_INT
+		p[0] = make([]constructdbg.DBG_MAX_INT, len(path.Path0))
+		p[1] = make([]constructdbg.DBG_MAX_INT, len(path.Path1))
+		for j := 0; j < len(path.Path0); j++ {
+			p[0][j] = constructdbg.DBG_MAX_INT(path.Path0[j])
+			p[1][j] = constructdbg.DBG_MAX_INT(path.Path1[j])
+		}
+		pathArr[i] = p
+	}
+
+	return
 }
 
 // set the unique edge of edgesArr
@@ -266,159 +348,458 @@ func AppearEdgeInPathNum(arr []constructdbg.DBG_MAX_INT, eID constructdbg.DBG_MA
 	return
 }
 
-func ExtendPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, e constructdbg.DBGEdge, pathArr [][2][]constructdbg.DBG_MAX_INT, edgesPathRelationArr [][]uint32, minMapingFreq int32, kmerlen int) constructdbg.Path {
-	var p constructdbg.Path
+func IsInPathMat(ePathArr [][2][]constructdbg.DBG_MAX_INT, matchPath [2][]constructdbg.DBG_MAX_INT) bool {
+	ml := len(matchPath[0])
+	for _, p := range ePathArr {
+		if len(p[0]) < ml {
+			continue
+		}
+		if EqualDBG_MAX_INTArr(p[0][:ml], matchPath[0]) {
+			return true
+		}
+	}
+	return false
+}
+
+func GetOverlapPath(matchPath [2][]constructdbg.DBG_MAX_INT, eID constructdbg.DBG_MAX_INT, pathArr [][2][]constructdbg.DBG_MAX_INT, edgesPathRelation []uint32, direction uint8, minMapFreq int) (extendP [2][]constructdbg.DBG_MAX_INT, freq int) {
+	Idx := IndexEID(matchPath, eID)
+	ePathArr := copyPathArr(pathArr, edgesPathRelation)
+	for i := 0; i < len(ePathArr); i++ {
+		p := ePathArr[i]
+		pl, ml := len(p[0]), len(matchPath[0])
+		if pl < ml {
+			ePathArr[i][0] = nil
+			ePathArr[i][1] = nil
+			continue
+		}
+		idx := IndexEID(p, eID)
+		if Idx > 0 && idx > 0 {
+			if matchPath[0][Idx-1] != p[0][idx-1] {
+				constructdbg.ReverseDBG_MAX_INTArr(p[0])
+				constructdbg.ReverseDBG_MAX_INTArr(p[1])
+				idx = pl - 1 - idx
+			}
+		} else if Idx < ml-1 && idx < pl-1 {
+			if matchPath[0][Idx+1] != p[0][idx+1] {
+				constructdbg.ReverseDBG_MAX_INTArr(p[0])
+				constructdbg.ReverseDBG_MAX_INTArr(p[1])
+				idx = pl - 1 - idx
+			}
+		} else if Idx > 0 && idx < pl-1 {
+			if matchPath[0][Idx-1] == p[0][idx+1] {
+				constructdbg.ReverseDBG_MAX_INTArr(p[0])
+				constructdbg.ReverseDBG_MAX_INTArr(p[1])
+				idx = pl - 1 - idx
+			}
+		} else {
+			if matchPath[0][Idx+1] == p[0][idx-1] {
+				constructdbg.ReverseDBG_MAX_INTArr(p[0])
+				constructdbg.ReverseDBG_MAX_INTArr(p[1])
+				idx = pl - 1 - idx
+			}
+		}
+		if idx > Idx && ml-Idx < pl-idx {
+			if EqualDBG_MAX_INTArr(matchPath[0], p[0][idx-Idx:idx+(ml-Idx)]) {
+				if direction == constructdbg.FORWARD {
+					ePathArr[i][0] = p[0][idx-Idx:]
+					ePathArr[i][1] = p[1][idx-Idx:]
+					//fmt.Printf("[GetOverlapPath]Idx: %v, idx:%v,i:%v, p:%v\n", Idx, idx, i, p)
+				} else {
+					ePathArr[i][0] = constructdbg.ReverseDBG_MAX_INTArr(p[0][:idx+(ml-Idx)])
+					ePathArr[i][1] = constructdbg.ReverseDBG_MAX_INTArr(p[1][:idx+(ml-Idx)])
+					//fmt.Printf("[GetOverlapPath]Idx: %v, idx:%v,i:%v, p:%v\n", Idx, idx, i, p)
+				}
+			} else {
+				ePathArr[i][0] = nil
+				ePathArr[i][1] = nil
+			}
+		} else {
+			ePathArr[i][0] = nil
+			ePathArr[i][1] = nil
+		}
+	}
+
+	/*for m := 0; m < len(ePathArr); m++ {
+		if ePathArr[m][0] != nil {
+			fmt.Printf("[GetOverlapPath] ePathArr[%v]:%v\n", m, ePathArr[m])
+		}
+	}*/
+
+	// found consis path
+	if direction == constructdbg.BACKWARD {
+		matchPath[0] = constructdbg.ReverseDBG_MAX_INTArr(matchPath[0])
+		matchPath[1] = constructdbg.ReverseDBG_MAX_INTArr(matchPath[1])
+	}
+
+	// find Max Freq edge path
+	for j := len(matchPath[0]); ; j++ {
+		var idFreqArr []IDFreq
+		for k := 0; k < len(ePathArr); k++ {
+			p := ePathArr[k]
+			if p[0] == nil || len(p[0]) <= j {
+				continue
+			}
+			if p[0][j] > 0 && p[1][j] == 0 {
+				idFreqArr = AddIDFreqArr(idFreqArr, p[0][j], 1)
+			}
+		}
+
+		if len(idFreqArr) == 0 {
+			break
+		}
+
+		sort.Sort(IDFreqArr(idFreqArr))
+		y := len(idFreqArr) - 1
+		for ; y >= 0; y-- {
+			if idFreqArr[y].Freq >= int32(minMapFreq) {
+				break
+			}
+		}
+		//fmt.Printf("[GetOverlapPath] y:%v,j: %v, idFreqArr: %v\n", y, j, idFreqArr)
+		if y >= 1 {
+			if idFreqArr[0].Freq > idFreqArr[1].Freq {
+				y = 0
+			}
+			//ePathArr = CleanLowFreq(idFreqArr[y+1:], j, ePathArr, constructdbg.FORWARD)
+		} else if y < 0 {
+			break
+		}
+		if y == 0 {
+			matchPath[0] = append(matchPath[0], idFreqArr[0].ID)
+			matchPath[1] = append(matchPath[1], 0)
+			freq = int(idFreqArr[0].Freq)
+		} else {
+			break
+		}
+	}
+	//fmt.Printf("[GetOverlapPath] matchPath: %v\n", matchPath)
+
+	for j := len(matchPath[0]); j > 0; j-- {
+		matchPath[0] = matchPath[0][:j]
+		matchPath[1] = matchPath[1][:j]
+		if IsInPathMat(ePathArr, matchPath) {
+			break
+		}
+	}
+
+	/*for j := len(matchPath[0]); ; j++ {
+		var idFreqArr []IDFreq
+		for k := 0; k < len(ePathArr); k++ {
+			p := ePathArr[k]
+			if p[0] == nil || len(p[0]) <= j {
+				continue
+			}
+			if p[0][j] > 0 && p[1][j] == 0 {
+				idFreqArr = AddIDFreqArr(idFreqArr, p[0][j], 1)
+			}
+		}
+
+		if len(idFreqArr) == 0 {
+			break
+		}
+
+		sort.Sort(IDFreqArr(idFreqArr))
+		y := len(idFreqArr) - 1
+		for ; y >= 0; y-- {
+			if idFreqArr[y].Freq >= int32(minMapFreq) {
+				break
+			}
+		}
+		//fmt.Printf("[GetOverlapPath] y:%v,j: %v, idFreqArr: %v\n", y, j, idFreqArr)
+		if y == 1 {
+			if idFreqArr[0].Freq > idFreqArr[1].Freq*2 {
+				y = 0
+			}
+			ePathArr = CleanLowFreq(idFreqArr[y+1:], j, ePathArr, constructdbg.FORWARD)
+		} else if y < 0 || y > 1 {
+			break
+		}
+		if y == 0 {
+			matchPath[0] = append(matchPath[0], idFreqArr[0].ID)
+			matchPath[1] = append(matchPath[1], 0)
+			freq = int(idFreqArr[0].Freq)
+		} else {
+			break
+		}
+	}*/
+
+	if direction == constructdbg.BACKWARD {
+		matchPath[0] = constructdbg.ReverseDBG_MAX_INTArr(matchPath[0])
+		matchPath[1] = constructdbg.ReverseDBG_MAX_INTArr(matchPath[1])
+	}
+	extendP = matchPath
+	return
+}
+
+func ExtendPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, e constructdbg.DBGEdge, pathArr [][2][]constructdbg.DBG_MAX_INT, edgesPathRelationArr [][]uint32, minMapingFreq, minMappingLen, kmerlen int) constructdbg.Path {
+	var p, p1 constructdbg.Path
 	//minMapEdgesNum := 3
 	p.IDArr = make([]constructdbg.DBG_MAX_INT, len(e.PathMat[0].IDArr))
+	p1.IDArr = make([]constructdbg.DBG_MAX_INT, len(e.PathMat1[0].IDArr))
 	copy(p.IDArr, e.PathMat[0].IDArr)
+	copy(p1.IDArr, e.PathMat1[0].IDArr)
 	p.Freq = e.PathMat[0].Freq
-	if int32(p.Freq) < minMapingFreq {
+	p1.Freq = e.PathMat1[0].Freq
+	if p.Freq < minMapingFreq {
 		return p
 	}
 
 	{
 		idx := constructdbg.IndexEID(p.IDArr, e.ID)
 		// found left partition path
-		for i := idx - 1; i >= 0; i-- {
-			e2 := edgesArr[p.IDArr[i]]
-			//fmt.Printf("[ExtendPath] edgesArr[148] process Flag: %v, e2.ID: %d, i: %d, idx: %d\n", edgesArr[148].GetProcessFlag(), e2.ID, i, idx)
-			if e2.GetUniqueFlag() == 0 || e2.GetDeleteFlag() > 0 || e2.GetTwoEdgesCycleFlag() > 0 || len(e2.PathMat) == 0 {
-				continue
-			}
-			if e2.GetProcessFlag() > 0 {
-				log.Fatalf("[ExtendPath] found e2.ID: %v have been processed in p: %v\n", e2.ID, p)
-			}
-			//if e2.GetTwoEdgesCycleFlag() > 0 {
-			//	step = 2
-			//}
-			Idx := -1
-			var matchPath constructdbg.Path
-			var matchLen int
-			matchPathNum := 0
-			for j := 0; j < len(e2.PathMat); j++ {
-				var ep constructdbg.Path
-				ep.IDArr = make([]constructdbg.DBG_MAX_INT, len(e2.PathMat[j].IDArr))
-				copy(ep.IDArr, e2.PathMat[j].IDArr)
-				ep.Freq = e2.PathMat[j].Freq
-				if AppearEdgeInPathNum(ep.IDArr, e2.ID) > 1 {
-					fmt.Printf("[ExtendPath]e2.ID: %v appear more than one time in ep: %v\n", e2.ID, ep)
+		lastEID := constructdbg.DBG_MAX_INT(0)
+		for {
+			i := idx - 1
+			for ; i >= 0; i-- {
+				e2 := edgesArr[p.IDArr[i]]
+				//fmt.Printf("[ExtendPath]e2.ID: %v\n", e2.ID)
+				//fmt.Printf("[ExtendPath] edgesArr[148] process Flag: %v, e2.ID: %d, i: %d, idx: %d\n", edgesArr[148].GetProcessFlag(), e2.ID, i, idx)
+				if e2.GetMergedFlag() == 0 || len(e2.PathMat) == 0 {
 					continue
 				}
-				x := constructdbg.IndexEID(ep.IDArr, e2.ID)
-				if x < len(ep.IDArr)-1 && ep.IDArr[x+1] != p.IDArr[i+1] {
-					constructdbg.ReverseDBG_MAX_INTArr(ep.IDArr)
-					x = len(ep.IDArr) - 1 - x
-				}
-				if (len(ep.IDArr)-x > len(p.IDArr)-i) || x <= i {
-					continue
-				}
-				if reflect.DeepEqual(p.IDArr[:i+(len(ep.IDArr)-x)], ep.IDArr[x-i:]) {
-					matchPathNum++
-					matchPath = ep
-					for y := 0; y < x-i; y++ {
-						matchLen += (len(edgesArr[ep.IDArr[y]].Utg.Ks) - (kmerlen - 1))
+				/*if e2.GetProcessFlag() > 0 {
+					log.Fatalf("[ExtendPath] found e2.ID: %v have been processed in p: %v\n", e2.ID, p)
+				}*/
+				//if e2.GetTwoEdgesCycleFlag() > 0 {
+				//	step = 2
+				//}
+				Idx := -1
+				var matchPath, matchPath1 constructdbg.Path
+				var matchLen int
+				matchPathNum := 0
+				//fmt.Printf("[ExtendPath]e2.ID: %v, e2.PathMat:%v\n", e2.ID, e2.PathMat)
+				for j := 0; j < len(e2.PathMat); j++ {
+					var ep, ep1 constructdbg.Path
+					ep.IDArr = make([]constructdbg.DBG_MAX_INT, len(e2.PathMat[j].IDArr))
+					ep1.IDArr = make([]constructdbg.DBG_MAX_INT, len(e2.PathMat1[j].IDArr))
+					copy(ep.IDArr, e2.PathMat[j].IDArr)
+					copy(ep1.IDArr, e2.PathMat1[j].IDArr)
+					ep.Freq = e2.PathMat[j].Freq
+					ep1.Freq = e2.PathMat1[j].Freq
+					if AppearEdgeInPathNum(ep.IDArr, e2.ID) > 1 {
+						fmt.Printf("[ExtendPath]e2.ID: %v appear more than one time in ep: %v\n", e2.ID, ep)
+						continue
 					}
-					matchLen += (kmerlen - 1)
-					Idx = x - i
+					x := constructdbg.IndexEID(ep.IDArr, e2.ID)
+					if x < len(ep.IDArr)-1 && ep.IDArr[x+1] != p.IDArr[i+1] {
+						constructdbg.ReverseDBG_MAX_INTArr(ep.IDArr)
+						constructdbg.ReverseDBG_MAX_INTArr(ep1.IDArr)
+						x = len(ep.IDArr) - 1 - x
+					}
+					if (len(ep.IDArr)-x > len(p.IDArr)-i) || x <= i {
+						continue
+					}
+					if EqualDBG_MAX_INTArr(p.IDArr[:i+(len(ep.IDArr)-x)], ep.IDArr[x-i:]) {
+						matchPathNum++
+						matchPath = ep
+						matchPath1 = ep1
+						for y := x - i; y < len(ep.IDArr); y++ {
+							matchLen += (len(edgesArr[ep.IDArr[y]].Utg.Ks) - (kmerlen - 1))
+						}
+						matchLen += (kmerlen - 1)
+						Idx = x - i
+					}
 				}
-			}
-			if matchPathNum == 1 && matchLen > 2000 {
-				p.IDArr = append(matchPath.IDArr[:Idx], p.IDArr...)
-				if p.Freq > matchPath.Freq {
+				//fmt.Printf("[ExtendPath]Idx: %v, matchPathNum: %v, matchLen: %v\n", Idx, matchPathNum, matchLen)
+				if matchPathNum == 1 && matchLen > minMappingLen {
+					p.IDArr = append(matchPath.IDArr[:Idx], p.IDArr...)
+					p1.IDArr = append(matchPath1.IDArr[:Idx], p1.IDArr...)
 					p.Freq = matchPath.Freq
+					p1.Freq = matchPath1.Freq
+					i += Idx
+					edgesArr[e2.ID].SetProcessFlag()
 				}
-				i += Idx
+				//ChangeExtendPArr(extendPArr, width-1-x, width, constructdbg.BACKWARD)
+				//fmt.Printf("[ExtendPath]i: %v, extend left path p: %v\n", i, p)
 			}
-			//ChangeExtendPArr(extendPArr, width-1-x, width, constructdbg.BACKWARD)
-			fmt.Printf("[ExtendPath]extend left path p: %v\n", p)
+			if edgesArr[p.IDArr[0]].StartNID == 0 || edgesArr[p.IDArr[0]].EndNID == 0 {
+				break
+			}
+			// if not found merged edge, maybe can found unique edge path
+			{
+				var matchPath [2][]constructdbg.DBG_MAX_INT
+				var freq int
+				var eID constructdbg.DBG_MAX_INT // anchor edge
+				pathLen := kmerlen - 1
+				for m := 0; m < len(p.IDArr); m++ {
+					te := edgesArr[p.IDArr[m]]
+					if eID < 2 && te.GetMergedFlag() == 0 && len(edgesPathRelationArr[te.ID]) > 0 {
+						eID = te.ID
+					}
+					matchPath[0] = append(matchPath[0], p.IDArr[m])
+					matchPath[1] = append(matchPath[1], p1.IDArr[m])
+					pathLen += (len(te.Utg.Ks) - (kmerlen - 1))
+					if pathLen > minMappingLen && eID >= 2 {
+						break
+					}
+				}
+				if pathLen < minMappingLen || pathLen > 10000 || eID < 2 || eID == lastEID {
+					break
+				}
+				lastEID = eID
+				//freq = p.Freq
+				ml := len(matchPath[0])
+				//fmt.Printf("[ExtendPath]BACKWARD anchor edge ID: %v, len(edgesPathRelationArr[eID]): %v, pathLen: %v, matchPath: %v\n", eID, len(edgesPathRelationArr[eID]), pathLen, matchPath)
+				extendP, freq := GetOverlapPath(matchPath, eID, pathArr, edgesPathRelationArr[eID], constructdbg.BACKWARD, minMapingFreq)
+				//fmt.Printf("[ExtendPath]BACKWARD extendP: %v, freq:%v\n", extendP, freq)
+				if len(extendP[0]) > ml && freq >= minMapingFreq {
+					p.IDArr = append(extendP[0][:ml], p.IDArr...)
+					p1.IDArr = append(extendP[1][:ml], p1.IDArr...)
+					p.Freq = freq
+					p1.Freq = freq
+					idx = ml
+				} else {
+					break
+				}
+			}
+			//fmt.Printf("[ExtendPath]BACKWARD after extend unique edge path :%v\n", p)
 		}
 	}
 
 	// add right partion
 	{
 		idx := constructdbg.IndexEID(p.IDArr, e.ID)
-		for i := idx + 1; i < len(p.IDArr); i++ {
-			e2 := edgesArr[p.IDArr[i]]
-			if e2.GetUniqueFlag() == 0 || e2.GetDeleteFlag() > 0 || e2.GetTwoEdgesCycleFlag() > 0 || len(e2.PathMat) == 0 {
-				continue
-			}
-			if e2.GetProcessFlag() > 0 {
-				log.Fatalf("[ExtendPath] found e2.ID: %v have been processed in p: %v\n", e2.ID, p)
-			}
-			Idx := -1
-			var matchPath constructdbg.Path
-			var matchLen int
-			matchPathNum := 0
-			for j := 0; j < len(e2.PathMat); j++ {
-				var ep constructdbg.Path
-				ep.IDArr = make([]constructdbg.DBG_MAX_INT, len(e2.PathMat[j].IDArr))
-				copy(ep.IDArr, e2.PathMat[j].IDArr)
-				ep.Freq = e2.PathMat[j].Freq
-				if AppearEdgeInPathNum(ep.IDArr, e2.ID) > 1 {
-					fmt.Printf("[ExtendPath]e2.ID: %v appear more than one time in ep: %v\n", e2.ID, ep)
+		lastEID := constructdbg.DBG_MAX_INT(0)
+		for {
+			i := idx + 1
+			for ; i < len(p.IDArr); i++ {
+				e2 := edgesArr[p.IDArr[i]]
+				//fmt.Printf("[ExtendPath]e2.ID: %v\n", e2.ID)
+				if e2.GetMergedFlag() == 0 || len(e2.PathMat) == 0 {
 					continue
 				}
-				x := constructdbg.IndexEID(ep.IDArr, e2.ID)
-				if x > 0 && ep.IDArr[x-1] != p.IDArr[i-1] {
-					constructdbg.ReverseDBG_MAX_INTArr(ep.IDArr)
-					x = len(ep.IDArr) - 1 - x
-				}
-				if (x > i) || (len(ep.IDArr)-x <= len(p.IDArr)-i) {
-					continue
-				}
-				if reflect.DeepEqual(p.IDArr[i-x:], ep.IDArr[:x+(len(p.IDArr)-i)]) {
-					matchPathNum++
-					matchPath = ep
-					for y := x + (len(p.IDArr) - i); y < len(ep.IDArr); y++ {
-						matchLen += (len(edgesArr[ep.IDArr[y]].Utg.Ks) - (kmerlen - 1))
+				/*if e2.GetProcessFlag() > 0 {
+					log.Fatalf("[ExtendPath] found e2.ID: %v have been processed in p: %v\n", e2.ID, p)
+				}*/
+				Idx := -1
+				var matchPath, matchPath1 constructdbg.Path
+				var matchLen int
+				matchPathNum := 0
+				//fmt.Printf("[ExtendPath]i: %v, e2.ID: %v, e2.PathMat:%v\n", i, e2.ID, e2.PathMat)
+				for j := 0; j < len(e2.PathMat); j++ {
+					var ep, ep1 constructdbg.Path
+					ep.IDArr = make([]constructdbg.DBG_MAX_INT, len(e2.PathMat[j].IDArr))
+					ep1.IDArr = make([]constructdbg.DBG_MAX_INT, len(e2.PathMat1[j].IDArr))
+					copy(ep.IDArr, e2.PathMat[j].IDArr)
+					copy(ep1.IDArr, e2.PathMat1[j].IDArr)
+					ep.Freq = e2.PathMat[j].Freq
+					ep1.Freq = e2.PathMat1[j].Freq
+					if AppearEdgeInPathNum(ep.IDArr, e2.ID) > 1 {
+						fmt.Printf("[ExtendPath]e2.ID: %v appear more than one time in ep: %v\n", e2.ID, ep)
+						continue
 					}
-					matchLen += (kmerlen - 1)
-					Idx = x + (len(p.IDArr) - i)
+					x := constructdbg.IndexEID(ep.IDArr, e2.ID)
+					if x > 0 && ep.IDArr[x-1] != p.IDArr[i-1] {
+						constructdbg.ReverseDBG_MAX_INTArr(ep.IDArr)
+						constructdbg.ReverseDBG_MAX_INTArr(ep1.IDArr)
+						x = len(ep.IDArr) - 1 - x
+					}
+					if (x > i) || (len(ep.IDArr)-x <= len(p.IDArr)-i) {
+						continue
+					}
+					if EqualDBG_MAX_INTArr(p.IDArr[i-x:], ep.IDArr[:x+(len(p.IDArr)-i)]) {
+						matchPathNum++
+						matchPath = ep
+						matchPath1 = ep1
+						for y := 0; y < x+(len(p.IDArr)-i); y++ {
+							matchLen += (len(edgesArr[ep.IDArr[y]].Utg.Ks) - (kmerlen - 1))
+						}
+						matchLen += (kmerlen - 1)
+						Idx = x + (len(p.IDArr) - i)
+					}
 				}
-			}
-			if matchPathNum == 1 && matchLen > 2000 {
-				p.IDArr = append(p.IDArr, matchPath.IDArr[Idx:]...)
-				if p.Freq > matchPath.Freq {
+				//fmt.Printf("[ExtendPath]Idx: %v, matchPathNum: %v, matchLen: %v\n", Idx, matchPathNum, matchLen)
+				if matchPathNum == 1 && matchLen > minMappingLen {
+					p.IDArr = append(p.IDArr, matchPath.IDArr[Idx:]...)
+					p1.IDArr = append(p1.IDArr, matchPath1.IDArr[Idx:]...)
 					p.Freq = matchPath.Freq
+					p1.Freq = matchPath1.Freq
+					edgesArr[e2.ID].SetProcessFlag()
+					//i += Idx
 				}
-				i += Idx
+				//ChangeExtendPArr(extendPArr, width-1-x, width, constructdbg.BACKWARD)
+				//fmt.Printf("[ExtendPath]i: %v,len(p): %v, after extend rigth path p: %v\n", i, len(p.IDArr), p)
 			}
-			//ChangeExtendPArr(extendPArr, width-1-x, width, constructdbg.BACKWARD)
-			fmt.Printf("[ExtendPath]after extend rigth path p: %v\n", p)
+			// if not found merged edge, maybe can found unique edge path
+			{
+				var matchPath [2][]constructdbg.DBG_MAX_INT
+				var freq int
+				var eID constructdbg.DBG_MAX_INT // anchor edge
+				pathLen := kmerlen - 1
+				for m := len(p.IDArr) - 1; m > 0; m-- {
+					te := edgesArr[p.IDArr[m]]
+					if eID < 2 && te.GetMergedFlag() == 0 && len(edgesPathRelationArr[te.ID]) > 0 {
+						eID = te.ID
+					}
+					matchPath[0] = append(matchPath[0], p.IDArr[m])
+					matchPath[1] = append(matchPath[1], p1.IDArr[m])
+					pathLen += (len(te.Utg.Ks) - (kmerlen - 1))
+					if pathLen > minMappingLen && eID >= 2 {
+						break
+					}
+				}
+				if pathLen < minMappingLen || pathLen > 10000 || eID < 2 || lastEID == eID {
+					break
+				}
+				lastEID = eID
+				matchPath[0] = constructdbg.ReverseDBG_MAX_INTArr(matchPath[0])
+				matchPath[1] = constructdbg.ReverseDBG_MAX_INTArr(matchPath[1])
+				ml := len(matchPath[0])
+				//fmt.Printf("[ExtendPath]FORWARD anchor edge ID: %v,len(edgesPathRelationArr[eID]): %v, pathLen: %v, matchPath: %v\n", eID, len(edgesPathRelationArr[eID]), pathLen, matchPath)
+				//freq = p.Freq
+				extendP, freq := GetOverlapPath(matchPath, eID, pathArr, edgesPathRelationArr[eID], constructdbg.FORWARD, minMapingFreq)
+				//fmt.Printf("[ExtendPath]FORWARD extendP: %v, freq:%v\n", extendP, freq)
+				if len(extendP[0]) > ml && freq >= minMapingFreq {
+					p.IDArr = append(p.IDArr, extendP[0][ml:]...)
+					p1.IDArr = append(p1.IDArr, extendP[1][ml:]...)
+					p.Freq = freq
+					p1.Freq = freq
+					idx = i - 1
+				} else {
+					break
+				}
+				//fmt.Printf("[ExtendPath]FORWARD after extend unique edge path :%v\n", p)
+			}
 		}
 	}
 
 	return p
 }
 
-func findMaxPath(sortedEIDIdxArr []IdxLen, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, pathArr [][2][]constructdbg.DBG_MAX_INT, edgesPathRelationArr [][]uint32, minMapingFreq int, kmerlen int) (pA []constructdbg.Path) {
+func findMaxPath(sortedEIDIdxArr []IdxLen, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, pathArr [][2][]constructdbg.DBG_MAX_INT, edgesPathRelationArr [][]uint32, minMapingFreq, minMappingLen int, kmerlen int) (pA []constructdbg.Path) {
 	for _, item := range sortedEIDIdxArr {
 		e := edgesArr[item.Idx]
-		fmt.Printf("[findMaxPath]ProcFlag:%v, delFlag:%v, uniqFlag: %v,TwoEdgesCycleFlag:%v, len(e.PathMat): %v, eID: %v, length: %v\n", e.GetProcessFlag(), e.GetDeleteFlag(), e.GetUniqueFlag(), e.GetTwoEdgesCycleFlag(), len(e.PathMat), item.Idx, item.Length)
-		fmt.Printf("[findMaxPath] e.PathMat: %v\n", e.PathMat)
-		if e.GetDeleteFlag() > 0 || e.GetProcessFlag() > 0 || e.GetUniqueFlag() == 0 || e.GetTwoEdgesCycleFlag() > 0 || len(e.PathMat) != 1 || len(e.PathMat[0].IDArr) == 0 {
+		if e.GetMergedFlag() == 0 || e.GetProcessFlag() > 0 || len(e.PathMat) != 1 || len(e.PathMat[0].IDArr) == 0 {
 			continue
 		}
+		//fmt.Printf("[findMaxPath]ProcFlag:%v, delFlag:%v, uniqFlag: %v,TwoEdgesCycleFlag:%v, len(e.PathMat): %v, eID: %v, length: %v\n", e.GetProcessFlag(), e.GetDeleteFlag(), e.GetUniqueFlag(), e.GetTwoEdgesCycleFlag(), len(e.PathMat), item.Idx, item.Length)
+		//fmt.Printf("[findMaxPath] e.PathMat: %v\n", e.PathMat)
 		edgesArr[e.ID].SetProcessFlag()
 		fmt.Printf("[findMaxPath] eID: %v, length: %v\n", item.Idx, item.Length)
-		maxP := ExtendPath(edgesArr, nodesArr, e, pathArr, edgesPathRelationArr, int32(minMapingFreq), kmerlen)
+		maxP := ExtendPath(edgesArr, nodesArr, e, pathArr, edgesPathRelationArr, minMapingFreq, minMappingLen, kmerlen)
 		if len(maxP.IDArr) > 1 {
+			fmt.Printf("[findMaxPath] maxP: %v\n", maxP)
 			pA = append(pA, maxP)
 		}
 	}
 	return pA
 }
 
-func ConstructEdgesPathRelationship(edgesArr []constructdbg.DBGEdge, pathArr [][2][]constructdbg.DBG_MAX_INT, edgesPathRelationArr [][]uint32) {
+func ConstructEdgesPathRelationship(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, pathArr [][2][]constructdbg.DBG_MAX_INT, edgesPathRelationArr [][]uint32, minLen, kmerlen int) {
 	for i, extArr := range pathArr {
 		ui := uint32(i)
 		for j, eID := range extArr[0] {
 			e := edgesArr[eID]
-			if e.GetUniqueFlag() > 0 {
-				edgesPathRelationArr[eID] = append(edgesPathRelationArr[eID], ui)
-				if extArr[1][j] > 0 {
-					aeID := extArr[1][j]
-					edgesPathRelationArr[aeID] = append(edgesPathRelationArr[aeID], ui)
+			if e.GetUniqueFlag() > 0 && extArr[1][j] == 0 {
+				if IsBubbleEdge(e, nodesArr) {
+					//fmt.Printf("[ConstructEdgesPathRelationship] e.ID: %v is a buble edge\n", e.ID)
+					if len(e.Utg.Ks) > kmerlen*2+10 {
+						edgesPathRelationArr[eID] = append(edgesPathRelationArr[eID], ui)
+					}
+				} else {
+					if len(e.Utg.Ks) > minLen {
+						edgesPathRelationArr[eID] = append(edgesPathRelationArr[eID], ui)
+					}
 				}
 			}
 		}
@@ -586,8 +967,19 @@ func IsInIDFreqArr(idFreqArr []IDFreq, eID constructdbg.DBG_MAX_INT) bool {
 	return false
 }
 
-func MergeLongEdgePathMat(e constructdbg.DBGEdge, pm []constructdbg.Path, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode) (mergePath constructdbg.Path) {
+func MergeLongEdgePathMat(e constructdbg.DBGEdge, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode) (mergePath, mergePath1 constructdbg.Path) {
 	var ea1, ea2 []constructdbg.DBG_MAX_INT
+	var pm, pm1 [2]constructdbg.Path
+	pm[0].IDArr = make([]constructdbg.DBG_MAX_INT, len(e.PathMat[0].IDArr))
+	pm[1].IDArr = make([]constructdbg.DBG_MAX_INT, len(e.PathMat[1].IDArr))
+	pm1[0].IDArr = make([]constructdbg.DBG_MAX_INT, len(e.PathMat1[0].IDArr))
+	pm1[1].IDArr = make([]constructdbg.DBG_MAX_INT, len(e.PathMat1[1].IDArr))
+	copy(pm[0].IDArr, e.PathMat[0].IDArr)
+	copy(pm[1].IDArr, e.PathMat[1].IDArr)
+	copy(pm1[0].IDArr, e.PathMat1[0].IDArr)
+	copy(pm1[1].IDArr, e.PathMat1[1].IDArr)
+	pm[0].Freq, pm[1].Freq = e.PathMat[0].Freq, e.PathMat[1].Freq
+	pm1[0].Freq, pm1[1].Freq = e.PathMat1[0].Freq, e.PathMat1[1].Freq
 	if constructdbg.IsInComing(nodesArr[e.StartNID].EdgeIDIncoming, e.ID) {
 		ea1 = constructdbg.GetNearEdgeIDArr(nodesArr[e.StartNID], e.ID, true)
 	} else {
@@ -603,18 +995,36 @@ func MergeLongEdgePathMat(e constructdbg.DBGEdge, pm []constructdbg.Path, edgesA
 	}
 	idx1 := constructdbg.IndexEID(pm[0].IDArr, e.ID)
 	idx2 := constructdbg.IndexEID(pm[1].IDArr, e.ID)
+	if idx1 == 0 && len(pm[1].IDArr)-idx2 == len(pm[0].IDArr) {
+		if EqualDBG_MAX_INTArr(pm[0].IDArr, pm[1].IDArr[:len(pm[1].IDArr)-idx2]) {
+			mergePath.IDArr = pm[1].IDArr
+			mergePath1.IDArr = pm1[1].IDArr
+			mergePath.Freq += pm[0].Freq
+			mergePath1.Freq += pm1[0].Freq
+		}
+	} else if idx2 == 0 && len(pm[0].IDArr)-idx1 == len(pm[1].IDArr) {
+		if EqualDBG_MAX_INTArr(pm[1].IDArr, pm[0].IDArr[:len(pm[0].IDArr)-idx1]) {
+			mergePath.IDArr = pm[0].IDArr
+			mergePath1.IDArr = pm1[0].IDArr
+			mergePath.Freq += pm[1].Freq
+			mergePath1.Freq += pm1[1].Freq
+		}
+	}
 	ok1, ok2 := false, false
 	if idx1 == 0 {
 		if pm[0].IDArr[idx1+1] == ea1[0] {
 			pm[0].IDArr = constructdbg.ReverseDBG_MAX_INTArr(pm[0].IDArr)
+			pm1[0].IDArr = constructdbg.ReverseDBG_MAX_INTArr(pm1[0].IDArr)
 			idx1 = len(pm[0].IDArr) - 1
 			ok1 = true
 		} else if pm[0].IDArr[idx1+1] == ea2[0] {
 			pm[0], pm[1] = pm[1], pm[0]
+			pm1[0], pm1[1] = pm1[1], pm1[0]
 			idx1, idx2 = idx2, idx1
 			if idx1 == 0 {
 				if pm[0].IDArr[idx1+1] == ea1[0] {
 					pm[0].IDArr = constructdbg.ReverseDBG_MAX_INTArr(pm[0].IDArr)
+					pm1[0].IDArr = constructdbg.ReverseDBG_MAX_INTArr(pm1[0].IDArr)
 					idx1 = len(pm[0].IDArr) - 1
 					ok1 = true
 				}
@@ -627,10 +1037,12 @@ func MergeLongEdgePathMat(e constructdbg.DBGEdge, pm []constructdbg.Path, edgesA
 			ok1 = true
 		} else if pm[0].IDArr[idx1-1] == ea2[0] {
 			pm[0], pm[1] = pm[1], pm[0]
+			pm1[0], pm1[1] = pm1[1], pm1[0]
 			idx1, idx2 = idx2, idx1
 			if idx1 == 0 {
 				if pm[0].IDArr[idx1+1] == ea1[0] {
 					pm[0].IDArr = constructdbg.ReverseDBG_MAX_INTArr(pm[0].IDArr)
+					pm1[0].IDArr = constructdbg.ReverseDBG_MAX_INTArr(pm1[0].IDArr)
 					idx1 = len(pm[0].IDArr) - 1
 					ok1 = true
 				}
@@ -644,12 +1056,13 @@ func MergeLongEdgePathMat(e constructdbg.DBGEdge, pm []constructdbg.Path, edgesA
 	if ok1 {
 		if idx2 == 0 {
 			if pm[1].IDArr[idx2+1] == ea2[0] {
-				pm[1].IDArr = constructdbg.ReverseDBG_MAX_INTArr(pm[1].IDArr)
-				idx2 = len(pm[1].IDArr) - 1
 				ok2 = true
 			}
 		} else if idx2 == len(pm[1].IDArr)-1 {
 			if pm[1].IDArr[idx2-1] == ea2[0] {
+				pm[1].IDArr = constructdbg.ReverseDBG_MAX_INTArr(pm[1].IDArr)
+				pm1[1].IDArr = constructdbg.ReverseDBG_MAX_INTArr(pm1[1].IDArr)
+				idx2 = len(pm[1].IDArr) - 1
 				ok2 = true
 			}
 		}
@@ -657,10 +1070,13 @@ func MergeLongEdgePathMat(e constructdbg.DBGEdge, pm []constructdbg.Path, edgesA
 
 	if ok1 == true && ok2 == true {
 		mergePath.IDArr = append(pm[0].IDArr, pm[1].IDArr[1:]...)
+		mergePath1.IDArr = append(pm1[0].IDArr, pm1[1].IDArr[1:]...)
 		if pm[0].Freq > pm[1].Freq {
 			mergePath.Freq = pm[1].Freq
+			mergePath1.Freq = pm1[1].Freq
 		} else {
 			mergePath.Freq = pm[0].Freq
+			mergePath1.Freq = pm1[0].Freq
 		}
 	}
 	return
@@ -671,18 +1087,95 @@ type PathArrInfo struct {
 	Idx     int
 }
 
-func MergePathArr(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, pathArr [][2][]constructdbg.DBG_MAX_INT, edgesPathRelationArr [][]uint32, minMapFreq int) {
+func CleanLowFreq(idFreqArr []IDFreq, j int, pathArr [][2][]constructdbg.DBG_MAX_INT, direction uint8) [][2][]constructdbg.DBG_MAX_INT {
+	for z := 0; z < len(idFreqArr); z++ {
+		id := idFreqArr[z].ID
+		for w := 0; w < len(pathArr); w++ {
+			p := pathArr[w]
+			if direction == constructdbg.BACKWARD {
+				if len(p[0]) < j {
+					continue
+				}
+				if pathArr[w][0][j] == id && pathArr[w][1][j] == 0 {
+					for m := j; m >= 0; m-- {
+						if pathArr[w][0][m] > 0 {
+							pathArr[w][0][m] = 0
+							pathArr[w][1][m] = 0
+						} else {
+							break
+						}
+					}
+				} else if pathArr[w][0][j] == id && pathArr[w][1][j] > 0 {
+					pathArr[w][0][j] = pathArr[w][1][j]
+					pathArr[w][1][j] = 0
+				} else if pathArr[w][0][j] > 0 && pathArr[w][1][j] == id {
+					pathArr[w][1][j] = 0
+				}
+			} else { // FORWARD
+				if len(p[0]) <= j {
+					continue
+				}
+				if pathArr[w][0][j] == id && pathArr[w][1][j] == 0 {
+					for m := j; m < len(pathArr[w][0]); m++ {
+						if pathArr[w][0][m] > 0 {
+							pathArr[w][0][m] = 0
+							pathArr[w][1][m] = 0
+						} else {
+							break
+						}
+					}
+				} else if pathArr[w][0][j] == id && pathArr[w][1][j] > 0 {
+					pathArr[w][0][j] = pathArr[w][1][j]
+					pathArr[w][1][j] = 0
+				} else if pathArr[w][0][j] > 0 && pathArr[w][1][j] == id {
+					pathArr[w][1][j] = 0
+				}
+			}
+		}
+	}
+	return pathArr
+}
+
+func GetIDFreqArr(ePathArr [][2][]constructdbg.DBG_MAX_INT, j int) (idFreqArr []IDFreq) {
+	for k := 0; k < len(ePathArr); k++ {
+		p := ePathArr[k]
+		if p[0][j] > 0 && p[1][j] == 0 {
+			idFreqArr = AddIDFreqArr(idFreqArr, p[0][j], 1)
+		}
+	}
+	return
+}
+
+func MergePathArr(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, pathArr [][2][]constructdbg.DBG_MAX_INT, edgesPathRelationArr [][]uint32, minMapFreq, kmerlen int, minUniqueEdgeLen, depth, avgReadLen int) {
 	for i, e := range edgesArr {
 		if i < 2 || e.GetDeleteFlag() > 0 || len(edgesPathRelationArr[i]) < minMapFreq || e.GetUniqueFlag() == 0 || e.GetTwoEdgesCycleFlag() > 0 {
 			continue
 		}
+		if IsBubbleEdge(e, nodesArr) && len(e.Utg.Ks) < 1000 {
+			continue
+		}
 
+		// check is a unique edge in the genome
+		Unique := false
+		el := len(e.Utg.Ks)
+		if el > minUniqueEdgeLen {
+			Unique = true
+		} else {
+			freq := len(edgesPathRelationArr[i])
+			if el > kmerlen*3 && freq < depth*7/5 { // (el / avgReadLen)*Depth = one long read cov this edge probility
+				Unique = true
+			}
+		}
+		// if Unique == true, start merge , other just add path to the edge PathMat
+		if Unique == false {
+			continue
+		}
+		// merge process
 		ePathArr := copyPathArr(pathArr, edgesPathRelationArr[i])
 		if !checkEdgePathArrDirection(edgesArr, nodesArr, ePathArr, e.ID) {
 			continue
 		}
 
-		// merge process
 		var leftMax, rightMax int
 		for _, extArr := range ePathArr {
 			idx := IndexEID(extArr, e.ID)
@@ -706,17 +1199,119 @@ func MergePathArr(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNo
 			ePathArr[j][0] = a1
 			ePathArr[j][1] = a2
 		}
-		fmt.Printf("[MergePathArr]: merge eID: %v\n", e.ID)
-		for x, p := range ePathArr {
-			fmt.Printf("[MergePathArr]: ePathArr[%v]: %v\n", x, p)
-		}
+		//fmt.Printf("[MergePathArr]: merge eID: %v\n", e.ID)
+		//for x, p := range ePathArr {
+		//	fmt.Printf("[MergePathArr]: ePathArr[%v]: %v\n", x, p)
+		//}
 
 		// find consis path, allow many consis path, if Freq > minMapFreq
 		//var cleanPathNum int
 		//var path constructdbg.Path
 		//path.Freq = math.MaxInt64
 
-		// process left partition
+		// every position just choose max freq edge
+		{
+			var mp []constructdbg.DBG_MAX_INT
+			freq := math.MaxInt32
+			// BACKWARD
+			{
+				for j := leftMax; j >= 0; j-- {
+					idFreqArr := GetIDFreqArr(ePathArr, j)
+					if len(idFreqArr) == 0 {
+						break
+					}
+					sort.Sort(IDFreqArr(idFreqArr))
+					//fmt.Printf("[MergePathArr]j: %v, idFreqArr: %v\n", j, idFreqArr)
+					y := len(idFreqArr) - 1
+					for ; y >= 0; y-- {
+						if idFreqArr[y].Freq >= int32(minMapFreq) {
+							break
+						}
+					}
+					if y < 0 {
+						break
+					}
+
+					if y >= 1 {
+						if el > minUniqueEdgeLen && idFreqArr[0].Freq > idFreqArr[1].Freq {
+							y = 0
+						}
+					}
+
+					if y == 0 {
+						mp = append(mp, idFreqArr[0].ID)
+						if idFreqArr[0].Freq < int32(freq) {
+							freq = int(idFreqArr[0].Freq)
+						}
+					} else {
+						break
+					}
+				}
+			}
+			if len(mp) >= 2 { // may found boundary uncertain
+				if mp[len(mp)-1] == mp[len(mp)-2] {
+					mp = mp[:len(mp)-1]
+				}
+			}
+			mp = constructdbg.ReverseDBG_MAX_INTArr(mp)
+
+			// FORWARD
+			{
+
+				for j := leftMax + 1; j < leftMax+rightMax; j++ {
+					idFreqArr := GetIDFreqArr(ePathArr, j)
+					if len(idFreqArr) == 0 {
+						break
+					}
+					sort.Sort(IDFreqArr(idFreqArr))
+					//fmt.Printf("[MergePathArr]j: %v, idFreqArr: %v\n", j, idFreqArr)
+					y := len(idFreqArr) - 1
+					for ; y >= 0; y-- {
+						if idFreqArr[y].Freq >= int32(minMapFreq) {
+							break
+						}
+					}
+					if y < 0 {
+						break
+					}
+
+					if y >= 1 {
+						if el > minUniqueEdgeLen && idFreqArr[0].Freq > idFreqArr[1].Freq {
+							y = 0
+						}
+					}
+
+					if y == 0 {
+						mp = append(mp, idFreqArr[0].ID)
+						if idFreqArr[0].Freq < int32(freq) {
+							freq = int(idFreqArr[0].Freq)
+						}
+					} else {
+						break
+					}
+				}
+			}
+			if len(mp) >= 2 {
+				if mp[len(mp)-1] == mp[len(mp)-2] {
+					mp = mp[:len(mp)-1]
+				}
+			}
+			if len(mp) >= 3 {
+				var path1, path2 constructdbg.Path
+				path1.IDArr = mp
+				path2.IDArr = make([]constructdbg.DBG_MAX_INT, len(mp))
+				path1.Freq, path2.Freq = freq, freq
+				edgesArr[i].PathMat = append(edgesArr[i].PathMat, path1)
+				edgesArr[i].PathMat1 = append(edgesArr[i].PathMat1, path2)
+				// clean relationship array
+				edgesPathRelationArr[i] = nil
+				edgesArr[i].SetMergedFlag()
+				fmt.Printf("[MergePathArr]mergeed successed, edgesArr[%v]PathMat : %v, edgesArr[%v]PathMat1: %v\n", i, edgesArr[i].PathMat, i, edgesArr[i].PathMat1)
+			}
+		}
+	}
+
+	/*// process left partition
 		var leftStack, rightStack []PathArrInfo
 		var pai PathArrInfo
 		pai.PathArr = ePathArr
@@ -744,15 +1339,16 @@ func MergePathArr(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNo
 			}
 
 			for j := p.Idx; j >= 0; j-- {
-
+				//uncertainNum := 0
 				var idFreqArr []IDFreq
 				for k := 0; k < len(p.PathArr); k++ {
 					if p.PathArr[k][0][j] > 0 {
 						if p.PathArr[k][1][j] > 0 {
-							idFreqArr = AddIDFreqArr(idFreqArr, p.PathArr[k][0][j], 1)
-							idFreqArr = AddIDFreqArr(idFreqArr, p.PathArr[k][1][j], 1)
+							//uncertainNum++
+							//idFreqArr = AddIDFreqArr(idFreqArr, p.PathArr[k][0][j], 1)
+							//idFreqArr = AddIDFreqArr(idFreqArr, p.PathArr[k][1][j], 1)
 						} else {
-							idFreqArr = AddIDFreqArr(idFreqArr, p.PathArr[k][0][j], 2)
+							idFreqArr = AddIDFreqArr(idFreqArr, p.PathArr[k][0][j], 1)
 						}
 					}
 				}
@@ -763,40 +1359,66 @@ func MergePathArr(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNo
 						sort.Sort(IDFreqArr(idFreqArr))
 						y = len(idFreqArr) - 1
 						for ; y >= 0; y-- {
-							if idFreqArr[y].Freq/2 >= int32(minMapFreq) {
+							if idFreqArr[y].Freq >= int32(minMapFreq) {
 								break
 							}
 						}
+						// process cycle edges path, boundary uncertain problem
+						if y == 1 {
+							te0 := edgesArr[idFreqArr[0].ID]
+							te1 := edgesArr[idFreqArr[1].ID]
+							if (te0.GetTwoEdgesCycleFlag() > 0 || te0.StartNID == te0.EndNID) && te1.GetUniqueFlag() > 0 && idFreqArr[0].Freq > idFreqArr[1].Freq {
+								if idFreqArr[0].Freq > idFreqArr[1].Freq*2 {
+
+								} else {
+									idFreqArr[0], idFreqArr[1] = idFreqArr[1], idFreqArr[0]
+								}
+								y = 0
+							} else if Unique {
+								if idFreqArr[0].Freq*4/5 > idFreqArr[1].Freq {
+									y = 0
+								}
+							}
+							// if is a bubble
+							if IsBubble(te0, te1, nodesArr) {
+								if Unique {
+									if idFreqArr[0].Freq > idFreqArr[1].Freq*2 {
+										y = 0
+									} else { // edge allow bubble
+										for k := 0; k < len(p.PathArr); k++ {
+											if p.PathArr[k][0][j] > 0 {
+												p.PathArr[k][0][j] = idFreqArr[0].ID
+												if p.PathArr[k][1][j] > 0 {
+													p.PathArr[k][1][j] = idFreqArr[1].ID
+												}
+											}
+										}
+										y = 0
+										idFreqArr = idFreqArr[:1]
+									}
+								}
+							}
+						}
+						// clean low freq edgeID
+						p.PathArr = CleanLowFreq(idFreqArr[y+1:], j, p.PathArr, constructdbg.BACKWARD)
 					} else {
 						y = -1
 					}
-					// clean low freq edgeID
-					for z := y + 1; z < len(idFreqArr); z++ {
-						id := idFreqArr[z].ID
-						for w := 0; w < len(p.PathArr); w++ {
-							if p.PathArr[w][0][j] == id && p.PathArr[w][1][j] == 0 {
-								for m := j; m >= 0; m-- {
-									if p.PathArr[w][0][m] > 0 {
-										p.PathArr[w][0][m] = 0
-										p.PathArr[w][1][m] = 0
-									} else {
-										break
-									}
-								}
-							} else if p.PathArr[w][0][j] == id && p.PathArr[w][1][j] > 0 {
-								p.PathArr[w][0][j] = p.PathArr[w][1][j]
-								p.PathArr[w][1][j] = 0
-							} else if p.PathArr[w][0][j] > 0 && p.PathArr[w][1][j] == id {
-								p.PathArr[w][1][j] = 0
-							}
-						}
-					}
+
 					if y == -1 || y >= 1 { // need stack
 						if y == -1 {
 							var pai PathArrInfo
 							pai.Idx = leftMax
 							for w := 0; w < len(p.PathArr); w++ {
 								if p.PathArr[w][0][j+1] > 0 {
+									for z := j; z >= 0; z-- {
+										if p.PathArr[w][0][z] > 0 {
+											p.PathArr[w][0][z] = 0
+											p.PathArr[w][1][z] = 0
+										} else {
+											break
+										}
+									}
 									pai.PathArr = append(pai.PathArr, p.PathArr[w])
 								}
 							}
@@ -849,13 +1471,13 @@ func MergePathArr(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNo
 
 			for j := p.Idx; j < al; j++ {
 				var idFreqArr []IDFreq
+				//uncertainNum := 0
 				for k := 0; k < len(p.PathArr); k++ {
 					if p.PathArr[k][0][j] > 0 {
 						if p.PathArr[k][1][j] > 0 {
-							idFreqArr = AddIDFreqArr(idFreqArr, p.PathArr[k][0][j], 1)
-							idFreqArr = AddIDFreqArr(idFreqArr, p.PathArr[k][1][j], 1)
+							//uncertainNum++
 						} else {
-							idFreqArr = AddIDFreqArr(idFreqArr, p.PathArr[k][0][j], 2)
+							idFreqArr = AddIDFreqArr(idFreqArr, p.PathArr[k][0][j], 1)
 						}
 					}
 				}
@@ -866,38 +1488,55 @@ func MergePathArr(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNo
 						sort.Sort(IDFreqArr(idFreqArr))
 						y = len(idFreqArr) - 1
 						for ; y >= 0; y-- {
-							if idFreqArr[y].Freq/2 >= int32(minMapFreq) {
+							if idFreqArr[y].Freq >= int32(minMapFreq) {
 								break
+							}
+						}
+						// process cycle edges path, boundary uncertain problem
+						if y == 1 {
+							te0 := edgesArr[idFreqArr[0].ID]
+							te1 := edgesArr[idFreqArr[1].ID]
+							if (te0.GetTwoEdgesCycleFlag() > 0 || te0.StartNID == te0.EndNID) && te1.GetUniqueFlag() > 0 && idFreqArr[0].Freq > idFreqArr[1].Freq {
+								if idFreqArr[0].Freq > idFreqArr[1].Freq*2 {
+
+								} else {
+									idFreqArr[0], idFreqArr[1] = idFreqArr[1], idFreqArr[0]
+								}
+								y = 0
+							} else if Unique {
+								if idFreqArr[0].Freq*4/5 > idFreqArr[1].Freq {
+									y = 0
+								}
+							}
+							// if is a bubble
+							if IsBubble(te0, te1, nodesArr) {
+								if Unique { //avgReadLen/(avgReadLen+el*2) one long read cov this edge probility
+									if idFreqArr[0].Freq > idFreqArr[1].Freq*2 {
+										y = 0
+									} else { // edge allow bubble
+										for k := 0; k < len(p.PathArr); k++ {
+											if p.PathArr[k][0][j] > 0 {
+												p.PathArr[k][0][j] = idFreqArr[0].ID
+												if p.PathArr[k][1][j] > 0 {
+													p.PathArr[k][1][j] = idFreqArr[1].ID
+												}
+											}
+										}
+										y = 0
+										idFreqArr = idFreqArr[:1]
+									}
+								}
 							}
 						}
 					} else {
 						y = -1
 					}
 					// clean low freq edgeID
-					for z := y + 1; z < len(idFreqArr); z++ {
-						id := idFreqArr[z].ID
-						for w := 0; w < len(p.PathArr); w++ {
-							if p.PathArr[w][0][j] == id && p.PathArr[w][1][j] == 0 {
-								for m := j; m < al; m++ {
-									if p.PathArr[w][0][m] > 0 {
-										p.PathArr[w][0][m] = 0
-										p.PathArr[w][1][m] = 0
-									} else {
-										break
-									}
-								}
-							} else if p.PathArr[w][0][j] == id && p.PathArr[w][1][j] > 0 {
-								p.PathArr[w][0][j] = p.PathArr[w][1][j]
-								p.PathArr[w][1][j] = 0
-							} else if p.PathArr[w][0][j] > 0 && p.PathArr[w][1][j] == id {
-								p.PathArr[w][1][j] = 0
-							}
-						}
-					}
+					p.PathArr = CleanLowFreq(idFreqArr[y+1:], j, p.PathArr, constructdbg.FORWARD)
 
 					if y == -1 || y >= 1 { // need stack
 						if y == -1 {
-							var path constructdbg.Path
+							var path1, path2 constructdbg.Path
 							ok := false
 							for w := 0; w < len(p.PathArr); w++ {
 								if p.PathArr[w][0][j-1] > 0 {
@@ -908,14 +1547,17 @@ func MergePathArr(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNo
 												break
 											}
 										}
-										path.IDArr = p.PathArr[w][0][m+1 : j]
+										path1.IDArr = p.PathArr[w][0][m+1 : j]
+										path2.IDArr = p.PathArr[w][1][m+1 : j]
 										ok = true
 									}
-									path.Freq++
+									path1.Freq++
+									path2.Freq++
 								}
 							}
-							if len(path.IDArr) > 1 {
-								edgesArr[i].PathMat = append(edgesArr[i].PathMat, path)
+							if len(path1.IDArr) > 1 {
+								edgesArr[i].PathMat = append(edgesArr[i].PathMat, path1)
+								edgesArr[i].PathMat1 = append(edgesArr[i].PathMat1, path2)
 							}
 						} else {
 							for w := 0; w < y+1; w++ {
@@ -962,13 +1604,16 @@ func MergePathArr(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNo
 		}
 		// if long edge, can merge
 		if len(edgesArr[i].PathMat) == 2 {
-			mergePath := MergeLongEdgePathMat(edgesArr[i], edgesArr[i].PathMat, edgesArr, nodesArr)
-			if len(mergePath.IDArr) > 0 {
-				edgesArr[i].PathMat[0] = mergePath
+			mergePath0, mergePath1 := MergeLongEdgePathMat(edgesArr[i], edgesArr, nodesArr)
+			if len(mergePath0.IDArr) > 0 {
+				edgesArr[i].PathMat[0] = mergePath0
+				edgesArr[i].PathMat1[0] = mergePath1
 				edgesArr[i].PathMat = edgesArr[i].PathMat[:1]
+				edgesArr[i].PathMat1 = edgesArr[i].PathMat1[:1]
+				fmt.Printf("[MergePathArr]mergeed successed, edgesArr[%v]PathMat : %v, edgesArr[%v]PathMat1: %v\n", i, edgesArr[i].PathMat, i, edgesArr[i].PathMat1)
 			}
 		}
-	}
+	}*/
 	/*// add left==0 and right==1 partition
 		for z := 0; z < 2; z++ {
 			var j, step int
@@ -1103,8 +1748,9 @@ func ExtractSeq(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode
 		log.Fatalf("[ExtractSeq] create file: %s failed, err: %v\n", DcDBGEdgesfn, err)
 	}
 	defer fp.Close()
+	buffp := bufio.NewWriterSize(fp, 1<<25)
 
-	fafp := fasta.NewWriter(fp, 80)
+	fafp := fasta.NewWriter(buffp, 100)
 	seqID := int(1)
 
 	for _, p := range joinPathArr {
@@ -1116,7 +1762,8 @@ func ExtractSeq(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode
 
 		//e := constructdbg.CascadePath(p, edgesArr, nodesArr, kmerlen, false)
 		seq := GetContigSeq(p, edgesArr, nodesArr, kmerlen)
-		contig := linear.NewSeq("", alphabet.BytesToLetters(seq), alphabet.DNA)
+
+		contig := linear.NewSeq("", constructdbg.Transform2Letters(seq), alphabet.DNA)
 		contig.ID = strconv.Itoa(int(seqID))
 		seqID++
 		// Add start and end adapter seq
@@ -1134,36 +1781,133 @@ func ExtractSeq(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode
 			log.Fatalf("[StoreEdgesToFn] write seq: %v; err: %v\n", contig, err)
 		}
 	}
+	if err := buffp.Flush(); err != nil {
+		log.Fatalf("[StoreEdgesToFn] failed to flush file: %s, err: %v\n", DcDBGEdgesfn, err)
+	}
 }
 
-func SimplifyByLongReadsPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, pathArr [][2][]constructdbg.DBG_MAX_INT, opt Options) []constructdbg.Path {
-
+func SimplifyByLongReadsPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, pathArr [][2][]constructdbg.DBG_MAX_INT, opt Options, minUniqueEdgeLen, minMappingLen, depth, avgReadLen int) []constructdbg.Path {
 	sortedEIDIdxArr := sortIdxByUniqueEdgeLen(edgesArr)
 	edgesPathRelationArr := make([][]uint32, len(edgesArr))
-	ConstructEdgesPathRelationship(edgesArr, pathArr, edgesPathRelationArr)
+	ConstructEdgesPathRelationship(edgesArr, nodesArr, pathArr, edgesPathRelationArr, opt.Kmer*3/2, opt.Kmer)
 
-	cleanNGSPath(edgesArr)
-	MergePathArr(edgesArr, nodesArr, pathArr, edgesPathRelationArr, opt.MinMapFreq)
+	//cleanNGSPath(edgesArr)
+	MergePathArr(edgesArr, nodesArr, pathArr, edgesPathRelationArr, opt.MinMapFreq, opt.Kmer, minUniqueEdgeLen, depth, avgReadLen)
 	//MergePathArr(edgesArr, nodesArr, pathArr, edgesPathRelationArr, opt.MinMapFreq)
 	//constructdbg.MergePathMat(edgesArr, nodesArr, 2)
 	//fmt.Printf("[SimplifyByLongReadsPath] sortedEIDIdxArr: %v\n", sortedEIDIdxArr)
-	mergePathArr := findMaxPath(sortedEIDIdxArr, edgesArr, nodesArr, pathArr, edgesPathRelationArr, opt.MinMapFreq, opt.Kmer)
+	mergePathArr := findMaxPath(sortedEIDIdxArr, edgesArr, nodesArr, pathArr, edgesPathRelationArr, opt.MinMapFreq, minMappingLen, opt.Kmer)
 	// constuct map edge ID to the path
 	//IDMapPath := constructdbg.ConstructIDMapPath(pathArr)
 	//constructdbg.DeleteJoinPathArrEnd(edgesArr, pathArr)
 	return mergePathArr
 }
 
+func CompressToUint64(ks []byte) (cb uint64) {
+	for _, b := range ks {
+		cb <<= bnt.NumBitsInBase
+		cb |= uint64(b)
+	}
+	return
+}
+
+func GetKmerInfo(ks []byte, ID, pos uint32, strand bool) (ki KmerInfo) {
+	ki.Kmer = CompressToUint64(ks)
+	ki.ID = ID
+	ki.SetPos(pos)
+	ki.SetStrand(strand)
+	return
+}
+
+func FindMinKmerInfo(ka []KmerInfo) (min KmerInfo) {
+	min = ka[0]
+	for _, ki := range ka[1:] {
+		if min.Kmer > ki.Kmer {
+			min = ki
+		}
+	}
+	return
+}
+
+func GetSeqMiniKmerInfos(ks []byte, ID uint32, SeedLen, WinSize int) (kmerInfoArr []KmerInfo) {
+	rs := constructdbg.GetReverseCompByteArr(ks)
+	sl := len(ks)
+	ka := make([]KmerInfo, WinSize*2)
+	for i := 0; i <= sl-(SeedLen-1)-WinSize; i += WinSize {
+		kaIdx := 0
+		for j := i; j < i+WinSize; j++ {
+			ka[kaIdx] = GetKmerInfo(ks[j:j+SeedLen], ID, uint32(j), true)
+			kaIdx++
+			ka[kaIdx] = GetKmerInfo(rs[sl-j-SeedLen:sl-j], ID, uint32(j), false)
+			kaIdx++
+		}
+		min := FindMinKmerInfo(ka)
+		kmerInfoArr = append(kmerInfoArr, min)
+	}
+
+	return
+}
+
+type KIArr []KmerInfo
+
+func (arr KIArr) Len() int {
+	return len(arr)
+}
+
+func (arr KIArr) Less(i, j int) bool {
+	return arr[i].Kmer < arr[j].Kmer
+}
+func (arr KIArr) Swap(i, j int) {
+	arr[i], arr[j] = arr[j], arr[i]
+}
+
+func SortDBGEdgesKmer(edgesArr []constructdbg.DBGEdge, SeedLen, WinSize int) (sortKmerArr []KmerInfo) {
+	var kmerArr []KmerInfo
+	for i := 0; i < len(edgesArr); i++ {
+		e := edgesArr[i]
+		if e.ID < 2 || e.GetDeleteFlag() > 0 {
+			continue
+		}
+		kmerArr = append(kmerArr, GetSeqMiniKmerInfos(e.Utg.Ks, uint32(e.ID), SeedLen, WinSize)...)
+	}
+	sort.Sort(KIArr(kmerArr))
+
+	sortKmerArr = kmerArr
+	return
+}
+
+func SortLongReadsKmer(rc <-chan []constructcf.ReadInfo, SeedLen, WinSize int, cs chan<- ReadsBucketInfo, finishT chan<- int) {
+	for {
+		ra := <-rc
+		if len(ra) == 0 {
+			break
+		}
+		var kmerArr []KmerInfo
+		for _, ri := range ra {
+			kmerArr = append(kmerArr, GetSeqMiniKmerInfos(ri.Seq, uint32(ri.ID), SeedLen, WinSize)...)
+		}
+		sort.Sort(KIArr(kmerArr))
+		var rbi ReadsBucketInfo
+		rbi.ReadsArr = ra
+		rbi.KmerSortArr = kmerArr
+		cs <- rbi
+	}
+	finishT <- 1
+}
+
 type Options struct {
 	utils.ArgsOpt
 	//MaxMapEdgeLen int
-	MinCov        int
-	WinSize       int
-	MaxNGSReadLen int
-	MinMapFreq    int
-	ExtLen        int
-	ONTFn         string
-	Correct       bool
+	MinDepth         int
+	AvgDepth         int
+	MinUniqueEdgeLen int
+	AvgReadLen       int
+	WinSize          int
+	MaxNGSReadLen    int
+	MinMapFreq       int
+	ExtLen           int
+	ONTFn            string
+	Correct          bool
 }
 
 func checkArgs(c cli.Command) (opt Options, succ bool) {
@@ -1192,13 +1936,22 @@ func checkArgs(c cli.Command) (opt Options, succ bool) {
 	if opt.MaxMapEdgeLen < 2000 {
 		log.Fatalf("[checkArgs] argument 'MaxMapEdgeLen': %v must bigger than 2000\n", c.Flag("MaxMapEdgeLen").String())
 	}*/
-	opt.MinCov, ok = c.Flag("MinCov").Get().(int)
+
+	opt.MinUniqueEdgeLen, ok = c.Flag("MinUniqueEdgeLen").Get().(int)
 	if !ok {
-		log.Fatalf("[checkArgs] argument 'MinCov': %v set error\n ", c.Flag("MinCov").String())
+		log.Fatalf("[checkArgs] argument 'MinUniqueEdgeLen': %v set error\n ", c.Flag("MinUniqueEdgeLen").String())
 	}
-	if opt.MinCov < 2 || opt.MinCov > 10 {
-		log.Fatalf("[checkArgs] argument 'MinCov': %v must between 2~10\n", c.Flag("MinCov"))
+	if opt.MinUniqueEdgeLen < 1000 || opt.MinUniqueEdgeLen > 1000000 {
+		log.Fatalf("[checkArgs] argument 'MinUniqueEdgeLen': %v must between [1k~1m]\n", c.Flag("MinUniqueEdgeLen"))
 	}
+	opt.AvgReadLen, ok = c.Flag("AvgReadLen").Get().(int)
+	if !ok {
+		log.Fatalf("[checkArgs] argument 'AvgReadLen': %v set error\n ", c.Flag("AvgReadLen").String())
+	}
+	if opt.AvgReadLen < 1000 || opt.AvgReadLen > 1000000 {
+		log.Fatalf("[checkArgs] argument 'AvgReadLen': %v must between [1k~1m]\n", c.Flag("AvgReadLen"))
+	}
+
 	opt.WinSize, ok = c.Flag("WinSize").Get().(int)
 	if !ok {
 		log.Fatalf("[checkArgs] argument 'WinSize': %v set error\n ", c.Flag("WinSize").String())
@@ -1240,20 +1993,443 @@ func checkArgs(c cli.Command) (opt Options, succ bool) {
 	return opt, succ
 }
 
+type KmerInfo struct {
+	Kmer uint64
+	ID   uint32 // edgeID or reads ID
+	Info uint32 // the first high 31-bit for Position,and last bit for strand info
+}
+
+func (k KmerInfo) GetPos() uint32 {
+	return k.Info >> 1
+}
+func (k *KmerInfo) SetPos(p uint32) {
+	info := (p << 1) | (k.Info & 0x1)
+	k.Info = info
+}
+
+func (k KmerInfo) GetStrand() bool {
+	if (k.Info & 0x1) > 0 {
+		return true
+	} else {
+		return false
+	}
+}
+
+func (k *KmerInfo) SetStrand(s bool) {
+	var info uint32
+	if s {
+		info = (k.GetPos() << 1) | 0x1
+	} else {
+		info = (k.GetPos() << 1) | 0
+	}
+	k.Info = info
+}
+
+type MapingKmerInfo struct {
+	EID          uint32
+	RInfo, EInfo uint32
+}
+
+func (m MapingKmerInfo) GetRPos() uint32 {
+	return m.RInfo >> 1
+}
+func (m MapingKmerInfo) GetEPos() uint32 {
+	return m.EInfo >> 1
+}
+func (m MapingKmerInfo) GetRStrand() bool {
+	if (m.RInfo & 0x1) > 0 {
+		return true
+	} else {
+		return false
+	}
+}
+func (m MapingKmerInfo) GetEStrand() bool {
+	if (m.EInfo & 0x1) > 0 {
+		return true
+	} else {
+		return false
+	}
+}
+
+type MapingKmerInfoArr []MapingKmerInfo
+
+func (arr MapingKmerInfoArr) Len() int {
+	return len(arr)
+}
+
+func (arr MapingKmerInfoArr) Less(i, j int) bool {
+	return (arr[i].RInfo >> 1) < (arr[j].RInfo >> 1)
+}
+func (arr MapingKmerInfoArr) Swap(i, j int) {
+	arr[i], arr[j] = arr[j], arr[i]
+}
+
+func GetLongReadsFile(cfgInfo constructcf.CfgInfo) (fnArr []string) {
+	for _, lib := range cfgInfo.Libs {
+		if lib.SeqProfile == 3 || lib.SeqProfile == 4 {
+			fnArr = append(fnArr, lib.FnName...)
+		}
+	}
+	return
+}
+
+type ReadsBucketInfo struct {
+	ReadsArr    []constructcf.ReadInfo
+	KmerSortArr []KmerInfo
+}
+
+func LoadLongReads(ONTFnbr string, rc chan<- []constructcf.ReadInfo, BucketSize int, processT chan<- int) {
+	var processNumReads, totalBases int
+	format := constructcf.GetReadsFileFormat(ONTFnbr)
+	fp, err := os.Open(ONTFnbr)
+	if err != nil {
+		log.Fatalf("[LoadLongReads] open file: %v failed..., err: %v\n", ONTFnbr, err)
+	}
+	defer fp.Close()
+	fmt.Printf("[LoadLongReads] processing reads in file: %v\n", ONTFnbr)
+	brfp := cbrotli.NewReaderSize(fp, 1<<25)
+	defer brfp.Close()
+	buffp := bufio.NewReader(brfp)
+	var err1 error
+	var readInfoArr []constructcf.ReadInfo
+	var processBases int
+	for err1 != io.EOF {
+		ri, err1 := constructcf.GetReadFileRecord(buffp, format, false)
+		if ri.ID == 0 {
+			if err1 == io.EOF {
+				break
+			} else {
+				log.Fatalf("[LoadLongReads] file: %s encounter err: %v\n", ONTFnbr, err1)
+			}
+		}
+		if ri.ID > math.MaxUint32 && ri.ID <= 0 {
+			log.Fatalf("[LoadLongReads] read ID must [1~%v], ri.ID: %v\n", math.MaxUint32, ri.ID)
+		}
+		readInfoArr = append(readInfoArr, ri)
+		processNumReads++
+		totalBases += len(ri.Seq)
+		processBases += len(ri.Seq)
+		if processBases > BucketSize {
+			rc <- readInfoArr
+			var na []constructcf.ReadInfo
+			readInfoArr = na
+			processBases = 0
+		}
+	}
+	if len(readInfoArr) > 0 {
+		rc <- readInfoArr
+	}
+
+	fmt.Printf("[LoadLongReads] processed reads number is: %d, totalBases: %v, finished processed file: %v\n", processNumReads, totalBases, ONTFnbr)
+	processT <- 1
+}
+
+func LoadLongReadsAndSort(cfgInfo constructcf.CfgInfo, NumCPU int, cs chan<- ReadsBucketInfo, SeedLen, WinSize, BucketSize int) {
+	fnArr := GetLongReadsFile(cfgInfo)
+	rc := make(chan []constructcf.ReadInfo, NumCPU)
+	processT := make(chan int, NumCPU)
+	finishedT := make(chan int, NumCPU)
+	for i := 0; i < NumCPU; i++ {
+		go SortLongReadsKmer(rc, SeedLen, WinSize, cs, finishedT)
+	}
+	for i := 0; i < NumCPU; i++ {
+		processT <- 1
+	}
+
+	for i := 0; i < len(fnArr); i++ {
+		<-processT
+		go LoadLongReads(fnArr[i], rc, BucketSize, processT)
+	}
+
+	for i := 0; i < NumCPU; i++ {
+		<-processT
+	}
+	close(rc)
+	for i := 0; i < NumCPU; i++ {
+		<-finishedT
+	}
+	close(cs)
+}
+
+func GetShareKmer(edgesKmerSortArr, kiArr []KmerInfo, firstReadID uint32, readsNum int) [][]MapingKmerInfo {
+	mkiArr := make([][]MapingKmerInfo, readsNum)
+	i, j := 0, 0
+	for ; i < len(kiArr) && j < len(edgesKmerSortArr); i++ {
+		kiR, kiE := kiArr[i], edgesKmerSortArr[j]
+		if kiR.Kmer < kiE.Kmer {
+			continue
+		} else if kiR.Kmer > kiE.Kmer {
+			for ; j < len(edgesKmerSortArr); j++ {
+				kiE = edgesKmerSortArr[j]
+				if kiR.Kmer <= kiE.Kmer {
+					break
+				}
+			}
+		}
+		if kiR.Kmer < kiE.Kmer {
+			continue
+		} else if kiR.Kmer > kiE.Kmer {
+			break
+		}
+		// kiR.Kmer == kiE.Kmer
+		for m := j; m < len(edgesKmerSortArr); m++ {
+			tmp := edgesKmerSortArr[m]
+			if tmp.Kmer > kiR.Kmer {
+				break
+			}
+			var mki MapingKmerInfo
+			mki.EID, mki.RInfo, mki.EInfo = kiE.ID, kiR.Info, kiE.Info
+			mkiArr[kiE.ID-firstReadID] = append(mkiArr[kiE.ID-firstReadID], mki)
+		}
+	}
+
+	return mkiArr
+}
+
+func TransformToChainArr(mkByEdgeMap map[uint32][]MapingKmerInfo, edgeNum, MinSeedNum int, SeedLen uint32) (edgesChainArr [][]Chain, edgeMapInfoArr []EdgeMapInfo) {
+	edgesChainArr = make([][]Chain, edgeNum)
+	edgeMapInfoArr = make([]EdgeMapInfo, edgeNum)
+	idx := 0
+	for k, v := range mkByEdgeMap {
+		if len(v) >= MinSeedNum {
+			edgeMapInfoArr[idx].EdgeID = k
+			// choose best mapping strand
+			var PLUSNum, MINUSNum int
+			for _, mki := range v {
+				if mki.GetEStrand() == mki.GetRStrand() {
+					PLUSNum++
+				} else {
+					MINUSNum++
+				}
+			}
+			var strand bool
+			if PLUSNum > MINUSNum {
+				strand = constructdbg.PLUS
+			} else {
+				strand = constructdbg.MINUS
+			}
+			edgeMapInfoArr[idx].Strand = strand
+			// choose chain by strand
+			for _, mki := range v {
+				if strand {
+					if mki.GetEStrand() != mki.GetRStrand() {
+						continue
+					}
+				} else {
+					if mki.GetEStrand() == mki.GetRStrand() {
+						continue
+					}
+				}
+				var c Chain
+				c.X, c.Y = mki.GetEPos(), mki.GetRPos()
+				c.Len = SeedLen
+				edgesChainArr[idx] = append(edgesChainArr[idx], c)
+			}
+			idx++
+		}
+	}
+	return
+}
+
+func GetFlankReadPos(maxChainArr []Chain) (startP, endP uint32) {
+	fc, lc := maxChainArr[0], maxChainArr[len(maxChainArr)-1]
+	if fc.Y < lc.Y {
+		startP = fc.Y
+		endP = lc.Y + lc.Len
+	} else {
+		startP = lc.Y
+		endP = fc.Y + fc.Len
+	}
+	return
+}
+
+type EdgeMapInfo struct {
+	EdgeID uint32
+	Strand bool
+}
+
+func GetRegionChainArrScore(ca []Chain, sp, ep uint32) (sc int) {
+	if ca[0].Y < ca[1].Y {
+		for _, c := range ca {
+			if c.Y+c.Len < sp {
+				continue
+			} else if c.Y+c.Len > ep {
+				break
+			}
+			sc += int(c.Len)
+		}
+	} else {
+		for i := len(ca) - 1; i >= 0; i-- {
+			c := ca[i]
+			if c.Y+c.Len < sp {
+				continue
+			} else if c.Y+c.Len > ep {
+				break
+			}
+			sc += int(c.Len)
+		}
+	}
+	return
+}
+
+func FindReadRegionHighQualityEdges(karr []MapingKmerInfo, startP, endP, edgeID uint32, maxChainArr []Chain, SeedLen, MinSeedNum int) (highMapingQualityEdgesArr []uint32) {
+	// classify by edge
+	mkByEdgeMap, edgeNum := ClassifyByEdge(karr, startP, endP, uint32(SeedLen))
+	delete(mkByEdgeMap, edgeID)
+	// transform to Chain array
+	edgesChainArr, edgeMapInfoArr := TransformToChainArr(mkByEdgeMap, edgeNum, MinSeedNum, uint32(SeedLen))
+
+	// find max score by every edge
+	edgesMaxChainArr := make([][]Chain, edgeNum)
+	edgesMaxScore := make([]int, edgeNum)
+	for i, carr := range edgesChainArr {
+		edgesMaxChainArr[i], edgesMaxScore[i] = GetMaxChainArr(carr, edgeMapInfoArr[i].Strand, uint32(SeedLen))
+	}
+	for i, mc := range edgesMaxChainArr {
+		sp, ep := GetFlankReadPos(mc)
+		sc := GetRegionChainArrScore(maxChainArr, sp, ep)
+		if sc <= edgesMaxScore[i] {
+			highMapingQualityEdgesArr = append(highMapingQualityEdgesArr, edgeMapInfoArr[i].EdgeID)
+		}
+	}
+	return
+}
+
+func ClassifyByEdge(karr []MapingKmerInfo, startP, endP, SeedLen uint32) (mkByEdgeMap map[uint32][]MapingKmerInfo, edgeNum int) {
+	mkByEdgeMap = make(map[uint32][]MapingKmerInfo)
+	for _, mki := range karr {
+		if mki.GetEPos() < startP {
+			continue
+		} else if mki.GetEPos()+SeedLen > endP {
+			break
+		}
+		if _, ok := mkByEdgeMap[mki.EID]; ok {
+			mkByEdgeMap[mki.EID] = append(mkByEdgeMap[mki.EID], mki)
+		} else {
+			mkByEdgeMap[mki.EID] = []MapingKmerInfo{mki}
+			edgeNum++
+		}
+	}
+	return
+}
+
+type UniqueRegion struct {
+	StartP, EndP int
+	EdgeID       uint32
+	MaxScore     int
+	ChainArr     []Chain
+}
+type UniqueRegionArr []UniqueRegion
+
+func (arr UniqueRegionArr) Len() int {
+	return len(arr)
+}
+
+func (arr UniqueRegionArr) Less(i, j int) bool {
+	return arr[i].MaxScore < arr[j].MaxScore
+}
+func (arr UniqueRegionArr) Swap(i, j int) {
+	arr[i], arr[j] = arr[j], arr[i]
+}
+
+func FindPrimaryMappingEdges(karr []MapingKmerInfo, ReadLen, SeedLen int) {
+	MinSeedNum := 4 // minimum seed mapping number for one hit
+	MinUniqueRegionLen := 500
+	// classify by edge
+	mkByEdgeMap, edgeNum := ClassifyByEdge(karr, 0, uint32(ReadLen), uint32(SeedLen))
+
+	// transform to Chain array
+	edgesChainArr, edgeMapInfoArr := TransformToChainArr(mkByEdgeMap, edgeNum, MinSeedNum, uint32(SeedLen))
+
+	// find max score by every edge
+	edgesMaxChainArr := make([][]Chain, edgeNum)
+	edgesMaxScore := make([]int, edgeNum)
+	for i, carr := range edgesChainArr {
+		edgesMaxChainArr[i], edgesMaxScore[i] = GetMaxChainArr(carr, edgeMapInfoArr[i].Strand, uint32(SeedLen))
+	}
+
+	// confirm long read unique mapping region
+	scArr := make([]Score, edgeNum)
+	for i, ms := range edgesMaxScore {
+		scArr[i].Sc = ms
+		scArr[i].Idx = i
+	}
+	sort.Sort(ScoreArr(scArr))
+	var uniqArr []UniqueRegion
+	for i := edgeNum - 1; i >= 0; i-- {
+		sc := scArr[i]
+		maxChainArr := edgesMaxChainArr[sc.Idx]
+		startP, endP := GetFlankReadPos(maxChainArr)
+		if int(endP)-int(startP) < MinUniqueRegionLen {
+			break
+		}
+		highMapingQualityEdgesArr := FindReadRegionHighQualityEdges(karr, startP, endP, edgeMapInfoArr[sc.Idx].EdgeID, maxChainArr, SeedLen, MinSeedNum)
+		if len(highMapingQualityEdgesArr) > 0 {
+			continue
+		}
+		// add to unique region
+		var ur UniqueRegion
+		ur.StartP, ur.EndP = int(startP), int(endP)
+		ur.EdgeID = edgeMapInfoArr[sc.Idx].EdgeID
+		ur.MaxScore = edgesMaxScore[sc.Idx]
+		ur.ChainArr = maxChainArr
+		uniqArr = append(uniqArr, ur)
+	}
+
+	// Extend path by unique region
+	sort.Sort(UniqueRegionArr(uniqArr))
+	//extendPathArr := MappingMostProbablePath()
+}
+
+/*func FindONTReadsPath(edgesKmerSortArr []KmerInfo, cs <-chan ReadsBucketInfo, SeedLen, WinSize int, wc chan<- [2][]constructdbg.DBG_MAX_INT) {
+	for {
+		rbi := <-cs
+		if len(rbi.ReadsArr) == 0 {
+			var tmp [2][]constructdbg.DBG_MAX_INT
+			wc <- tmp
+			break
+		}
+		rArr := rbi.ReadsArr
+		kIArr := rbi.KmerSortArr
+		// first find ONT reads mapping seed chains
+		// read ID must successive uint32
+		kmerShareArrByReadID := GetShareKmer(edgesKmerSortArr, kIArr, uint32(rArr[0].ID), len(rArr))
+		for i, karr := range kmerShareArrByReadID {
+			// sort by long read Postion
+			sort.Sort(MapingKmerInfoArr(karr))
+			// find primary mapping Edges and clean secondary edges
+			edgesMapingInfo := FindPrimaryMappingEdges(karr, len(rArr[i].Seq), SeedLen)
+			// find seed edges and local align uncertain edges
+
+			// output edge mapping path
+
+		}
+
+	}
+}*/
+
+type LongReadMappingInfo struct {
+	ID   uint32 // Read ID
+	Path [2][]constructdbg.DBG_MAX_INT
+}
+
 func DeconstructDBG(c cli.Command) {
 	// check arguments
 	gOpt, suc := utils.CheckGlobalArgs(c.Parent())
 	if suc == false {
-		log.Fatalf("[Smfy] check global Arguments error, opt: %v\n", gOpt)
+		log.Fatalf("[DeconstructDBG] check global Arguments error, opt: %v\n", gOpt)
 	}
 
-	opt := Options{gOpt, 0, 0, 0, 0, 0, "", false}
+	opt := Options{gOpt, 0, 0, 0, 0, 0, 0, 0, 0, "", false}
 	tmp, suc := checkArgs(c)
 	if suc == false {
-		log.Fatalf("[Smfy] check Arguments error, opt: %v\n", tmp)
+		log.Fatalf("[DeconstructDBG] check Arguments error, opt: %v\n", tmp)
 	}
 	//opt.TipMaxLen = tmp.TipMaxLen
-	opt.MinCov = tmp.MinCov
+	opt.MinDepth = tmp.MinDepth
+	opt.AvgDepth = tmp.AvgDepth
+	opt.MinUniqueEdgeLen = tmp.MinUniqueEdgeLen
+	opt.AvgReadLen = tmp.AvgReadLen
 	opt.WinSize = tmp.WinSize
 	opt.MaxNGSReadLen = tmp.MaxNGSReadLen
 	opt.MinMapFreq = tmp.MinMapFreq
@@ -1262,33 +2438,63 @@ func DeconstructDBG(c cli.Command) {
 	opt.ONTFn = tmp.ONTFn
 	opt.Correct = tmp.Correct
 	//constructdbg.Kmerlen = opt.Kmer
-	fmt.Printf("Arguments: %v\n", opt)
+	fmt.Printf("Arguments: %v\n", c.Flags())
 
-	profileFn := opt.Prefix + ".decdbg.prof"
+	/*profileFn := opt.Prefix + ".decdbg.prof"
 	cpuprofilefp, err := os.Create(profileFn)
 	if err != nil {
-		log.Fatalf("[CCF] open cpuprofile file: %v failed\n", profileFn)
+		log.Fatalf("[DeconstructDBG] open cpuprofile file: %v failed\n", profileFn)
 	}
 	pprof.StartCPUProfile(cpuprofilefp)
-	defer pprof.StopCPUProfile()
+	defer pprof.StopCPUProfile()*/
 
 	// read files and construt DBG
 	DBGInfofn := opt.Prefix + ".smfy.DBGInfo"
 	eSize, nSize := constructdbg.DBGInfoReader(DBGInfofn)
-	nodesfn := opt.Prefix + ".nodes.smfy.Arr"
-	nodesArr := constructdbg.NodesArrReader(nodesfn)
+	nodesfn := opt.Prefix + ".nodes.smfy.Arr.br"
+	nodesArr := make([]constructdbg.DBGNode, nSize)
+	constructdbg.NodesArrReader(nodesfn, nodesArr, opt.Kmer)
 	if len(nodesArr) != nSize {
 		log.Fatalf("[DeconstructDBG] len(nodesArr): %v != nodesArr Size: %v in file: %v\n", len(nodesArr), nSize, DBGInfofn)
 	}
 	edgesArr := make([]constructdbg.DBGEdge, eSize)
-	edgesfn := opt.Prefix + ".edges.smfy.fq"
+	edgesfn := opt.Prefix + ".edges.smfy.fq.br"
 	constructdbg.LoadEdgesfqFromFn(edgesfn, edgesArr, true)
 
 	constructdbg.CheckInterConnectivity(edgesArr, nodesArr)
 
-	uniqueNum, semiUniqueNum, twoCycleNum, selfCycle := constructdbg.SetDBGEdgesUniqueFlag(edgesArr, nodesArr)
-	fmt.Printf("[DeconstructDBG] unique edge number is : %v, semiUniqueNum: %v, twoCycleNum:%v, selfCycle:%v\n", uniqueNum, semiUniqueNum, twoCycleNum, selfCycle)
+	uniqueNum, semiUniqueNum, twoCycleNum, selfCycle, selfCycleSameComingNum := constructdbg.SetDBGEdgesUniqueFlag(edgesArr, nodesArr, opt.MinUniqueEdgeLen)
+	fmt.Printf("[DeconstructDBG] unique edge number is : %v, semiUniqueNum: %v, twoCycleNum:%v, selfCycle:%v, selfCycleSameComingNum: %v\n", uniqueNum, semiUniqueNum, twoCycleNum, selfCycle, selfCycleSameComingNum)
+	t0 := time.Now()
+	// no any other align tools for seed edge by ONT reads, use same as daligner,
+	// first sort DBG edges by seed kmer, and split ONT reads by bucket, every bucket sort by seed kmer, and found share kmers from edges sort kmersArr
+	/*{
+		SeedLen := 15
+		BucketSize := (1 << 28) // ==2**28
+		cfgInfo, err := constructcf.ParseCfg(opt.CfgFn, false)
+		if err != nil {
+			log.Fatalf("[DeconstructDBG] ParseCfg 'C': %v err :%v\n", opt.CfgFn, err)
+		}
+		fmt.Printf("[DeconstructDBG] opt: %v\n\tcfgInfo: %v\n", opt, cfgInfo)
 
+		edgesKmerSortArr := SortDBGEdgesKmer(edgesArr, SeedLen, opt.WinSize)
+		bufSize := opt.NumCPU
+		cs := make(chan ReadsBucketInfo, bufSize)
+		wc := make(chan [2][]constructdbg.DBG_MAX_INT, opt.NumCPU)
+		go LoadLongReadsAndSort(cfgInfo, opt.NumCPU/3, cs, SeedLen, opt.WinSize, BucketSize)
+		for i := 0; i < opt.NumCPU; i++ {
+			go FindONTReadsPath(edgesKmerSortArr, cs, SeedLen, opt.WinSize, wc)
+		}
+		pathFn := opt.Prefix + ".LongReadsPath.protobuf"
+		WriteLongReadsPathToFn(pathFn, wc)
+
+		var fnArr []string
+		for i, lib := range cfgInfo.Libs {
+			if lib.SeqProfile == 3 || lib.SeqProfile == 4 {
+
+			}
+		}
+	}*/
 	// remap NGS reads to the new samplify DBG
 	/*var copt constructdbg.Options
 	copt.Kmer = opt.Kmer
@@ -1304,25 +2510,32 @@ func DeconstructDBG(c cli.Command) {
 	// get ont reads mapping info by minimap2
 	//paffn := opt.Prefix + ".paf"
 
-	// get ont Long reads Mapping info by minimap2, must use ont or other Long reads as reference, and smfy edges as query
-	paffn := opt.Prefix + ".paf"
-	rc := make(chan []PAFInfo, opt.NumCPU)
-	wc := make(chan [2][]constructdbg.DBG_MAX_INT, opt.NumCPU)
+	// get ont Long reads Mapping info by minimap2, use smfy edges for reference, ONT reads for query
+	pathfn := opt.Prefix + ".Path.protobuf"
+	bufSize := 5000
+	if _, err := os.Stat(pathfn); err != nil {
+		paffn := opt.Prefix + ".paf"
+		rc := make(chan []PAFInfo, opt.NumCPU*bufSize)
+		wc := make(chan LongReadMappingInfo, opt.NumCPU*bufSize)
 
-	go GetPAFRecord(paffn, opt.ONTFn, rc, opt.NumCPU)
+		go GetPAFRecord(paffn, opt.ONTFn, rc, opt.NumCPU)
 
-	for i := 0; i < opt.NumCPU; i++ {
-		go paraFindLongReadsMappingPath(rc, wc, edgesArr, nodesArr, opt)
+		for i := 0; i < opt.NumCPU; i++ {
+			go paraFindLongReadsMappingPath(rc, wc, edgesArr, nodesArr, opt)
+		}
+
+		WriteLongPathToFile(wc, pathfn, opt.NumCPU)
+		fmt.Printf("[DeconstructDBG] mapping long reads to DBG edges used: %v\n", time.Now().Sub(t0))
 	}
-
-	pathArr := WriteLongPathToDBG(wc, edgesArr, opt.NumCPU)
-
+	t0 = time.Now()
+	pathArr := LoadLongPathFromFile(pathfn)
 	// Simplify using Long Reads Mapping info
-	joinPathArr := SimplifyByLongReadsPath(edgesArr, nodesArr, pathArr, opt)
+	joinPathArr := SimplifyByLongReadsPath(edgesArr, nodesArr, pathArr, opt, opt.MinUniqueEdgeLen, 2000, opt.AvgDepth, opt.AvgReadLen)
 
-	graphfn := opt.Prefix + ".afterLR.dot"
-	constructdbg.GraphvizDBGArr(nodesArr, edgesArr, graphfn)
+	//graphfn := opt.Prefix + ".afterLR.dot"
+	//constructdbg.GraphvizDBGArr(nodesArr, edgesArr, graphfn)
 	DcDBGEdgesfn := opt.Prefix + ".edges.DcDBG.fq"
 	ExtractSeq(edgesArr, nodesArr, joinPathArr, DcDBGEdgesfn, opt.Kmer)
+	fmt.Printf("[DeconstructDBG] find max edge path and produce sequence used: %v\n", time.Now().Sub(t0))
 	//constructdbg.StoreEdgesToFn(DcDBGEdgesfn, edgesArr)
 }
