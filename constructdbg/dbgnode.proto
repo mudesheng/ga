@@ -16,8 +16,9 @@ message DBGNodeArr {
 
 message ReadPath {
   uint32 ReadID = 1;
-  repeated uint32 Path0 = 2;
-  repeated uint32 Path1 = 3;
+  uint32  Qual = 2;
+  repeated uint32 Path0 = 3;
+  repeated uint32 Path1 = 4;
 }
 
 message PathArr {

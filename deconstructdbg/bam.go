@@ -3763,10 +3763,22 @@ func ConvertLRRecord(pi PAFInfo) (lrd LRRecord) {
 	return
 }
 
-func cleanLRRecordArr(arr []LRRecord, flankAllow int) []LRRecord {
+func cleanLRRecordArr(arr []LRRecord, flankAllow int, kmerLen int) []LRRecord {
 	j := 0
 	for _, r := range arr {
-		if r.Start > flankAllow && r.End < r.Len-flankAllow {
+		if r.Len < kmerLen*9/10 {
+			continue
+		}
+		if r.RefEnd < kmerLen || r.RefStart > r.RefLen-kmerLen {
+			continue
+		}
+		if r.MapNum < ((r.RefEnd - r.RefStart) * 4 / 5) {
+			continue
+		}
+		arr[j] = r
+		j++
+
+		/*if r.Start > flankAllow && r.End < r.Len-flankAllow {
 			if r.RefEnd-r.RefStart > r.RefLen*3/4 && r.MapNum > r.GapMapNum*1/5 {
 				arr[j] = r
 				j++
@@ -3800,7 +3812,7 @@ func cleanLRRecordArr(arr []LRRecord, flankAllow int) []LRRecord {
 					j++
 				}
 			}
-		}
+		}*/
 	}
 
 	arr = arr[:j]
@@ -3869,7 +3881,7 @@ func paraFindLongReadsMappingPath(rc <-chan []PAFInfo, wc chan LongReadMappingIn
 		*/
 
 		flankAllow := opt.Kmer * 2
-		arr = cleanLRRecordArr(arr, flankAllow)
+		arr = cleanLRRecordArr(arr, flankAllow, opt.Kmer)
 		/*if len(arr) > 0 {
 			fmt.Printf("[paraFindLongReadsMappingPath]after clean arr[0].ID: %v\n", arr[0].ID)
 		}*/
