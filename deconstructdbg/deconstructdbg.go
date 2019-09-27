@@ -56,7 +56,7 @@ func WriteLongPathToFile(wc chan LongReadMappingInfo, pathfn string, numCPU int)
 		rmi := <-wc
 		extArr := rmi.Path
 		fmt.Fprintf(os.Stderr, "[WriteLongPathToFile] path: %v\n", extArr)
-		p := extArr[0]
+		//p := extArr[0]
 		if rmi.ID == 0 {
 			finishNum++
 			if finishNum == numCPU {
@@ -1789,21 +1789,22 @@ func ExtractSeq(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode
 	}
 }
 
-func SimplifyByLongReadsPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, readPathArr []*constructdbg.ReadPath, opt Options, minUniqueEdgeLen, minMappingLen, depth, avgReadLen int) []constructdbg.Path {
-	sortedEIDIdxArr := sortIdxByUniqueEdgeLen(edgesArr)
-	edgesPathRelationArr := make([][]uint32, len(edgesArr))
-	ConstructEdgesPathRelationship(edgesArr, nodesArr, pathArr, edgesPathRelationArr, opt.Kmer*3/2, opt.Kmer)
+func SimplifyByLongReadsPath(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, readPathArr []*constructdbg.ReadPath, opt Options, minUniqueEdgeLen, minMappingLen, depth, avgReadLen int) (mergePathArr []constructdbg.Path) {
+	//sortedEIDIdxArr := sortIdxByUniqueEdgeLen(edgesArr)
+	//edgesPathRelationArr := make([][]uint32, len(edgesArr))
+	//ConstructEdgesPathRelationship(edgesArr, nodesArr, pathArr, edgesPathRelationArr, opt.Kmer*3/2, opt.Kmer)
 
 	//cleanNGSPath(edgesArr)
-	MergePathArr(edgesArr, nodesArr, pathArr, edgesPathRelationArr, opt.MinMapFreq, opt.Kmer, minUniqueEdgeLen, depth, avgReadLen)
+	//MergePathArr(edgesArr, nodesArr, pathArr, edgesPathRelationArr, opt.MinMapFreq, opt.Kmer, minUniqueEdgeLen, depth, avgReadLen)
 	//MergePathArr(edgesArr, nodesArr, pathArr, edgesPathRelationArr, opt.MinMapFreq)
 	//constructdbg.MergePathMat(edgesArr, nodesArr, 2)
 	//fmt.Printf("[SimplifyByLongReadsPath] sortedEIDIdxArr: %v\n", sortedEIDIdxArr)
-	mergePathArr := findMaxPath(sortedEIDIdxArr, edgesArr, nodesArr, pathArr, edgesPathRelationArr, opt.MinMapFreq, minMappingLen, opt.Kmer)
+	//mergePathArr := findMaxPath(sortedEIDIdxArr, edgesArr, nodesArr, pathArr, edgesPathRelationArr, opt.MinMapFreq, minMappingLen, opt.Kmer)
 	// constuct map edge ID to the path
 	//IDMapPath := constructdbg.ConstructIDMapPath(pathArr)
 	//constructdbg.DeleteJoinPathArrEnd(edgesArr, pathArr)
-	return mergePathArr
+	return
+	//return mergePathArr
 }
 
 func CompressToUint64(ks []byte) (cb uint64) {
@@ -1822,11 +1823,14 @@ func GetKmerInfo(ks []byte, ID, pos uint32, strand bool) (ki KmerInfo) {
 	return
 }
 
-func FindMinKmerInfo(ka []KmerInfo) (min KmerInfo) {
+func FindMinKmerInfo(ka []KmerInfo) (min KmerInfo, idx int) {
 	min = ka[0]
-	for _, ki := range ka[1:] {
+	idx = 0
+	for i := 1; i < len(ka); i++ {
+		ki := ka[i]
 		if min.Kmer > ki.Kmer {
 			min = ki
+			idx = i
 		}
 	}
 	return
@@ -1835,17 +1839,53 @@ func FindMinKmerInfo(ka []KmerInfo) (min KmerInfo) {
 func GetSeqMiniKmerInfos(ks []byte, ID uint32, SeedLen, WinSize int, kmerInfoArr []KmerInfo) []KmerInfo {
 	rs := constructdbg.GetReverseCompByteArr(ks)
 	sl := len(ks)
-	ka := make([]KmerInfo, WinSize*2)
-	for i := 0; i <= sl-(SeedLen-1)-WinSize; i += WinSize {
-		kaIdx := 0
-		for j := i; j < i+WinSize; j++ {
-			ka[kaIdx] = GetKmerInfo(ks[j:j+SeedLen], ID, uint32(j), true)
-			kaIdx++
-			ka[kaIdx] = GetKmerInfo(rs[sl-j-SeedLen:sl-j], ID, uint32(j), false)
-			kaIdx++
+	bufSize := 100
+	buf := make([]KmerInfo, bufSize)
+	idx := 0
+	last := -1
+	for i := 0; i < WinSize-1; i++ {
+		ki := GetKmerInfo(ks[i:i+SeedLen], ID, uint32(i), true)
+		rki := GetKmerInfo(rs[sl-i-SeedLen:sl-i], ID, uint32(i), false)
+		if ki.Kmer < rki.Kmer {
+			buf[idx] = ki
+		} else {
+			buf[idx] = rki
 		}
-		min := FindMinKmerInfo(ka)
-		kmerInfoArr = append(kmerInfoArr, min)
+		idx++
+	}
+	for i := WinSize - 1; i < sl-(SeedLen-1); i++ {
+		ki := GetKmerInfo(ks[i:i+SeedLen], ID, uint32(i), true)
+		rki := GetKmerInfo(rs[sl-i-SeedLen:sl-i], ID, uint32(i), false)
+		if ki.Kmer < rki.Kmer {
+			buf[idx] = ki
+		} else {
+			buf[idx] = rki
+		}
+		idx++
+
+		min, x := FindMinKmerInfo(buf[idx-WinSize : idx])
+		j := idx - WinSize + x
+		//fmt.Printf("[GetSeqMiniKmerInfos]last: %v, j: %v, min: %v\n", last, j, min)
+		if last < 0 {
+			kmerInfoArr = append(kmerInfoArr, min)
+			last = j
+		} else {
+			if j > last {
+				kmerInfoArr = append(kmerInfoArr, min)
+				last = j
+			}
+		}
+
+		// adjust buf
+		if idx == bufSize {
+			y := 0
+			for x := idx - WinSize; x < idx; x++ {
+				buf[y] = buf[x]
+				y++
+			}
+			last = last - (idx - WinSize)
+			idx = y
+		}
 	}
 
 	return kmerInfoArr
@@ -1879,13 +1919,14 @@ func SortDBGEdgesKmer(edgesArr []constructdbg.DBGEdge, SeedLen, WinSize int) (so
 	return
 }
 
-func SortLongReadsKmer(rc <-chan []constructcf.ReadInfo, SeedLen, WinSize, bucketSize int, cs chan<- ReadsBucketInfo, finishT chan<- int) {
+func SortLongReadsKmer(rc <-chan []constructcf.ReadInfo, SeedLen, WinSize int, bufSize int64, cs chan<- ReadsBucketInfo, finishT chan<- int) {
+	//var addReadKmerLen int64
 	for {
 		ra := <-rc
 		if len(ra) == 0 {
 			break
 		}
-		kmerArr := make([]KmerInfo, 0, bucketSize/WinSize)
+		kmerArr := make([]KmerInfo, 0, bufSize/int64(WinSize)+(1<<20))
 		for _, ri := range ra {
 			kmerArr = GetSeqMiniKmerInfos(ri.Seq, uint32(ri.ID), SeedLen, WinSize, kmerArr)
 		}
@@ -2096,7 +2137,7 @@ type ReadsBucketInfo struct {
 	KmerSortArr []KmerInfo
 }
 
-func LoadLongReads(ONTFnbr string, rc chan<- []constructcf.ReadInfo, BucketSize int, processT chan<- int) {
+func LoadLongReads(ONTFnbr string, rc chan<- []constructcf.ReadInfo, bufSize int64, processT chan<- int) {
 	var processNumReads, totalBases int
 	format := constructcf.GetReadsFileFormat(ONTFnbr)
 	fp, err := os.Open(ONTFnbr)
@@ -2110,7 +2151,7 @@ func LoadLongReads(ONTFnbr string, rc chan<- []constructcf.ReadInfo, BucketSize 
 	buffp := bufio.NewReader(brfp)
 	var err1 error
 	var readInfoArr []constructcf.ReadInfo
-	var processBases int
+	var processBases int64
 	for err1 != io.EOF {
 		ri, err1 := constructcf.GetReadFileRecord(buffp, format, false)
 		if ri.ID == 0 {
@@ -2126,8 +2167,8 @@ func LoadLongReads(ONTFnbr string, rc chan<- []constructcf.ReadInfo, BucketSize 
 		readInfoArr = append(readInfoArr, ri)
 		processNumReads++
 		totalBases += len(ri.Seq)
-		processBases += len(ri.Seq)
-		if processBases > BucketSize {
+		processBases += int64(len(ri.Seq))
+		if processBases >= bufSize {
 			rc <- readInfoArr
 			var na []constructcf.ReadInfo
 			readInfoArr = na
@@ -2142,19 +2183,19 @@ func LoadLongReads(ONTFnbr string, rc chan<- []constructcf.ReadInfo, BucketSize 
 	processT <- 1
 }
 
-func LoadLongReadsAndSort(cfgInfo constructcf.CfgInfo, NumCPU int, cs chan<- ReadsBucketInfo, SeedLen, WinSize, BucketSize int) {
+func LoadLongReadsAndSort(cfgInfo constructcf.CfgInfo, NumCPU int, cs chan<- ReadsBucketInfo, SeedLen, WinSize int, bufSize int64) {
 	fnArr := GetLongReadsFile(cfgInfo)
 	rc := make(chan []constructcf.ReadInfo, NumCPU)
 	processCPUNum := NumCPU * 2 / 3
 	LoadCPUNum := NumCPU - processCPUNum
-	if processCPUNum < 2 {
-		processCPUNum = 2
+	if processCPUNum <= 2 {
+		processCPUNum = 1
 		LoadCPUNum = 1
 	}
 	loadT := make(chan int, LoadCPUNum)
 	finishedT := make(chan int, processCPUNum)
 	for i := 0; i < processCPUNum; i++ {
-		go SortLongReadsKmer(rc, SeedLen, WinSize, BucketSize, cs, finishedT)
+		go SortLongReadsKmer(rc, SeedLen, WinSize, bufSize, cs, finishedT)
 	}
 	for i := 0; i < LoadCPUNum; i++ {
 		loadT <- 1
@@ -2162,7 +2203,7 @@ func LoadLongReadsAndSort(cfgInfo constructcf.CfgInfo, NumCPU int, cs chan<- Rea
 
 	for i := 0; i < len(fnArr); i++ {
 		<-loadT
-		go LoadLongReads(fnArr[i], rc, BucketSize, loadT)
+		go LoadLongReads(fnArr[i], rc, bufSize, loadT)
 	}
 
 	for i := 0; i < LoadCPUNum; i++ {
@@ -2433,9 +2474,14 @@ func FindPrimaryMappingEdges(karr []MapingKmerInfo, ReadLen, SeedLen int) {
 }*/
 
 type LongReadMappingInfo struct {
-	ID   uint32 // Read ID
-	Qual uint8  // mapping Quality [0~100]
-	Path [2][]constructdbg.DBG_MAX_INT
+	ID           uint32 // Read ID
+	Qual         uint32 // mapping Quality [0~100]
+	RStart, REnd uint32 // start and end position of long Read sequence
+	EStart, EEnd uint32 // start and end position of edges
+	AnchorEdgeID uint32 // anchor(alignment start edge) edge ID
+	AnchorStrand bool   //
+	Score        int    // total seed chain maping score
+	Path         [2][]constructdbg.DBG_MAX_INT
 }
 
 func GetInterSectionKmerInfo(edgesKmerSortArr []KmerInfo, rb ReadsBucketInfo, SeedLen uint16) (readsBucketInterSecKmerInfoArr [][]MapingKmerInfo) {
@@ -2448,7 +2494,7 @@ func GetInterSectionKmerInfo(edgesKmerSortArr []KmerInfo, rb ReadsBucketInfo, Se
 		if rk.Kmer < ek.Kmer {
 			continue
 		} else if rk.Kmer > ek.Kmer {
-			for ; j < len(edgesKmerSortArr); j++ {
+			for j = j + 1; j < len(edgesKmerSortArr); j++ {
 				ek = edgesKmerSortArr[j]
 				if rk.Kmer <= ek.Kmer {
 					break
@@ -2485,6 +2531,7 @@ func GetChainBlocks(ka []MapingKmerInfo) (kb []MapingKmerInfo) {
 		kbl := len(kb)
 		for i := 0; i < len(flagArr); i++ {
 			if flagArr[i] == true {
+				//i++
 				continue
 			}
 			mk := ka[i]
@@ -2492,34 +2539,46 @@ func GetChainBlocks(ka []MapingKmerInfo) (kb []MapingKmerInfo) {
 			j := i + 1
 			for ; j < len(flagArr); j++ {
 				nk := ka[j]
+				if flagArr[j] == true {
+					continue
+				}
 				if nk.GetRPos() > mk.GetRPos()+uint32(mk.Len) {
 					break
-				} else if flagArr[j] == true {
-					continue
 				}
 				if mk.EID != nk.EID || mk.GetStrand() != nk.GetStrand() {
 					continue
 				}
+				if mk.EID == 421 {
+					fmt.Printf("[GetChainBlocks] EID: %v, mk RPos: %v, EPos: %v,Len: %v, nk RPos: %v, EPos: %v, Len:%v\n", mk.EID, mk.GetRPos(), mk.GetEPos(), mk.Len, nk.GetRPos(), nk.GetEPos(), nk.Len)
+				}
 				strand := mk.GetStrand()
 				if strand == constructdbg.PLUS {
 					if nk.GetRPos()-mk.GetRPos() == nk.GetEPos()-mk.GetEPos() {
-						mk.Len += uint16(((nk.GetRPos() + uint32(nk.Len)) - (mk.GetRPos() + uint32(mk.Len))))
+						mk.Len = uint16(nk.GetRPos() + uint32(nk.Len) - mk.GetRPos())
+						//mk.Len += uint16(((nk.GetRPos() + uint32(nk.Len)) - (mk.GetRPos() + uint32(mk.Len))))
 						flagArr[j] = true
 					}
 				} else {
 					if nk.GetRPos()-mk.GetRPos() == (mk.GetEPos()+uint32(mk.Len))-(nk.GetEPos()+uint32(nk.Len)) {
-						mk.Len += uint16(((nk.GetRPos() + uint32(nk.Len)) - (mk.GetRPos() + uint32(mk.Len))))
+						//fmt.Printf("[GetChainBlocks] EID: %v, mk RPos: %v, EPos: %v,Len: %v, nk RPos: %v, EPos: %v, Len:%v\n", mk.EID, mk.GetRPos(), mk.GetEPos(), mk.Len, nk.GetRPos(), nk.GetEPos(), nk.Len)
+						mk.Len = uint16(nk.GetRPos() + uint32(nk.Len) - mk.GetRPos())
+						mk.SetEPos(nk.GetEPos())
+						//mk.Len += uint16(((nk.GetRPos() + uint32(nk.Len)) - (mk.GetRPos() + uint32(mk.Len))))
 						flagArr[j] = true
+						//fmt.Printf("[GetChainBlocks] mk RPos: %v, EPos: %v,Len: %v\n", mk.GetRPos(), mk.GetEPos(), mk.Len)
 					}
 				}
-				kb = append(kb, mk)
 			}
+
+			kb = append(kb, mk)
+			//i = j
 		}
 		// no new added block
 		if kbl == len(kb) {
 			break
 		}
 	}
+	fmt.Printf("[GetChainBlocks] loop num: %v\n", loopNum)
 
 	return
 }
@@ -2528,12 +2587,20 @@ type EdgeKmerInfo struct {
 	PlusNum, MinusNum int
 	ScoreP, ScoreM    int
 	IdxP, IdxM        int
+	MkInfoArr         []MapingKmerInfo
+}
+
+type ChainBlockMapLongReadInfo struct {
+	//EID        constructdbg.DBG_MAX_INT
+	Start, End int
+	Score      int
 }
 
 type EdgeKI struct {
-	Strand bool
-	Score  int
-	Idx    int
+	Strand    bool
+	Score     int
+	Idx       int
+	MkInfoArr []MapingKmerInfo
 }
 
 type EdgeKIArr []EdgeKI
@@ -2550,11 +2617,13 @@ func (arr EdgeKIArr) Swap(i, j int) {
 	arr[i], arr[j] = arr[j], arr[i]
 }
 
-func GetEdgesKIArr(kb []MapingKmerInfo, MinScore int) (edgesKIArr []EdgeKI) {
+func GetEdgesKIArr(kb []MapingKmerInfo, edgesArr []constructdbg.DBGEdge, MinKmerScore int) (edgesKIArr []EdgeKI) {
+	MinScore := MinKmerScore
 	edgeKIMap := make(map[uint32]EdgeKmerInfo)
 	for i, mk := range kb {
 		var eki EdgeKmerInfo
 		eki, _ = edgeKIMap[mk.EID]
+		eki.MkInfoArr = append(eki.MkInfoArr, mk)
 		if mk.GetStrand() == constructdbg.PLUS {
 			eki.PlusNum++
 			eki.ScoreP += int(mk.Len)
@@ -2576,6 +2645,13 @@ func GetEdgesKIArr(kb []MapingKmerInfo, MinScore int) (edgesKIArr []EdgeKI) {
 		if v.ScoreM < MinScore && v.ScoreP < MinScore {
 			continue
 		}
+		edgeLen := len(edgesArr[kb[v.IdxM].EID].Utg.Ks)
+		if edgeLen < 500 {
+			if v.ScoreM < edgeLen/15 && v.ScoreP < edgeLen/15 {
+				continue
+			}
+		}
+
 		var eKI EdgeKI
 		if v.ScoreP > v.ScoreM {
 			eKI.Strand = constructdbg.PLUS
@@ -2586,89 +2662,278 @@ func GetEdgesKIArr(kb []MapingKmerInfo, MinScore int) (edgesKIArr []EdgeKI) {
 			eKI.Score = v.ScoreM
 			eKI.Idx = v.IdxM
 		}
+		eKI.MkInfoArr = v.MkInfoArr
 		edgesKIArr = append(edgesKIArr, eKI)
 	}
 	return
 }
 
-func GetTwoBlockScore(cen, mk MapingKmerInfo, GapCost int) (sc int) {
-	var gapLen int
-	if cen.GetRPos() > mk.GetRPos() {
-		if cen.GetStrand() == constructdbg.PLUS {
-			gapLen = AbsInt((int(cen.GetRPos()) - int(mk.GetRPos())) - (int(cen.GetEPos()) - int(mk.GetEPos())))
+func GetTwoBlockScore(cen, mk MapingKmerInfo, GapCost int, edgesArr []constructdbg.DBGEdge, flankLen, kmerlen int) (sc int) {
+	var gapLen, dX, dY int
+	if mk.GetStrand() == constructdbg.PLUS {
+		if cen.GetRPos() < mk.GetRPos() {
+			dX = int(mk.GetRPos()) - (int(cen.GetRPos()) + int(cen.Len))
+			if cen.EID != mk.EID {
+				dY = int(mk.GetEPos()) - (kmerlen - 1) + flankLen
+			} else {
+				dY = int(mk.GetEPos()) - (int(cen.GetEPos()) + int(cen.Len))
+			}
 		} else {
-			gapLen = AbsInt((int(cen.GetRPos()) - int(mk.GetRPos())) - (int(mk.GetEPos()+uint32(mk.Len)) - int(cen.GetEPos()+uint32(cen.Len))))
+			dX = int(cen.GetRPos()) - (int(mk.GetRPos()) + int(mk.Len))
+			if cen.EID != mk.EID {
+				dY = len(edgesArr[mk.EID].Utg.Ks) - (kmerlen - 1) + flankLen - (int(mk.GetEPos()) + int(mk.Len))
+			} else {
+				dY = int(cen.GetEPos()) - (int(mk.GetEPos()) + int(mk.Len))
+			}
 		}
 	} else {
-		if cen.GetStrand() == constructdbg.PLUS {
-			gapLen = AbsInt((int(mk.GetRPos()) - int(cen.GetRPos())) - (int(mk.GetEPos()) - int(cen.GetEPos())))
+		if cen.GetRPos() < mk.GetRPos() {
+			dX = int(mk.GetRPos()) - (int(cen.GetRPos()) + int(cen.Len))
+			if cen.EID != mk.EID {
+				dY = len(edgesArr[mk.EID].Utg.Ks) - (kmerlen - 1) + flankLen - (int(mk.GetEPos()) + int(mk.Len))
+			} else {
+				dY = int(cen.GetEPos()) - (int(mk.GetEPos()) + int(mk.Len))
+			}
 		} else {
-			gapLen = AbsInt((int(mk.GetRPos()) - int(cen.GetRPos())) - (int(cen.GetEPos()+uint32(cen.Len)) - int(mk.GetEPos()+uint32(mk.Len))))
+			dX = int(cen.GetRPos()) - (int(mk.GetRPos()) + int(mk.Len))
+			if cen.EID != mk.EID {
+				dY = int(mk.GetEPos()) - ((kmerlen - 1) - flankLen)
+			} else {
+				dY = int(mk.GetEPos()) - (int(cen.GetEPos()) + int(cen.Len))
+			}
 		}
 	}
-	sc = int(mk.Len) - gapLen*GapCost
+	/*if dX > 2000 || dY > 2000 {
+		sc = 0
+		return
+	}*/
+	gapLen = AbsInt(dX - dY)
+	min := constructdbg.Min(dX, dY)
+	if gapLen > min/5+20 {
+		sc = 0
+		return
+	}
+	a := int(mk.Len)
+	// a gap length of gapLen costs
+	var b float64
+	if gapLen > 1 {
+		b = float64(0.01)*float64(mk.Len)*float64(gapLen) + float64(0.5)*math.Log2(float64(gapLen))
+	} else {
+		if dX == 0 && dY == 0 {
+			b = 0
+		} else {
+			b = 1
+		}
+	}
+	sc = a - int(b)
+	//sc = int(mk.Len) - gapLen*GapCost
+	//fmt.Printf("[GetTwoBlockScore]dX: %v, dY: %v, sc: %v, a: %v, b: %v\n", dX, dY, sc, a, b)
 	return
 }
 
-func BlockToNearBlocksScoreArr(kb []MapingKmerInfo, Idx int, arr []int, GapCost, MaxGapLen int, SeqType uint8) (bsA []Score) {
+func BlockToNearBlocksScoreArr(kb []MapingKmerInfo, Idx int, strand bool, visitArr []bool, GapCost, MaxGapLen int, SeqType uint8, bsA []int, edgesArr []constructdbg.DBGEdge, flankLen, kmerlen int) {
 	cen := kb[Idx]
-	bsA = make([]Score, 0, 15)
 	// BACKWARD
 	for i := Idx - 1; i >= 0; i-- {
 		mk := kb[i]
-		if cen.GetRPos()-mk.GetRPos() > uint32(MaxGapLen) || mk.EID != cen.EID || mk.GetStrand() != cen.GetStrand() {
+		if visitArr[i] == true {
 			break
 		}
-		if IsInIntArr(arr, i) {
+		if bsA[i] == math.MinInt32 {
 			continue
 		}
-		sc := GetTwoBlockScore(cen, mk, GapCost)
-		if sc > 0 {
-			var s Score
-			s.Sc = sc
-			s.Idx = i
-			bsA = append(bsA, s)
+		if mk.GetStrand() != strand {
+			continue
+		}
+		/*if int(cen.GetRPos())-int(mk.GetRPos()) > MaxGapLen {
+			break
+		}*/
+		if strand == constructdbg.PLUS {
+			if mk.GetRPos()+uint32(mk.Len) > cen.GetRPos() || mk.GetEPos()+uint32(mk.Len) > cen.GetEPos() {
+				bsA[i] = math.MinInt32
+				continue
+			}
+			sc := GetTwoBlockScore(cen, mk, GapCost, edgesArr, flankLen, kmerlen)
+			if sc > bsA[i] {
+				bsA[i] = sc
+			}
+		} else { // strand == constructdbg.MINUS
+			if mk.GetRPos()+uint32(mk.Len) > cen.GetRPos() || mk.GetEPos() < cen.GetEPos()+uint32(cen.Len) {
+				bsA[i] = math.MinInt32
+				continue
+			}
+			sc := GetTwoBlockScore(cen, mk, GapCost, edgesArr, flankLen, kmerlen)
+			if sc > bsA[i] {
+				bsA[i] = sc
+			}
 		}
 	}
 
 	// FORWARD
 	for i := Idx + 1; i < len(kb); i++ {
 		mk := kb[i]
-		if mk.GetRPos()+uint32(mk.Len)-cen.GetRPos() > uint32(MaxGapLen) || mk.EID != cen.EID || mk.GetStrand() != cen.GetStrand() {
+		//fmt.Printf("[BlockToNearBlocksScoreArr] i: %v, mk ReadPos: %v, cen ReadPos: %v\n", i, mk.GetRPos(), cen.GetRPos())
+		if visitArr[i] == true {
 			break
 		}
-		if IsInIntArr(arr, i) {
+		if bsA[i] == math.MinInt32 {
 			continue
 		}
-		sc := GetTwoBlockScore(cen, mk, GapCost)
-		if sc > 0 {
-			var s Score
-			s.Sc = sc
-			s.Idx = i
-			bsA = append(bsA, s)
+		if mk.GetStrand() != strand {
+			continue
 		}
+		/*if int(mk.GetRPos())-(int(cen.GetRPos())+int(mk.Len)) > MaxGapLen {
+			break
+		}*/
+		var sc int
+		if strand == constructdbg.PLUS {
+			if cen.GetRPos()+uint32(cen.Len) > mk.GetRPos() || cen.GetEPos()+uint32(cen.Len) > mk.GetEPos() {
+				bsA[i] = math.MinInt32
+				continue
+			}
+			sc = GetTwoBlockScore(cen, mk, GapCost, edgesArr, flankLen, kmerlen)
+
+			if sc > bsA[i] {
+				bsA[i] = sc
+			}
+		} else { //strand == constructdbg.MINUS
+			if cen.GetRPos()+uint32(cen.Len) > mk.GetRPos() || mk.GetEPos()+uint32(mk.Len) > cen.GetEPos() {
+				bsA[i] = math.MinInt32
+				continue
+			}
+			sc = GetTwoBlockScore(cen, mk, GapCost, edgesArr, flankLen, kmerlen)
+
+			if sc > bsA[i] {
+				bsA[i] = sc
+			}
+		}
+		//fmt.Printf("[BlockToNearBlocksScoreArr] sc: %v\n", sc)
 	}
 
-	sort.Sort(ScoreArr(bsA))
+	//sort.Sort(ScoreArr(bsA))
 	return
 }
 
-func GetMaxScoreFromBaSAPat(blockToAnchorsScorePat [][]Score, arr []int) (max Score) {
-	for i, sa := range blockToAnchorsScorePat {
-		if len(sa) <= 0 {
+func BlockToNearBlocksScoreArrCrossEdges(kb []MapingKmerInfo, Idx int, strand bool, visitArr []bool, GapCost, MaxGapLen int, SeqType uint8, bsA []int, direction uint8, flankLen, kmerlen int, edgesArr []constructdbg.DBGEdge) {
+	cen := kb[Idx]
+	// BACKWARD
+	for i := Idx - 1; i >= 0; i-- {
+		mk := kb[i]
+		if visitArr[i] == true {
+			break
+		}
+		if bsA[i] == math.MinInt32 {
 			continue
 		}
-		for j := len(sa) - 1; j >= 0; j-- {
-			sc := sa[j]
-			if IsInIntArr(arr, sa[j].Idx) {
-				blockToAnchorsScorePat[i] = sa[:j]
-				continue
+		if mk.GetStrand() != strand {
+			continue
+		}
+		/*if int(cen.GetRPos())-int(mk.GetRPos()) > MaxGapLen {
+			break
+		}*/
+		if strand == constructdbg.PLUS {
+			if mk.EID != cen.EID {
+				if mk.GetRPos()+uint32(mk.Len) > cen.GetRPos() || int(mk.GetEPos())+int(mk.Len) > len(edgesArr[mk.EID].Utg.Ks)-((kmerlen-1)-flankLen) {
+					bsA[i] = math.MinInt32
+					continue
+				}
+			} else {
+				if mk.GetRPos()+uint32(mk.Len) > cen.GetRPos() || mk.GetEPos()+uint32(mk.Len) > cen.GetEPos() {
+					bsA[i] = math.MinInt32
+					continue
+				}
 			}
 
-			if max.Sc < sc.Sc {
-				max = sc
+			sc := GetTwoBlockScore(cen, mk, GapCost, edgesArr, flankLen, kmerlen)
+			if sc > bsA[i] {
+				bsA[i] = sc
 			}
+		} else { // strand == constructdbg.MINUS
+			if mk.EID != cen.EID {
+				if mk.GetRPos()+uint32(mk.Len) > cen.GetRPos() || int(mk.GetEPos()) < (kmerlen-1)-flankLen {
+					bsA[i] = math.MinInt32
+					continue
+				}
+			} else {
+				if mk.GetRPos()+uint32(mk.Len) > cen.GetRPos() || mk.GetEPos() < cen.GetEPos()+uint32(cen.Len) {
+					bsA[i] = math.MinInt32
+					continue
+				}
+			}
+			sc := GetTwoBlockScore(cen, mk, GapCost, edgesArr, flankLen, kmerlen)
+			if sc > bsA[i] {
+				bsA[i] = sc
+			}
+		}
+	}
+
+	// FORWARD
+	for i := Idx + 1; i < len(kb); i++ {
+		mk := kb[i]
+		//fmt.Printf("[BlockToNearBlocksScoreArr] i: %v, mk ReadPos: %v, cen ReadPos: %v\n", i, mk.GetRPos(), cen.GetRPos())
+		if visitArr[i] == true {
 			break
+		}
+		if bsA[i] == math.MinInt32 {
+			continue
+		}
+		if mk.GetStrand() != strand {
+			continue
+		}
+		/*if int(mk.GetRPos())-(int(cen.GetRPos())+int(mk.Len)) > MaxGapLen {
+			break
+		}*/
+		var sc int
+		if strand == constructdbg.PLUS {
+			if cen.EID != mk.EID {
+				if cen.GetRPos()+uint32(cen.Len) > mk.GetRPos() || (kmerlen-1)-flankLen > int(mk.GetEPos()) {
+					bsA[i] = math.MinInt32
+					continue
+				}
+			} else {
+				if cen.GetRPos()+uint32(cen.Len) > mk.GetRPos() || cen.GetEPos()+uint32(cen.Len) > mk.GetEPos() {
+					bsA[i] = math.MinInt32
+					continue
+				}
+			}
+			sc = GetTwoBlockScore(cen, mk, GapCost, edgesArr, flankLen, kmerlen)
+
+			if sc > bsA[i] {
+				bsA[i] = sc
+			}
+		} else { //strand == constructdbg.MINUS
+			if cen.EID != mk.EID {
+				if cen.GetRPos()+uint32(cen.Len) > mk.GetRPos() || int(mk.GetEPos())+int(mk.Len) > len(edgesArr[mk.EID].Utg.Ks)-((kmerlen-1)-flankLen) {
+					bsA[i] = math.MinInt32
+					continue
+				}
+			} else {
+				if cen.GetRPos()+uint32(cen.Len) > mk.GetRPos() || mk.GetEPos()+uint32(mk.Len) > cen.GetEPos() {
+					bsA[i] = math.MinInt32
+					continue
+				}
+			}
+			sc = GetTwoBlockScore(cen, mk, GapCost, edgesArr, flankLen, kmerlen)
+
+			if sc > bsA[i] {
+				bsA[i] = sc
+			}
+		}
+		//fmt.Printf("[BlockToNearBlocksScoreArr] sc: %v\n", sc)
+	}
+
+	//sort.Sort(ScoreArr(bsA))
+	return
+}
+
+func GetMaxScoreFromBaSA(blockToAnchorsScoreArr []int, visitArr []bool) (max Score) {
+	for i, sc := range blockToAnchorsScoreArr {
+		if visitArr[i] == true {
+			continue
+		}
+		if max.Sc < sc {
+			max.Sc = sc
+			max.Idx = i
 		}
 	}
 	return
@@ -2775,12 +3040,14 @@ func CheckChainBoundary(mkArr []MapingKmerInfo, mk MapingKmerInfo, maxSc Score) 
 	return mk, sc
 }
 
-func GetMappingKIArrScore(mkArr []MapingKmerInfo, MaxGapLen, GapCost int) (score int) {
+func GetMappingKIArrScore(mkArr []MapingKmerInfo, GapCost int, edgesArr []constructdbg.DBGEdge, flankLen, kmerlen int) (score int) {
 	score = int(mkArr[0].Len)
 	for i := 1; i < len(mkArr); i++ {
-		nk := mkArr[i]
 		lk := mkArr[i-1]
-		score += GetTwoBlockScore(lk, nk, GapCost)
+		nk := mkArr[i]
+		sc := GetTwoBlockScore(lk, nk, GapCost, edgesArr, flankLen, kmerlen)
+		//fmt.Printf("[GetMappingKIArrScore] nk EdgePos: %v, ReadPos: %v, Len: %v, score: %v\n", nk.GetEPos(), nk.GetRPos(), nk.Len, sc)
+		score += sc
 	}
 
 	return
@@ -2793,38 +3060,95 @@ type MaxPathInfo struct {
 	//DistE int
 }
 
+type MaxPathInfoArr []MaxPathInfo
+
+func (arr MaxPathInfoArr) Len() int {
+	return len(arr)
+}
+
+func (arr MaxPathInfoArr) Less(i, j int) bool {
+	return arr[i].Score < arr[j].Score
+}
+func (arr MaxPathInfoArr) Swap(i, j int) {
+	arr[i], arr[j] = arr[j], arr[i]
+}
+
+type MaxPathInfoTmpArr []MaxPathInfo
+
+func (arr MaxPathInfoTmpArr) Len() int {
+	return len(arr)
+}
+
+func (arr MaxPathInfoTmpArr) Less(i, j int) bool {
+	if arr[i].Arr[0].GetRPos() < arr[j].Arr[0].GetRPos() {
+		return true
+	} else if arr[i].Arr[0].GetRPos() > arr[j].Arr[0].GetRPos() {
+		return false
+	} else {
+		return arr[i].Score < arr[j].Score
+	}
+}
+
+func (arr MaxPathInfoTmpArr) Swap(i, j int) {
+	arr[i], arr[j] = arr[j], arr[i]
+}
+
 type BoundScore struct {
 	RPos  uint32
 	Score int
 }
 
-func GetMaxScoreArr(kb []MapingKmerInfo, ki EdgeKI, SeedLen, GapCost, MaxGapLen, MinLoopNum int, SeqType uint8) (mp MaxPathInfo) {
+func GetAnchorMKI(ki EdgeKI) (anchorMKI MapingKmerInfo, idx int) {
+	for i, mki := range ki.MkInfoArr {
+		if ki.Strand == mki.GetStrand() {
+			if anchorMKI.Len < mki.Len {
+				anchorMKI = mki
+				idx = i
+			}
+		}
+	}
+	return
+}
+
+func GetMaxScoreArr(ki EdgeKI, SeedLen, GapCost, MaxGapLen int, SeqType uint8, edgesArr []constructdbg.DBGEdge, kmerlen int) (mp MaxPathInfo) {
 	var maxA []MapingKmerInfo
-	var blockToBlocksScorePat [][]Score
-	var arr []int
-	arr = append(arr, ki.Idx)
-	maxA = append(maxA, kb[ki.Idx])
-	baSA := BlockToNearBlocksScoreArr(kb, ki.Idx, arr, GapCost, MaxGapLen, SeqType)
-	blockToBlocksScorePat = append(blockToBlocksScorePat, baSA)
+	//var blockToBlocksScorePat [][]Score
+	sort.Sort(MapingKmerInfoArr(ki.MkInfoArr))
+	/*for i, mki := range ki.MkInfoArr {
+		fmt.Printf("[GetMaxScoreArr] ki.MkInfoArr[%v] EdgePos: %v, ReadPos : %v, Len: %v\n", i, mki.GetEPos(), mki.GetRPos(), mki.Len)
+	}*/
+	anchorMKI, idx := GetAnchorMKI(ki)
+	visitArr := make([]bool, len(ki.MkInfoArr))
+	fmt.Printf("[GetMaxScoreArr] anchor[%v] edgeID: %v, mki ReadPos : %v,EdgePos: %v, Len: %v\n", idx, anchorMKI.EID, anchorMKI.GetRPos(), anchorMKI.GetEPos(), anchorMKI.Len)
+	visitArr[idx] = true
+	maxA = append(maxA, anchorMKI)
+	bsA := make([]int, len(ki.MkInfoArr))
+	bsA[idx] = int(anchorMKI.Len)
+	BlockToNearBlocksScoreArr(ki.MkInfoArr, idx, ki.Strand, visitArr, GapCost, MaxGapLen, SeqType, bsA, edgesArr, 0, kmerlen)
+	//blockToBlocksScorePat = append(blockToBlocksScorePat, baSA)
 	for {
-		maxSc := GetMaxScoreFromBaSAPat(blockToBlocksScorePat, arr)
+		//fmt.Printf("[GetMaxScoreArr]bsA: %v\n", bsA)
+		maxSc := GetMaxScoreFromBaSA(bsA, visitArr)
 		if maxSc.Sc <= 0 {
 			break
 		}
-		tk, sc := CheckChainBoundary(maxA, kb[maxSc.Idx], maxSc)
+		/*tk, sc := CheckChainBoundary(maxA, ki.MkInfoArr[maxSc.Idx], maxSc)
 		if sc.Sc < maxSc.Sc {
 			continue
-		}
+		}*/
 		// add to Max Chain
-		arr = append(arr, sc.Idx)
-		maxA = append(maxA, tk)
-		baSA := BlockToNearBlocksScoreArr(kb, sc.Idx, arr, GapCost, MaxGapLen, SeqType)
-		blockToBlocksScorePat = append(blockToBlocksScorePat, baSA)
+		visitArr[maxSc.Idx] = true
+		bsA[maxSc.Idx] = int(ki.MkInfoArr[maxSc.Idx].Len)
+		maxA = append(maxA, ki.MkInfoArr[maxSc.Idx])
+		//fmt.Printf("[GetMaxScoreArr]added mki ReadPos: %v, EdgePos: %v, Len: %v, Score: %v\n", ki.MkInfoArr[maxSc.Idx].GetRPos(), ki.MkInfoArr[maxSc.Idx].GetEPos(), ki.MkInfoArr[maxSc.Idx].Len, maxSc.Sc)
+		BlockToNearBlocksScoreArr(ki.MkInfoArr, maxSc.Idx, ki.Strand, visitArr, GapCost, MaxGapLen, SeqType, bsA, edgesArr, 0, kmerlen)
+		//blockToBlocksScorePat = append(blockToBlocksScorePat, baSA)
 	}
 	sort.Sort(MapingKmerInfoArr(maxA))
-	arrScore := GetMappingKIArrScore(maxA, MaxGapLen, GapCost)
+	arrScore := GetMappingKIArrScore(maxA, GapCost, edgesArr, 0, kmerlen)
 	mp.Arr = maxA
 	mp.Score = arrScore
+	//fmt.Printf("[GetMaxScoreArr]mp.Score: %v, mp.Arr: %v\n", mp.Score, mp.Arr)
 	/*if arrScore > maxScore {
 			maxScore = arrScore
 			maxArr, maxScArr = CleanLowScore(maxArr, maxScArr, maxScore*98/100)
@@ -2864,7 +3188,7 @@ func GetReverseMapingKmerInfoArr(arr []MapingKmerInfo) []MapingKmerInfo {
 	return rev
 }
 
-func GetNextEdgeMaxScore(kb, shareArr []MapingKmerInfo, direction uint8, SeedLen, GapCost, MaxGapLen, MinLoopNum int, SeqType uint8) (mpi MaxPathInfo) {
+/*func GetNextEdgeMaxScore(kb, shareArr []MapingKmerInfo, direction uint8, SeedLen, GapCost, MaxGapLen, MinLoopNum int, SeqType uint8) (mpi MaxPathInfo) {
 	var maxA []MapingKmerInfo
 	var blockToBlocksScorePat [][]Score
 	var arr []int
@@ -2903,7 +3227,7 @@ func GetNextEdgeMaxScore(kb, shareArr []MapingKmerInfo, direction uint8, SeedLen
 	}
 
 	return
-}
+}*/
 
 func CheckBound(mkArr []MapingKmerInfo, ReadLen, EdgeLen, kmerlen int, direction uint8) (distR, distE int, shareArr []MapingKmerInfo) {
 	mk := mkArr[len(mkArr)-1]
@@ -2959,7 +3283,7 @@ func CheckBound(mkArr []MapingKmerInfo, ReadLen, EdgeLen, kmerlen int, direction
 
 func GetReadBound(mpArr []MaxPathInfo, direction uint8) (ok bool, bd uint32) {
 	if direction == constructdbg.FORWARD {
-		for i, mp := range mpArr {
+		for _, mp := range mpArr {
 			if bd == 0 {
 				bd = mp.Arr[len(mp.Arr)-1].GetRPos()
 				ok = true
@@ -2971,7 +3295,7 @@ func GetReadBound(mpArr []MaxPathInfo, direction uint8) (ok bool, bd uint32) {
 			}
 		}
 	} else {
-		for i, mp := range mpArr {
+		for _, mp := range mpArr {
 			if bd == 0 {
 				bd = mp.Arr[0].GetRPos()
 				ok = true
@@ -3042,7 +3366,7 @@ func GetShareKBArr(kb, shareArr []MapingKmerInfo, direction uint8) (sharePat [][
 	if direction == constructdbg.FORWARD {
 		low, high := shareArr[0].GetRPos(), shareArr[len(shareArr)-1].GetRPos()
 		idx := 0
-		for i, mk := range kb {
+		for _, mk := range kb {
 			if mk.GetRPos() < low {
 				continue
 			} else if mk.GetRPos() > high {
@@ -3061,7 +3385,7 @@ func GetShareKBArr(kb, shareArr []MapingKmerInfo, direction uint8) (sharePat [][
 	} else {
 		high, low := shareArr[0].GetRPos(), shareArr[len(shareArr)-1].GetRPos()
 		idx := len(shareArr) - 1
-		for i, mk := range kb {
+		for _, mk := range kb {
 			if mk.GetRPos() < low {
 				continue
 			} else if mk.GetRPos() > high {
@@ -3080,7 +3404,7 @@ func GetShareKBArr(kb, shareArr []MapingKmerInfo, direction uint8) (sharePat [][
 	}
 	// check sharePat
 	idx := 0
-	for i, arr := range sharePat {
+	for _, arr := range sharePat {
 		if len(arr) != len(shareArr) {
 			continue
 		}
@@ -3123,7 +3447,7 @@ func CheckDBG(sharePat [][]MapingKmerInfo, edgesArr []constructdbg.DBGEdge, node
 	idx := 0
 	if direction == constructdbg.FORWARD {
 		if strand == constructdbg.PLUS {
-			for i, arr := range sharePat {
+			for _, arr := range sharePat {
 				ne := edgesArr[arr[0].EID]
 				nstrd := arr[0].GetStrand()
 				if !IsConnective(e, ne, nodesArr[e.EndNID]) {
@@ -3136,7 +3460,7 @@ func CheckDBG(sharePat [][]MapingKmerInfo, edgesArr []constructdbg.DBGEdge, node
 				}
 			}
 		} else {
-			for i, arr := range sharePat {
+			for _, arr := range sharePat {
 				ne := edgesArr[arr[0].EID]
 				nstrd := arr[0].GetStrand()
 				if !IsConnective(e, ne, nodesArr[e.StartNID]) {
@@ -3151,7 +3475,7 @@ func CheckDBG(sharePat [][]MapingKmerInfo, edgesArr []constructdbg.DBGEdge, node
 		}
 	} else {
 		if strand == constructdbg.PLUS {
-			for i, arr := range sharePat {
+			for _, arr := range sharePat {
 				ne := edgesArr[arr[0].EID]
 				nstrd := arr[0].GetStrand()
 				if !IsConnective(e, ne, nodesArr[e.StartNID]) {
@@ -3164,7 +3488,7 @@ func CheckDBG(sharePat [][]MapingKmerInfo, edgesArr []constructdbg.DBGEdge, node
 				}
 			}
 		} else {
-			for i, arr := range sharePat {
+			for _, arr := range sharePat {
 				ne := edgesArr[arr[0].EID]
 				nstrd := arr[0].GetStrand()
 				if !IsConnective(e, ne, nodesArr[e.EndNID]) {
@@ -3182,20 +3506,128 @@ func CheckDBG(sharePat [][]MapingKmerInfo, edgesArr []constructdbg.DBGEdge, node
 	return sharePat
 }
 
-func GetMaxChainBlockArr(kb []MapingKmerInfo, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, ReadLen, SeedLen, GapCost, MaxGapLen, MinLoopNum, MinScore, kmerlen int, SeqType uint8) (maxPIArr []MaxPathInfo) {
-	edgesKIArr := GetEdgesKIArr(kb, MinScore)
+func AnchorFilter(cBMRIArr []ChainBlockMapLongReadInfo, cb ChainBlockMapLongReadInfo) bool {
+	filter := false
+	for _, ele := range cBMRIArr {
+		if ele.Start <= cb.Start && cb.End <= cb.End {
+			alen, blen := int(ele.End)-int(ele.Start), int(cb.End)-int(cb.Start)
+			if cb.Score*100/blen < ele.Score*100/alen {
+				filter = true
+				break
+			}
+		}
+	}
+	return filter
+}
+
+func GetMaxChainBlockArr(kb []MapingKmerInfo, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, ReadLen, SeedLen, GapCost, MaxGapLen, MinKmerScore, kmerlen int, SeqType uint8, readLen int) (maxPIArr []MaxPathInfo) {
+	edgesKIArr := GetEdgesKIArr(kb, edgesArr, MinKmerScore)
 	sort.Sort(EdgeKIArr(edgesKIArr))
-	var maxScore int
-	var maxScArr []int
-	var loopNum int
+	//var maxScore int
+	//var maxScArr []int
+	//var loopNum int
+	//var cBMRIArr []ChainBlockMapLongReadInfo
+	var eIDArr []constructdbg.DBG_MAX_INT
+	var maxPathInfoArr []MaxPathInfo
+	//var tmpArr []MaxPathInfo
+	// search long read local best mapping to the edge
+	for i := len(edgesKIArr) - 1; i >= 0; i-- {
+		ki := edgesKIArr[i]
+		e := edgesArr[ki.MkInfoArr[0].EID]
+		// filter
+		/*if e.StartNID == e.EndNID || e.GetTwoEdgesCycleFlag() > 0 {
+			continue
+		}
+		if len(e.Utg.Ks) < kmerlen*2-3 {
+			continue
+		}*/
+		maxPI := GetMaxScoreArr(ki, SeedLen, GapCost, MaxGapLen, SeqType, edgesArr, kmerlen)
+		var cb ChainBlockMapLongReadInfo
+		lastMK := maxPI.Arr[len(maxPI.Arr)-1]
+		cb.Start, cb.End, cb.Score = int(maxPI.Arr[0].GetRPos()), int(lastMK.GetRPos())+int(lastMK.Len), maxPI.Score
+		//tmpArr = append(tmpArr, maxPI)
+		//if AnchorFilter(cBMRIArr, cb) == false {
+		eIDArr = append(eIDArr, e.ID)
+		maxPathInfoArr = append(maxPathInfoArr, maxPI)
+		//}
+	}
+
+	/*sort.Sort(MaxPathInfoTmpArr(tmpArr))
+	for i, mpi := range tmpArr {
+		var cb ChainBlockMapLongReadInfo
+		lastMK := mpi.Arr[len(mpi.Arr)-1]
+		cb.Start, cb.End, cb.Score = int(mpi.Arr[0].GetRPos()), int(lastMK.GetRPos())+int(lastMK.Len), mpi.Score
+		fmt.Printf("[GetMaxChainBlockArr][%v] EID: %v, start: %v, end: %v, score: %v\n", i, lastMK.EID, cb.Start, cb.End, cb.Score)
+	}*/
+
+	// filter low mapping quality edge and filter noly maping middle region of edge
+	var highQMaxPathArr []MaxPathInfo
+	for _, mpi := range maxPathInfoArr {
+		filter := false
+		mka, mkb := mpi.Arr[0], mpi.Arr[len(mpi.Arr)-1]
+		Start, End := int(mka.GetRPos()), int(mkb.GetRPos())+int(mkb.Len)
+		if mpi.Score < SeedLen*2 || End-Start < kmerlen/2 {
+			filter = true
+			continue
+		}
+		boundLen := kmerlen
+		e := edgesArr[mpi.Arr[0].EID]
+		if len(e.Utg.Ks) > 1000 {
+			boundLen = 2 * kmerlen
+		}
+		strand := mpi.Arr[0].GetStrand()
+		if strand == constructdbg.PLUS {
+			eS, eE := int(mka.GetEPos()), int(mkb.GetEPos())+int(mkb.Len)
+			if Start > boundLen && eS > boundLen {
+				filter = true
+				continue
+			}
+			if End < readLen-boundLen && eE < len(e.Utg.Ks)-boundLen {
+				filter = true
+				continue
+			}
+		} else {
+			eS, eE := int(mkb.GetEPos()), int(mka.GetEPos())+int(mka.Len)
+			if Start > boundLen && len(e.Utg.Ks)-eE > boundLen {
+				filter = true
+				continue
+			}
+			if End > boundLen && eS > boundLen {
+				filter = true
+				continue
+			}
+		}
+		for j, hmpi := range highQMaxPathArr {
+			hStart, hEnd := int(hmpi.Arr[0].GetRPos()), int(hmpi.Arr[len(hmpi.Arr)-1].GetRPos())+int(hmpi.Arr[len(hmpi.Arr)-1].Len)
+			if hStart <= Start && End <= hEnd && mpi.Score*100/(End-Start) < hmpi.Score*100/(hEnd-hStart) {
+				filter = true
+				fmt.Printf("[GetMaxChainBlockArr] filter EID: %v, start: %v, end: %v\n", mpi.Arr[0].EID, Start, End)
+				break
+			} else if Start <= hStart && hEnd <= End && hmpi.Score*100/(hEnd-hStart) < mpi.Score*100/(End-Start) {
+				highQMaxPathArr[j] = mpi
+				filter = true
+				fmt.Printf("[GetMaxChainBlockArr] filter EID: %v, start: %v, end: %v\n", mpi.Arr[0].EID, Start, End)
+				break
+			}
+		}
+		if filter == false {
+			highQMaxPathArr = append(highQMaxPathArr, mpi)
+		}
+	}
+	maxPIArr = highQMaxPathArr
+	return
+}
+
+/*{
 	for i := len(edgesKIArr) - 1; i >= 0; i-- {
 		ki := edgesKIArr[i]
 		mk := kb[ki.Idx]
 		var lstack, rstack []MaxPathInfo
-		maxPI := GetMaxScoreArr(kb, ki, SeedLen, GapCost, MaxGapLen, MinLoopNum, SeqType)
+		maxPI := GetMaxScoreArr(ki, SeedLen, GapCost, MaxGapLen, MinLoopNum, SeqType)
 		maxPI.Arr = GetReverseMapingKmerInfoArr(maxPI.Arr)
 		maxPI.Path = append(maxPI.Path, maxPI.Arr[0].EID)
 		lstack = append(lstack, maxPI)
+
 		// BACKWARD
 		{
 			var bsArr []BoundScore
@@ -3390,6 +3822,23 @@ func GetMaxChainBlockArr(kb []MapingKmerInfo, edgesArr []constructdbg.DBGEdge, n
 			}
 		}
 	}
+}*/
+
+func GetEdgeRegionSeq(e constructdbg.DBGEdge, mpi MaxPathInfo) (edgeRegionSeq []byte) {
+	// check mpi.Arr
+	if mpi.Arr[0].EID != uint32(e.ID) || mpi.Arr[len(mpi.Arr)-1].EID != uint32(e.ID) {
+		log.Fatalf("[GetEdgeRegionSeq] e.ID: %v != mpi.Arr: %v\n", e.ID, mpi.Arr)
+	}
+	strand := mpi.Arr[0].GetStrand()
+	last := mpi.Arr[len(mpi.Arr)-1]
+	fmt.Printf("[GetEdgeRegionSeq]eID: %v, arr[0] ReadPos: %v, EdgePos: %v, strand: %v, Len: %v, arr[last] ReadPos: %v, EdgePos: %v, strand: %v, Len: %v, len(edge): %v\n", e.ID, mpi.Arr[0].GetRPos(), mpi.Arr[0].GetEPos(), mpi.Arr[0].GetStrand(), mpi.Arr[0].Len, last.GetRPos(), last.GetEPos(), last.GetStrand(), last.Len, len(e.Utg.Ks))
+	if strand == constructdbg.PLUS {
+		start, end := mpi.Arr[0].GetEPos(), last.GetEPos()+uint32(last.Len)
+		edgeRegionSeq = append(edgeRegionSeq, e.Utg.Ks[start:end]...)
+	} else {
+		start, end := last.GetEPos(), mpi.Arr[0].GetEPos()+uint32(mpi.Arr[0].Len)
+		edgeRegionSeq = append(edgeRegionSeq, constructdbg.GetReverseCompByteArr(e.Utg.Ks[start:end])...)
+	}
 	return
 }
 
@@ -3444,7 +3893,7 @@ func GetEdgesSeq(edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNod
 			mk := kb[m]
 			{
 				if mk.GetStrand() == constructdbg.PLUS {
-					chainArr[i].X = len(edgesSeq) + (mk.GetEPos() - (kmerlen - 1))
+					chainArr[i].X = uint32(len(edgesSeq)) + (mk.GetEPos() - (uint32(kmerlen) - 1))
 				} else {
 					chainArr[i].X = startX - (mk.GetEPos() + uint32(mk.Len))
 				}
@@ -3481,7 +3930,539 @@ func GetReadSeq(seq []byte, start, end uint32) (readSeq []byte) {
 	return
 }
 
-func FindONTReadsPath(edgesKmerSortArr []KmerInfo, cs <-chan ReadsBucketInfo, SeedLen, winSize, GapCost, MaxGapLen, MinLoopNum, MinScore, kmerlen int, wc chan<- LongReadMappingInfo, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, SeqType uint8) {
+type ExtendPathInfo struct {
+	MpArr               []MapingKmerInfo
+	Path                []constructdbg.DBG_MAX_INT
+	Strand              bool
+	Coming              bool
+	ExtendLen, FlankLen int // FlankLen note this edge unseed flank boundary length
+	Score               int
+}
+
+func GetEdgeComing(e constructdbg.DBGEdge, direction uint8, strand bool, nodesArr []constructdbg.DBGNode, coming bool) bool {
+	if e.StartNID > 0 && e.StartNID == e.EndNID {
+		nd := nodesArr[e.StartNID]
+		if constructdbg.IsInComing(nd.EdgeIDIncoming, e.ID) && constructdbg.IsInComing(nd.EdgeIDOutcoming, e.ID) {
+			return coming
+		} else {
+			return !coming
+		}
+	}
+	var nd constructdbg.DBGNode
+	if strand == constructdbg.PLUS {
+		if direction == constructdbg.FORWARD {
+			if e.EndNID > 0 {
+				nd = nodesArr[e.EndNID]
+			}
+		} else {
+			if e.StartNID > 0 {
+				nd = nodesArr[e.StartNID]
+			}
+		}
+	} else {
+		if direction == constructdbg.FORWARD {
+			if e.StartNID > 0 {
+				nd = nodesArr[e.StartNID]
+			}
+		} else {
+			if e.EndNID > 0 {
+				nd = nodesArr[e.EndNID]
+			}
+		}
+	}
+	if constructdbg.IsInComing(nd.EdgeIDIncoming, e.ID) {
+		coming = true
+	} else {
+		coming = false
+	}
+	return coming
+}
+
+func GetNearDirectionEdgeIDArr(e constructdbg.DBGEdge, direction uint8, strand, coming bool, nodesArr []constructdbg.DBGNode) (eArr []constructdbg.DBG_MAX_INT) {
+	var nd constructdbg.DBGNode
+	if strand == constructdbg.PLUS {
+		if direction == constructdbg.FORWARD {
+			if e.EndNID <= 0 {
+				return
+			}
+			nd = nodesArr[e.EndNID]
+		} else {
+			if e.StartNID <= 0 {
+				return
+			}
+			nd = nodesArr[e.StartNID]
+		}
+	} else {
+		if direction == constructdbg.FORWARD {
+			if e.StartNID <= 0 {
+				return
+			}
+			nd = nodesArr[e.StartNID]
+		} else {
+			if e.EndNID <= 0 {
+				return
+			}
+			nd = nodesArr[e.EndNID]
+		}
+	}
+	eArr = constructdbg.GetNearEdgeIDArr(nd, e.ID, coming)
+	return
+}
+
+func GetMappingDBGFlankLen(epi ExtendPathInfo, direction uint8, eLen int) (flankLen int) {
+	anchor := epi.MpArr[len(epi.MpArr)-1]
+	if epi.Strand == constructdbg.PLUS {
+		if direction == constructdbg.FORWARD {
+			flankLen = eLen - (int(anchor.GetEPos()) + int(anchor.Len))
+		} else {
+			flankLen = int(anchor.GetEPos())
+		}
+	} else {
+		if direction == constructdbg.FORWARD {
+			flankLen = int(anchor.GetEPos())
+		} else {
+			flankLen = eLen - (int(anchor.GetEPos()) + int(anchor.Len))
+		}
+	}
+	return
+}
+
+func IsInChainBlockMapLongReadInfoArr(cBMRIArr []ChainBlockMapLongReadInfo, start, end int) bool {
+	for _, cb := range cBMRIArr {
+		if cb.Start < start && start < cb.End {
+			return true
+		} else if cb.Start < end && end < cb.End {
+			return false
+		}
+	}
+
+	return false
+}
+
+func LocalMapingKmerInfoArr(kb []MapingKmerInfo, mki MapingKmerInfo) int {
+	idx := -1
+	for i, c := range kb {
+		if c.EInfo == mki.EInfo && c.RInfo == mki.RInfo {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		log.Fatalf("[LocalMapingKmerInfoArr] not found mki: %v in kb\n", mki)
+	}
+	return idx
+}
+
+func GetEdgeMKIArr(kb []MapingKmerInfo, idx int, eID uint32, direction uint8, strand bool, distance int) (mpArr []MapingKmerInfo) {
+	cen := kb[idx]
+	mpArr = append(mpArr, cen)
+	//fmt.Printf("[GetEdgeMKIArr]eID: %v, idx: %v,cen RPos: %v, direction: %v, strand: %v, distance: %v\n", eID, idx, cen.GetRPos(), direction, strand, distance)
+	if direction == constructdbg.FORWARD {
+		for i := idx + 1; i < len(kb); i++ {
+			mk := kb[i]
+			if int(mk.GetRPos()) > int(cen.GetRPos())+int(cen.Len)+distance {
+				break
+			}
+			//fmt.Printf("[GetEdgeMKIArr] kb[%v]: %v, RPos: %v, strand: %v, EID: %v\n", i, mk, mk.GetRPos(), mk.GetStrand(), mk.EID)
+			if mk.EID != eID || mk.GetStrand() != strand {
+				continue
+			}
+			mpArr = append(mpArr, mk)
+		}
+	} else {
+		for i := idx - 1; i > 0; i-- {
+			mk := kb[i]
+			//fmt.Printf("[GetEdgeMKIArr] kb[%v]: %v, RPos: %v, EID: %v\n", i, mk, mk.GetRPos(), mk.EID)
+			if int(mk.GetRPos()) < int(cen.GetRPos())-distance {
+				break
+			}
+			if mk.EID != eID || mk.GetStrand() != strand {
+				continue
+			}
+			mpArr = append(mpArr, mk)
+		}
+	}
+	sort.Sort(MapingKmerInfoArr(mpArr))
+	return
+}
+
+func RevMappingKmerInfoArr(mpArr []MapingKmerInfo) {
+	for i := 0; i < len(mpArr)/2; i++ {
+		tmp := mpArr[0]
+		mpArr[0] = mpArr[len(mpArr)-1-i]
+		mpArr[len(mpArr)-1-i] = tmp
+	}
+	return
+}
+
+func ExtendPathChain(mpArr []MapingKmerInfo, flankLen, kmerlen int, direction uint8, ne constructdbg.DBGEdge, kb []MapingKmerInfo, strand bool, score int, edgesArr []constructdbg.DBGEdge) (newArr []MapingKmerInfo, newScore int) {
+	//extendMpArr = append(extendMpArr, mpArr...)
+	newScore = score
+	var extendMpArr []MapingKmerInfo
+	lastMki := mpArr[len(mpArr)-1]
+	idx := LocalMapingKmerInfoArr(kb, lastMki)
+	ekb := GetEdgeMKIArr(kb, idx, uint32(ne.ID), direction, strand, flankLen+(len(ne.Utg.Ks)-(kmerlen-1))*7/5+50)
+	if len(ekb) <= 1 {
+		newArr = append(newArr, mpArr...)
+		return
+	}
+	//fmt.Printf("[ExtendPathChain] ekb: %v\n", ekb)
+	sort.Sort(MapingKmerInfoArr(ekb))
+	var ekbIdx int
+	if direction == constructdbg.FORWARD {
+		ekbIdx = 0
+	} else {
+		ekbIdx = len(ekb) - 1
+	}
+	visitArr := make([]bool, len(ekb))
+	bsA := make([]int, len(ekb))
+	//fmt.Printf("[ExtendPathChain] visitArr: %v\n\tekbIdx: %v\n", visitArr, ekbIdx)
+	visitArr[ekbIdx] = true
+	extendMpArr = append(extendMpArr, lastMki)
+	bsA[ekbIdx] = int(lastMki.Len)
+	BlockToNearBlocksScoreArrCrossEdges(ekb, ekbIdx, strand, visitArr, 1, 500, uint8(3), bsA, direction, flankLen, kmerlen, edgesArr)
+	for {
+		maxSc := GetMaxScoreFromBaSA(bsA, visitArr)
+		if maxSc.Sc <= 0 {
+			break
+		}
+		visitArr[maxSc.Idx] = true
+		bsA[maxSc.Idx] = int(ekb[maxSc.Idx].Len)
+		extendMpArr = append(extendMpArr, ekb[maxSc.Idx])
+		//fmt.Printf("[ExtendPathChain] bsA: %v\n\t\tadded mk: %v\n", bsA, ekb[maxSc.Idx])
+		BlockToNearBlocksScoreArrCrossEdges(ekb, maxSc.Idx, strand, visitArr, 1, 500, uint8(3), bsA, direction, flankLen, kmerlen, edgesArr)
+	}
+	sort.Sort(MapingKmerInfoArr(extendMpArr))
+	if direction == constructdbg.BACKWARD {
+		RevMappingKmerInfoArr(extendMpArr)
+	}
+	newScore += GetMappingKIArrScore(extendMpArr, 1, edgesArr, flankLen, kmerlen) - int(lastMki.Len)
+	newArr = append(newArr, mpArr...)
+	newArr = append(newArr, extendMpArr[1:]...)
+	//fmt.Printf("[ExtendPathChain] mpArr: %v\n", mpArr)
+	//fmt.Printf("[ExtendPathChain] exendMpArr: %v\n", extendMpArr)
+	//fmt.Printf("[ExtendPathChain] newArr: %v\n", newArr)
+
+	/*//startRPos := int(lastMki.GetRPos()) + int(lastMki.Len)
+		for i := idx + 1; i < len(kb); i++ {
+			mki := kb[i]
+			lRPos := int(lastMki.GetRPos())+int(lastMki.Len)
+			if mki.EID != uint32(ne.ID) || strand != mki.GetStrand() {
+				continue
+			}
+			if int(mki.GetRPos()) < lRPos {
+				continue
+			}
+			if int(mki.GetRPos())-lRPos > 500 {
+				break
+			}
+			dR := int(mki.GetRPos()) - lRPos
+			var dE int
+			if strand == constructdbg.PLUS {
+				dE = int(mki.GetEPos()) - (int(lastMki.GetEPos()) + int(lastMki.Len))
+			} else {
+				dE = int(lastMki.GetEPos()) - (int(mki.GetEPos()) + int(mki.Len))
+			}
+			if dE <= 0 {
+				continue
+			}
+			min := constructdbg.Min(dR, dE)
+			gapLen := AbsInt(dR-dE)
+			if gapLen > min/5+10 {
+				continue
+			}
+			a := constructdbg.Min(min, int(mki.Len))
+			var b float64
+			if gapLen > 1 {
+				b = float64(0.005)*float64(mki.Len)*float64(gapLen) + float64(0.5)*math.Log2(float64(gapLen))
+			} else {
+				b = 1
+			}
+			sc = constructdbg.Min(a-int(b), int(nc.Len))
+				sc := int(mki.Len) - AbsInt(dR-dE)
+				if sc > 0 {
+					extendMpArr = append(extendMpArr, mki)
+					lastMki = mki
+					newScore += sc
+				}
+			}
+		}
+	} else { // direction == constructdbg.BACKWARD
+		lastMki := extendMpArr[len(extendMpArr)-1]
+		idx := LocalMapingKmerInfoArr(kb, lastMki)
+		startRPos := int(lastMki.GetRPos())
+		for i := idx - 1; i >= 0; i-- {
+			mki := kb[i]
+			if int(mki.GetRPos()) < startRPos-(flankLen+len(ne.Utg.Ks)-(kmerlen-1)+len(ne.Utg.Ks)/10) {
+				break
+			}
+			if mki.EID != uint32(ne.ID) || strand != mki.GetStrand() {
+				continue
+			}
+			dR := int(lastMki.GetRPos()) - (int(mki.GetRPos()) + int(mki.Len))
+			var dE int
+			if strand == constructdbg.PLUS {
+				dE = int(lastMki.GetEPos()) - (int(mki.GetEPos()) + int(mki.Len))
+			} else {
+				dE = int(mki.GetEPos()) - (int(lastMki.GetEPos()) + int(lastMki.Len))
+			}
+			if dE <= 0 {
+				continue
+			}
+			min := constructdbg.Min(dR, dE)
+			if AbsInt(dR-dE) < min/10+8 {
+				sc := int(mki.Len) - AbsInt(dR-dE)
+				if sc > 0 {
+					extendMpArr = append(extendMpArr, mki)
+					lastMki = mki
+					newScore += sc
+				}
+			}
+		}
+	}*/
+	return
+}
+
+func GetBestEPathInfo(highQualEPathInfoArr []ExtendPathInfo) (bestEPI ExtendPathInfo) {
+	if len(highQualEPathInfoArr) == 0 {
+		return
+	}
+	if len(highQualEPathInfoArr) == 1 {
+		bestEPI = highQualEPathInfoArr[0]
+		return
+	}
+	for i, epi := range highQualEPathInfoArr {
+		l := epi.ExtendLen - epi.FlankLen
+		fmt.Printf("[GetBestEPathInfo]high[%v]len(epi.MpArr): %v, Score: %v,Len: %v, Percent: %v, ExtendLen: %v, FlankLen: %v, Strand: %v, Coming: %v, Path: %v\n", i, len(epi.MpArr), epi.Score, l, epi.Score*100/l, epi.ExtendLen, epi.FlankLen, epi.Strand, epi.Coming, epi.Path)
+	}
+	var bestArr []ExtendPathInfo
+	bestScoreNum := 0
+	maxMaplen := 0
+	for _, epi := range highQualEPathInfoArr {
+		if epi.Score > bestEPI.Score {
+			bestEPI = epi
+			bestScoreNum = 1
+			bestArr = bestArr[:0]
+			bestArr = append(bestArr, epi)
+		} else if epi.Score == bestEPI.Score {
+			bestScoreNum++
+			bestArr = append(bestArr, epi)
+			if epi.ExtendLen-epi.FlankLen < bestEPI.ExtendLen-bestEPI.FlankLen {
+				bestEPI = epi
+			}
+		}
+		if epi.ExtendLen-epi.FlankLen > maxMaplen {
+			maxMaplen = epi.ExtendLen - epi.FlankLen
+		}
+	}
+	if bestScoreNum > 1 {
+		for j, epi := range bestArr {
+			fmt.Printf("[GetBestEPathInfo] bestArr[%v]: score: %v, mapLen: %v,RPos: %v, path: %v\n", j, epi.Score, epi.ExtendLen-epi.FlankLen, epi.MpArr[len(epi.MpArr)-1].GetRPos(), epi.Path)
+		}
+		var tmp ExtendPathInfo
+		bestEPI = tmp
+	} else if bestEPI.ExtendLen-bestEPI.FlankLen < maxMaplen {
+		fmt.Printf("[GetBestEPathInfo] bestEPI maxMapLen: %v < maxMapLen: %v\n", bestEPI.ExtendLen-bestEPI.FlankLen, maxMaplen)
+		var tmp ExtendPathInfo
+		bestEPI = tmp
+	}
+	return
+}
+
+func MuskBubble(eArr []constructdbg.DBG_MAX_INT, stk []ExtendPathInfo) {
+	s1, s2 := stk[len(stk)-2], stk[len(stk)-1]
+	if len(stk) > 2 && s1.Path[len(s1.Path)-1] == eArr[0] && s2.Path[len(s2.Path)-1] == eArr[1] {
+		if s1.Score < s2.Score {
+			stk[len(stk)-2].Score = 0
+		} else {
+			stk[len(stk)-1].Score = 0
+		}
+	}
+	return
+}
+
+func DeleteUnmapPath(bestEPI ExtendPathInfo, direction uint8, edgesArr []constructdbg.DBGEdge, kmerlen int) ExtendPathInfo {
+	fl := bestEPI.FlankLen
+	if len(bestEPI.MpArr) == 0 {
+		return bestEPI
+	}
+	eID := bestEPI.MpArr[len(bestEPI.MpArr)-1].EID
+	i := len(bestEPI.Path) - 1
+	for ; i > 0; i-- {
+		e := edgesArr[bestEPI.Path[i]]
+		if len(e.Utg.Ks)-(kmerlen-1) < fl {
+			fl -= (len(e.Utg.Ks) - (kmerlen - 1))
+			continue
+		}
+		if uint32(e.ID) == eID {
+			break
+		}
+	}
+	bestEPI.Path = bestEPI.Path[:i+1]
+	bestEPI.FlankLen = fl
+
+	return bestEPI
+}
+
+func MergeTwoFlankMapingPath(bestEPIB, bestEPIF ExtendPathInfo, mpi MaxPathInfo, eID uint32) (longRMInfo LongReadMappingInfo) {
+	var path []constructdbg.DBG_MAX_INT
+	cb1 := mpi.Arr[0]
+	cb2 := mpi.Arr[len(mpi.Arr)-1]
+	if len(bestEPIB.Path) <= 1 && len(bestEPIF.Path) <= 1 {
+		path = append(path, constructdbg.DBG_MAX_INT(eID))
+		longRMInfo.RStart, longRMInfo.REnd = cb1.GetRPos(), cb2.GetRPos()+uint32(cb2.Len)
+		if cb1.GetStrand() == constructdbg.PLUS {
+			longRMInfo.EStart, longRMInfo.EEnd = cb1.GetEPos(), cb2.GetEPos()+uint32(cb2.Len)
+		} else {
+			longRMInfo.EStart, longRMInfo.EEnd = cb1.GetEPos()+uint32(cb1.Len), cb2.GetEPos()
+		}
+	} else {
+		if len(bestEPIB.Path) > 1 {
+			lastB := bestEPIB.MpArr[len(bestEPIB.MpArr)-1]
+			longRMInfo.RStart = lastB.GetRPos()
+			if lastB.GetStrand() == constructdbg.PLUS {
+				longRMInfo.EStart = lastB.GetEPos()
+			} else {
+				longRMInfo.EStart = lastB.GetEPos() + uint32(lastB.Len)
+			}
+			path = append(path, constructdbg.GetReverseDBG_MAX_INTArr(bestEPIB.Path)...)
+		} else {
+			path = append(path, constructdbg.DBG_MAX_INT(eID))
+			longRMInfo.RStart = cb1.GetRPos()
+			if cb1.GetStrand() == constructdbg.PLUS {
+				longRMInfo.EStart = cb1.GetEPos()
+			} else {
+				longRMInfo.EStart = cb1.GetEPos() + uint32(cb1.Len)
+			}
+		}
+
+		if len(bestEPIF.Path) > 1 {
+			lastF := bestEPIF.MpArr[len(bestEPIF.MpArr)-1]
+			longRMInfo.REnd = lastF.GetRPos() + uint32(lastF.Len)
+			if lastF.GetStrand() == constructdbg.PLUS {
+				longRMInfo.EEnd = lastF.GetEPos() + uint32(lastF.Len)
+			} else {
+				longRMInfo.EEnd = lastF.GetEPos()
+			}
+			path = append(path, bestEPIF.Path[1:]...)
+		} else {
+			longRMInfo.REnd = cb2.GetRPos() + uint32(cb2.Len)
+			if cb1.GetStrand() == constructdbg.PLUS {
+				longRMInfo.EEnd = cb2.GetEPos() + uint32(cb2.Len)
+			} else {
+				longRMInfo.EEnd = cb2.GetEPos()
+			}
+		}
+	}
+	longRMInfo.Path[0] = path
+	longRMInfo.Path[1] = make([]constructdbg.DBG_MAX_INT, len(path), len(path))
+	return
+}
+
+//"denote max score before Pos"
+type ScorePos struct {
+	Pos   int
+	Score int
+}
+
+func BiggerThanMaxScoreArr(maxScoreArr []ScorePos, sa ScorePos) bool {
+	ok := true
+	for i := len(maxScoreArr) - 1; i >= 0; i-- {
+		t := maxScoreArr[i]
+		if sa.Pos >= t.Pos {
+			if sa.Pos > t.Pos && sa.Score <= t.Score {
+				ok = false
+			} else if sa.Pos == t.Pos && sa.Score < t.Score {
+				ok = false
+			}
+			break
+		}
+	}
+	return ok
+
+}
+
+func AddedToMaxScoreArr(maxScoreArr []ScorePos, sp ScorePos) []ScorePos {
+	added := false
+	max := math.MinInt32
+	for i, t := range maxScoreArr {
+		if t.Score > max {
+			max = t.Score
+		}
+		if t.Pos >= sp.Pos {
+			if t.Score < sp.Score {
+				added = true
+				maxScoreArr[i] = sp
+				j := i + 1
+				for j < len(maxScoreArr) {
+					nt := maxScoreArr[j]
+					if nt.Score <= sp.Score {
+						j++
+						continue
+					} else {
+						break
+					}
+				}
+				if j > i+1 {
+					var a []ScorePos
+					a = append(a, maxScoreArr[:i+1]...)
+					a = append(a, maxScoreArr[j:]...)
+					maxScoreArr = a
+				}
+			} else if t.Score > sp.Score {
+				if i > 0 {
+					if maxScoreArr[i-1].Score < sp.Score {
+						added = true
+					}
+				} else {
+					added = true
+				}
+				if added {
+					var a []ScorePos
+					a = append(a, maxScoreArr[:i]...)
+					a = append(a, sp)
+					a = append(a, maxScoreArr[i:]...)
+					maxScoreArr = a
+				}
+			}
+			break
+		}
+	}
+	if added == false && sp.Score > max {
+		maxScoreArr = append(maxScoreArr, sp)
+		//added = true
+	}
+	return maxScoreArr
+}
+
+func GetUniqueMaxPathInfo(maxPathInfoArr []MaxPathInfo, kmerlen int) (uniqueMaxPathInfo MaxPathInfo) {
+	for i, mpi := range maxPathInfoArr {
+		a := mpi.Arr[0]
+		b := mpi.Arr[len(mpi.Arr)-1]
+		if i > 0 {
+			mki := maxPathInfoArr[i-1].Arr[len(maxPathInfoArr[i-1].Arr)-1]
+			last := int(mki.GetRPos()) + int(mki.Len)
+			if last-int(a.GetRPos()) > kmerlen {
+				continue
+			}
+		}
+		if i < len(maxPathInfoArr)-1 {
+			mki := maxPathInfoArr[i+1].Arr[0]
+			first := int(mki.GetRPos())
+			if int(b.GetRPos())+int(b.Len)-first > kmerlen {
+				continue
+			}
+		}
+		fmt.Printf("[GetUniqueMaxPathInfo] unique [%v] EID: %v, score: %v\n", i, mpi.Arr[0].EID, mpi.Score)
+		if mpi.Score > uniqueMaxPathInfo.Score {
+			uniqueMaxPathInfo = mpi
+		}
+	}
+	return
+}
+
+func FindONTReadsPath(edgesKmerSortArr []KmerInfo, cs <-chan ReadsBucketInfo, SeedLen, winSize, GapCost, MaxGapLen, kmerlen int, wc chan<- LongReadMappingInfo, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, SeqType uint8) {
+	extendLen := 2 * kmerlen
 	for {
 		rb := <-cs
 		if len(rb.ReadsArr) == 0 {
@@ -3497,8 +4478,306 @@ func FindONTReadsPath(edgesKmerSortArr []KmerInfo, cs <-chan ReadsBucketInfo, Se
 			rl := len(rb.ReadsArr[j].Seq)
 			sort.Sort(MapingKmerInfoArr(ka))
 			kb := GetChainBlocks(ka)
-			maxKbArr := GetMaxChainBlockArr(kb, edgesArr, nodesArr, rl, SeedLen, GapCost, MaxGapLen, MinLoopNum, MinScore, kmerlen, SeqType)
-			//kbArr := CheckByDBG(maxKbArr, nodesArr, edgesArr)
+			sort.Sort(MapingKmerInfoArr(kb))
+			fmt.Printf("[FindONTReadsPath] read[%v] length: %v\n", rID, rl)
+			//kbEdgeArr := GetEdgeChainBlocks(kb, MaxGapLen)
+			/*for y, mki := range kb {
+				fmt.Printf("[FindONTReadsPath] kb[%v]ReadPos : %v, EdgePos: %v,  Len: %v\n", y, mki.GetRPos(), mki.GetEPos(), mki.Len)
+			}*/
+			MinKmerScore := SeedLen * 2
+			maxPathInfoArr := GetMaxChainBlockArr(kb, edgesArr, nodesArr, rl, SeedLen, GapCost, MaxGapLen, MinKmerScore, kmerlen, SeqType, rl)
+			sort.Sort(MaxPathInfoTmpArr(maxPathInfoArr))
+			var cBMRIArr []ChainBlockMapLongReadInfo
+			for x, ele := range maxPathInfoArr {
+				//if ele.Score > 5*SeedLen {
+				start, end := ele.Arr[0].GetRPos(), ele.Arr[len(ele.Arr)-1].GetRPos()+uint32(ele.Arr[len(ele.Arr)-1].Len)
+				fmt.Printf("[FindONTReadsPath] maxPathInfoArr[%v]: Edge ID: %v, Read region[%v---%v] Len:%v, score: %v, Percent: %v\n", x, ele.Arr[0].EID, start, end, end-start, ele.Score, ele.Score*100/(int(end)-int(start)))
+				/*for y, mki := range ele.Arr {
+					fmt.Printf("[FindONTReadsPath]  [%v] EdgePos: %v, ReadPos : %v, Len: %v\n", y, mki.GetEPos(), mki.GetRPos(), mki.Len)
+				}*/
+				//}
+			}
+			uniqueMaxPathInfo := GetUniqueMaxPathInfo(maxPathInfoArr, kmerlen)
+			if uniqueMaxPathInfo.Score == 0 {
+				fmt.Printf("[FindONTReadsPath] read ID[%v] not found unique boundary mapping region\n", rID)
+				continue
+			}
+			start, end := uniqueMaxPathInfo.Arr[0].GetRPos(), uniqueMaxPathInfo.Arr[len(uniqueMaxPathInfo.Arr)-1].GetRPos()+uint32(uniqueMaxPathInfo.Arr[len(uniqueMaxPathInfo.Arr)-1].Len)
+			fmt.Printf("[FindONTReadsPath] uniqueMaxPathInfo: Edge ID: %v, Read region[%v---%v] Len:%v, score: %v, Percent: %v\n", uniqueMaxPathInfo.Arr[0].EID, start, end, end-start, uniqueMaxPathInfo.Score, uniqueMaxPathInfo.Score*100/(int(end)-int(start)))
+			for x := len(maxPathInfoArr) - 1; x >= 0; x-- {
+				mpi := maxPathInfoArr[x]
+				eID := mpi.Arr[0].EID
+				// check this region has been processed
+				last := mpi.Arr[len(mpi.Arr)-1]
+				start, end := int(mpi.Arr[0].GetRPos()), int(last.GetRPos())+int(last.Len)
+				fmt.Printf("[FindONTReadsPath] Read region[%v---%v], readLen: %v, Edge region[%v---%v], EdgeLen: %v, score: %v\n", mpi.Arr[0].GetRPos(), last.GetRPos(), rl, mpi.Arr[0].GetEPos(), last.GetEPos(), len(edgesArr[eID].Utg.Ks), mpi.Score)
+				if mpi.Score < 5*SeedLen || IsInChainBlockMapLongReadInfoArr(cBMRIArr, start, end) {
+					continue
+				}
+				// get base alignment for seed chain
+				readRegionSeq := rb.ReadsArr[j].Seq[start:end]
+				edgeRegionSeq := GetEdgeRegionSeq(edgesArr[eID], mpi)
+				chainArr, _ := ComputingChainArr(edgeRegionSeq, readRegionSeq, uint32(SeedLen))
+				fmt.Printf("[FindONTReadsPath] maxPathInfoArr[%v] found chainArr length: %v\n", x, len(chainArr))
+				if len(chainArr) == 0 {
+					continue
+				}
+				cg := DPLocalAlign(edgeRegionSeq, readRegionSeq, chainArr)
+				if int(cg.Mch) < len(edgeRegionSeq)*82/100 {
+					continue
+				}
+				avgSeqIdentityPercent := mpi.Score * 100 / len(edgeRegionSeq)
+				var bestEPIF, bestEPIB ExtendPathInfo
+				fmt.Printf("[FindONTReadsPath] mpi.Score: %v, cg.Mch: %v, len(edgeRegionSeq): %v\n", mpi.Score, cg.Mch, len(edgeRegionSeq))
+				// read FORWARD mapping
+				{
+					// check if is boundary of long read
+					pos := end
+					if pos+extendLen < rl {
+						anchor := last
+						var mpArr []MapingKmerInfo
+						mpArr = append(mpArr, anchor)
+						var epi ExtendPathInfo
+						id := eID
+						epi.Path = append(epi.Path, constructdbg.DBG_MAX_INT(id))
+						epi.Strand = anchor.GetStrand()
+						var coming bool
+						epi.Coming = GetEdgeComing(edgesArr[id], constructdbg.FORWARD, epi.Strand, nodesArr, coming)
+						if anchor.GetStrand() == constructdbg.PLUS {
+							epi.ExtendLen = len(edgesArr[id].Utg.Ks) - int(anchor.GetEPos())
+							epi.FlankLen = len(edgesArr[id].Utg.Ks) - (int(anchor.GetEPos()) + int(anchor.Len))
+						} else {
+							epi.ExtendLen = int(anchor.GetEPos()) + int(anchor.Len)
+							epi.FlankLen = int(anchor.GetEPos())
+						}
+						epi.MpArr = mpArr
+						epi.Score = int(anchor.Len)
+						//maxScore := epi.Score
+						//scoreLen := int(anchor.Len)
+						maxMapLen := int(anchor.Len)
+						var stk []ExtendPathInfo
+						stk = append(stk, epi)
+						var highQualEPathInfoArr []ExtendPathInfo
+						for {
+							// found min ExtendLen path
+							var t ExtendPathInfo
+							min := math.MaxInt32
+							idx := -1
+							//var ele ExtendPathInfo
+							for x, ele := range stk {
+								if ele.Score <= 0 {
+									continue
+								}
+								if ele.ExtendLen < min {
+									min = ele.ExtendLen
+									t = ele
+									idx = x
+								}
+							}
+							if idx >= 0 {
+								stk[idx].Score = 0
+							}
+							if t.Score <= 0 {
+								break
+							}
+							// add next near edge info
+							id := t.Path[len(t.Path)-1]
+							e := edgesArr[id]
+							eArr := GetNearDirectionEdgeIDArr(e, constructdbg.FORWARD, t.Strand, t.Coming, nodesArr)
+							fmt.Printf("[FindONTReadsPath]idx: %v, next eArr: %v, len(t.MpArr): %v, Score: %v, ExtendLen: %v, FlankLen: %v, Strand: %v, Coming: %v, Path: %v\n", idx, eArr, len(t.MpArr), t.Score, t.ExtendLen, t.FlankLen, t.Strand, t.Coming, t.Path)
+							for _, eID := range eArr {
+								ne := edgesArr[eID]
+								var nt ExtendPathInfo
+								strand := GetNextEdgeStrand(e, ne, nodesArr, t.Strand)
+								nt.Path = append(nt.Path, t.Path...)
+								nt.Path = append(nt.Path, eID)
+								nt.Strand = strand
+								// extend chains
+								nt.MpArr, nt.Score = ExtendPathChain(t.MpArr, t.FlankLen, kmerlen, constructdbg.FORWARD, ne, kb, strand, t.Score, edgesArr)
+								//fmt.Printf("[FindONTReadsPath]eID: %v, nt.Score: %v\n", eID, nt.Score)
+								nt.Coming = GetEdgeComing(edgesArr[eID], constructdbg.FORWARD, strand, nodesArr, t.Coming)
+								nt.ExtendLen += t.ExtendLen + (len(ne.Utg.Ks) - (kmerlen - 1))
+								if len(nt.MpArr) > len(t.MpArr) {
+									nt.FlankLen = GetMappingDBGFlankLen(nt, constructdbg.FORWARD, len(ne.Utg.Ks))
+								} else {
+									nt.FlankLen = t.FlankLen + len(ne.Utg.Ks) - (kmerlen - 1)
+								}
+								fmt.Printf("[FindONTReadsPath]eID: %v, len(nt.MpArr): %v, Score: %v, ExtendLen: %v, FlankLen: %v, Strand: %v, Coming: %v, Path: %v\n", eID, len(nt.MpArr), nt.Score, nt.ExtendLen, nt.FlankLen, nt.Strand, nt.Coming, nt.Path)
+								// delete low score extend paths
+								if nt.Score*100/(nt.ExtendLen-nt.FlankLen) < avgSeqIdentityPercent*9/10 {
+
+								} else {
+									if nt.FlankLen > 500 {
+										if nt.ExtendLen-nt.FlankLen >= maxMapLen && nt.Score*100/(nt.ExtendLen-nt.FlankLen) > avgSeqIdentityPercent*9/10 {
+											highQualEPathInfoArr = append(highQualEPathInfoArr, nt)
+											maxMapLen = nt.ExtendLen - nt.FlankLen
+										}
+									} else {
+										p := int(nt.MpArr[len(nt.MpArr)-1].GetRPos()) + int(nt.MpArr[len(nt.MpArr)-1].Len)
+										if nt.ExtendLen-nt.FlankLen > maxMapLen {
+											maxMapLen = nt.ExtendLen - nt.FlankLen
+										}
+										if p > rl-kmerlen {
+											highQualEPathInfoArr = append(highQualEPathInfoArr, nt)
+										} else {
+											stk = append(stk, nt)
+										}
+									}
+								}
+							}
+							fmt.Printf("[FindONTReadsPath] len(stk): %v\n", len(stk))
+							// process bubble edges, just choose best score edge
+							if len(eArr) == 2 && len(stk) > 2 && edgesArr[eArr[0]].GetBubbleFlag() > 0 {
+								MuskBubble(eArr, stk)
+							}
+							//stk[idx].Score = 0
+							//constructdbg.GetNearEdgeIDArr(nd, eID, coming)
+							//constructdbg.GetNeighbourEID(eID, nID, edgesArr, nodesArr, max_insert_size)
+							//constructdbg.GetNextDirection(eID, edge, nodesArr)
+							//constructdbg.GetNextEID(eID, node)
+							//constructdbg.GetNextMappingEID(nd, e, base)
+						}
+
+						// process highQualEPathInfoArr
+						bestEPIF = GetBestEPathInfo(highQualEPathInfoArr)
+					}
+				}
+				// read BACKWARD mapping
+				{
+					// check if is boundary of long read
+					pos := start
+					if pos-extendLen > 0 {
+						anchor := mpi.Arr[0]
+						var mpArr []MapingKmerInfo
+						mpArr = append(mpArr, anchor)
+						var epi ExtendPathInfo
+						id := eID
+						epi.Path = append(epi.Path, constructdbg.DBG_MAX_INT(id))
+						epi.Strand = anchor.GetStrand()
+						var coming bool
+						epi.Coming = GetEdgeComing(edgesArr[id], constructdbg.BACKWARD, epi.Strand, nodesArr, coming)
+						if anchor.GetStrand() == constructdbg.PLUS {
+							epi.ExtendLen = int(anchor.GetEPos()) + int(anchor.Len)
+							epi.FlankLen = int(anchor.GetEPos())
+						} else {
+							epi.ExtendLen = len(edgesArr[id].Utg.Ks) - int(anchor.GetEPos())
+							epi.FlankLen = epi.ExtendLen - int(anchor.Len)
+						}
+						epi.MpArr = mpArr
+						epi.Score = int(anchor.Len)
+						//maxMapLen := int(anchor.Len)
+						var stk []ExtendPathInfo
+						stk = append(stk, epi)
+						var highQualEPathInfoArr []ExtendPathInfo
+						var maxScoreArr []ScorePos
+						for {
+							// found min ExtendLen path
+							var t ExtendPathInfo
+							max := math.MinInt32 // max score in the stack
+							idx := -1
+							for x, ele := range stk {
+								if ele.Score <= 0 {
+									continue
+								}
+								if ele.Score > max {
+									max = ele.Score
+									t = ele
+									idx = x
+								}
+							}
+							if idx >= 0 {
+								stk[idx].Score = 0
+							}
+							if t.Score <= 0 {
+								break
+							}
+							var sa ScorePos
+							sa.Score, sa.Pos = t.Score, t.ExtendLen-t.FlankLen
+							if BiggerThanMaxScoreArr(maxScoreArr, sa) == false {
+								continue
+							}
+							// add next near edge info
+							id := t.Path[len(t.Path)-1]
+							e := edgesArr[id]
+							eArr := GetNearDirectionEdgeIDArr(e, constructdbg.BACKWARD, t.Strand, t.Coming, nodesArr)
+							fmt.Printf("[FindONTReadsPath]idx: %v, next eArr: %v, len(t.MpArr): %v, Score: %v, ExtendLen: %v, FlankLen: %v, Strand: %v, Coming: %v, Path: %v\n", idx, eArr, len(t.MpArr), t.Score, t.ExtendLen, t.FlankLen, t.Strand, t.Coming, t.Path)
+							for _, eID := range eArr {
+								ne := edgesArr[eID]
+								var nt ExtendPathInfo
+								strand := GetNextEdgeStrand(e, ne, nodesArr, t.Strand)
+								nt.Path = append(nt.Path, t.Path...)
+								nt.Path = append(nt.Path, eID)
+								nt.Strand = strand
+								nt.MpArr, nt.Score = ExtendPathChain(t.MpArr, t.FlankLen, kmerlen, constructdbg.BACKWARD, ne, kb, strand, t.Score, edgesArr)
+								nt.Coming = GetEdgeComing(edgesArr[eID], constructdbg.BACKWARD, strand, nodesArr, t.Coming)
+								nt.ExtendLen += t.ExtendLen + (len(ne.Utg.Ks) - (kmerlen - 1))
+								if len(nt.MpArr) > len(t.MpArr) {
+									nt.FlankLen = GetMappingDBGFlankLen(nt, constructdbg.BACKWARD, len(ne.Utg.Ks))
+								} else {
+									nt.FlankLen = t.FlankLen + len(ne.Utg.Ks) - (kmerlen - 1)
+								}
+								fmt.Printf("[FindONTReadsPath]eID: %v, len(nt.MpArr): %v, Score: %v, ExtendLen: %v, FlankLen: %v, Strand: %v, Coming: %v, Path: %v\n", eID, len(nt.MpArr), nt.Score, nt.ExtendLen, nt.FlankLen, nt.Strand, nt.Coming, nt.Path)
+								// delete low score extend paths
+								//if nt.Score*100/(nt.ExtendLen-nt.FlankLen) < avgSeqIdentityPercent*9/10 {
+								var sp ScorePos
+								sp.Pos = nt.ExtendLen - nt.FlankLen
+								sp.Score = nt.Score
+								//fmt.Printf("[FindONTReadsPath]sp: %v, maxScoreArr: %v\n", sp, maxScoreArr)
+								if BiggerThanMaxScoreArr(maxScoreArr, sp) {
+									if nt.FlankLen > 500 {
+										highQualEPathInfoArr = append(highQualEPathInfoArr, nt)
+									} else {
+										p := int(nt.MpArr[len(nt.MpArr)-1].GetRPos())
+										if p < kmerlen {
+											highQualEPathInfoArr = append(highQualEPathInfoArr, nt)
+										} else {
+											stk = append(stk, nt)
+										}
+									}
+									maxScoreArr = AddedToMaxScoreArr(maxScoreArr, sp)
+									fmt.Printf("[FindONTReadsPath]sp: %v, maxScoreArr: %v\n", sp, maxScoreArr)
+								}
+
+							}
+							fmt.Printf("[FindONTReadsPath] len(stk): %v\n", len(stk))
+							// process bubble edges, just choose best score edge
+							if len(eArr) == 2 && len(stk) > 2 && edgesArr[eArr[0]].GetBubbleFlag() > 0 {
+								MuskBubble(eArr, stk)
+							}
+							//stk[idx].Score = 0
+						}
+
+						// process highQualEPathInfoArr
+						bestEPIB = GetBestEPathInfo(highQualEPathInfoArr)
+					}
+				}
+
+				// extend path by DBG
+				var longRMInfo LongReadMappingInfo
+
+				bestEPIB = DeleteUnmapPath(bestEPIB, constructdbg.BACKWARD, edgesArr, kmerlen)
+				bestEPIF = DeleteUnmapPath(bestEPIF, constructdbg.FORWARD, edgesArr, kmerlen)
+				fmt.Printf("[FindONTReadsPath] bestEPIB: %v\n", bestEPIB)
+				fmt.Printf("[FindONTReadsPath] bestEPIF: %v\n", bestEPIF)
+				longRMInfo = MergeTwoFlankMapingPath(bestEPIB, bestEPIF, mpi, eID)
+				longRMInfo.ID = rID
+				longRMInfo.Score = bestEPIB.Score + mpi.Score + bestEPIF.Score
+				longRMInfo.AnchorEdgeID = eID
+				longRMInfo.AnchorStrand = last.GetStrand()
+				longRMInfo.Qual = uint32(longRMInfo.Score) * 100 / (longRMInfo.REnd - longRMInfo.RStart)
+
+				// add read region to the cBMRIArr
+				var cbmr ChainBlockMapLongReadInfo
+				cbmr.Start, cbmr.End, cbmr.Score = int(longRMInfo.RStart), int(longRMInfo.REnd), int(longRMInfo.Score)
+				cBMRIArr = append(cBMRIArr, cbmr)
+
+				if len(longRMInfo.Path) > 0 {
+					wc <- longRMInfo
+					fmt.Printf("[FindONTReadsPath] longRMInfo: %v\n", longRMInfo)
+				}
+			}
+
+			/*//kbArr := CheckByDBG(maxKbArr, nodesArr, edgesArr)
 			kbArr := maxKbArr
 			scArr := make([]int, len(kbArr))
 			idx := 0
@@ -3576,7 +4855,8 @@ func FindONTReadsPath(edgesKmerSortArr []KmerInfo, cs <-chan ReadsBucketInfo, Se
 			}
 			if len(longRMInfo.Path[0]) > 2 {
 				wc <- longRMInfo
-			}
+			}*/
+
 		}
 	}
 }
@@ -3605,6 +4885,9 @@ func DeconstructDBG(c cli.Command) {
 	opt.ExtLen = tmp.ExtLen
 	opt.ONTFn = tmp.ONTFn
 	opt.Correct = tmp.Correct
+	GapCost := 1
+	MaxGapLen := 2000
+	SeqType := uint8(1)
 	//constructdbg.Kmerlen = opt.Kmer
 	fmt.Printf("Arguments: %v\n", c.Flags())
 
@@ -3631,14 +4914,14 @@ func DeconstructDBG(c cli.Command) {
 
 	constructdbg.CheckInterConnectivity(edgesArr, nodesArr)
 
-	uniqueNum, semiUniqueNum, twoCycleNum, selfCycle, selfCycleSameComingNum := constructdbg.SetDBGEdgesUniqueFlag(edgesArr, nodesArr, opt.MinUniqueEdgeLen)
-	fmt.Printf("[DeconstructDBG] unique edge number is : %v, semiUniqueNum: %v, twoCycleNum:%v, selfCycle:%v, selfCycleSameComingNum: %v\n", uniqueNum, semiUniqueNum, twoCycleNum, selfCycle, selfCycleSameComingNum)
+	uniqueNum, semiUniqueNum, twoCycleNum, selfCycle, selfCycleSameComingNum, bubbleEdgeNum := constructdbg.SetDBGEdgesUniqueFlag(edgesArr, nodesArr, opt.MinUniqueEdgeLen)
+	fmt.Printf("[DeconstructDBG] unique edge number is : %v, semiUniqueNum: %v, twoCycleNum:%v, selfCycle:%v, selfCycleSameComingNum: %v, bubbleEdgeNum: %v\n", uniqueNum, semiUniqueNum, twoCycleNum, selfCycle, selfCycleSameComingNum, bubbleEdgeNum)
 	t0 := time.Now()
 	// no any other align tools for seed edge by ONT reads, use same as daligner,
 	// first sort DBG edges by seed kmer, and split ONT reads by bucket, every bucket sort by seed kmer, and found share kmers from edges sort kmersArr
 	{
 		SeedLen := 15
-		BucketSize := (1 << 28) // ==2**28
+		//BucketSize := (1 << 28) // ==2**28
 		cfgInfo, err := constructcf.ParseCfg(opt.CfgFn, false)
 		if err != nil {
 			log.Fatalf("[DeconstructDBG] ParseCfg 'C': %v err :%v\n", opt.CfgFn, err)
@@ -3646,14 +4929,22 @@ func DeconstructDBG(c cli.Command) {
 		fmt.Printf("[DeconstructDBG] opt: %v\n\tcfgInfo: %v\n", opt, cfgInfo)
 
 		edgesKmerSortArr := SortDBGEdgesKmer(edgesArr, SeedLen, opt.WinSize)
-		bufSize := 10000
-		processedCPUNum := opt.NumCPU * 3 / 4
-		cs := make(chan ReadsBucketInfo, opt.NumCPU)
-		wc := make(chan LongReadMappingInfo, bufSize)
-		go LoadLongReadsAndSort(cfgInfo, opt.NumCPU-processedCPUNum, cs, SeedLen, opt.WinSize, BucketSize)
-		for i := 0; i < processedCPUNum; i++ {
-			go FindONTReadsPath(edgesKmerSortArr, cs, SeedLen, opt.WinSize, wc)
+		fmt.Printf("[DeconstructDBG]total found edges minimizers number is: %v\n", len(edgesKmerSortArr))
+		bufSize := int64(len(edgesKmerSortArr)) * int64(opt.WinSize)
+		var processedCPUNum int
+		if opt.NumCPU <= 2 {
+			processedCPUNum = 1
+		} else {
+			processedCPUNum = opt.NumCPU * 3 / 4
 		}
+		cs := make(chan ReadsBucketInfo, opt.NumCPU)
+		wc := make(chan LongReadMappingInfo, processedCPUNum*100)
+		go LoadLongReadsAndSort(cfgInfo, opt.NumCPU-processedCPUNum, cs, SeedLen, opt.WinSize, bufSize)
+		for i := 0; i < processedCPUNum; i++ {
+			go FindONTReadsPath(edgesKmerSortArr, cs, SeedLen, opt.WinSize, GapCost, MaxGapLen, opt.Kmer, wc, edgesArr, nodesArr, SeqType)
+		}
+		//func FindONTReadsPath(edgesKmerSortArr []KmerInfo, cs <-chan ReadsBucketInfo, SeedLen, winSize, GapCost, MaxGapLen, kmerlen int, wc chan<- LongReadMappingInfo, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode, SeqType uint8) {
+
 		pathFn := opt.Prefix + ".Path.protobuf"
 		WriteLongPathToFile(wc, pathFn, processedCPUNum)
 	}

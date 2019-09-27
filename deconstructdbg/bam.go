@@ -1043,7 +1043,7 @@ func GetMappingReadSeq(direction uint8, mi MapInfo, readSeqBnt []byte, extendMin
 	return readSeq, edgeSeq, nextReadPos, notMappingLen
 }
 
-const PosWidth = 16
+const PosWidth = 20
 const MaxSeedKmerLen = (64 - PosWidth) / bnt.NumBitsInBase
 const MUSKPos = (1 << PosWidth) - 1
 
@@ -1058,7 +1058,7 @@ func (arr SKArr) Len() int {
 }
 
 func (arr SKArr) Less(i, j int) bool {
-	return arr[i].Seed < arr[j].Seed
+	return (arr[i].Seed >> PosWidth) < (arr[j].Seed >> PosWidth)
 }
 
 func (arr SKArr) Swap(i, j int) {
@@ -1077,6 +1077,7 @@ func (arr ChainArr) Len() int {
 }
 
 func (arr ChainArr) Less(i, j int) bool {
+	//return arr[i].X < arr[j].X
 	if arr[i].X < arr[j].X {
 		return true
 	} else if arr[i].X > arr[j].X {
@@ -1120,7 +1121,7 @@ func GetKmerList(seq []byte, skLen uint32) (list []SeedKmer) {
 		log.Fatalf("[GetKmerList] len(seq): %v just allow %v\n", len(seq), 1<<PosWidth)
 	}
 	list = make([]SeedKmer, len(seq)-int(skLen)+1)
-	MUSKSK := (uint64(1)<<(uint64(skLen*bnt.NumBitsInBase)) - 1)
+	MUSKSK := (uint64(1) << (uint64(skLen * bnt.NumBitsInBase))) - 1
 	var sk SeedKmer
 	for i := 0; i < int(skLen)-1; i++ {
 		sk.Seed <<= bnt.NumBitsInBase
@@ -1131,6 +1132,7 @@ func GetKmerList(seq []byte, skLen uint32) (list []SeedKmer) {
 		sk.Seed |= uint64(seq[i])
 		sk.Seed &= MUSKSK
 		j := uint64(i - (int(skLen) - 1))
+		//fmt.Printf("[GetKmerList] j: %v, i: %v[%v], seed bnt: %v\n", j, i, seq[i], seq[j:j+uint64(skLen)])
 		list[j].Seed = (sk.Seed << PosWidth) | j
 	}
 	return
@@ -1140,12 +1142,13 @@ func GetInterSection(listA, listB []SeedKmer, skLen uint32) []Chain {
 	var interSecArr []Chain
 	i, j := 0, 0
 	sb := listB[j].Seed >> PosWidth
+	//j++
 	for ; i < len(listA) && j < len(listB); i++ {
 		sa := listA[i].Seed >> PosWidth
 		if sa < sb {
 			continue
 		} else if sa > sb {
-			for ; j < len(listB); j++ {
+			for j = j + 1; j < len(listB); j++ {
 				sb = listB[j].Seed >> PosWidth
 				if sa <= sb {
 					break
@@ -1157,11 +1160,12 @@ func GetInterSection(listA, listB []SeedKmer, skLen uint32) []Chain {
 			continue
 		} else if sa > sb {
 			break
+			//log.Fatalf("[GetInterSection] sa >sb\n")
 		}
 		// sa == sb
-		//fmt.Printf("[GetInterSection] i: %v, j: %v\n", i, j)
 		for x := j; x < len(listB); x++ {
 			tmp := listB[x].Seed >> PosWidth
+			//fmt.Printf("[GetInterSection] X: %v, Y: %v\n", i, x)
 			//fmt.Printf("[GetInterSection] tmp: %v,sa: %v,  x: %v\n", tmp, sa, x)
 			if tmp > sa {
 				break
@@ -1279,20 +1283,41 @@ func GetNearChainScore(nc, lastc Chain, direction uint8, MaxGapLen, GapCost int)
 	return
 }
 func GetTwoAnchorScore(lastc, nc Chain, GapCost int) (sc int) {
-	var gapLen, distance int
+	var gapLen, dX, dY int
 	if lastc.X > nc.X {
-		distance = int(lastc.X) - int(nc.X)
-		gapLen = AbsInt((int(lastc.X) - int(nc.X)) - (int(lastc.Y) - int(nc.Y)))
+		dX = int(lastc.X) - (int(nc.X) + int(nc.Len))
+		dY = int(lastc.Y) - (int(nc.Y) + int(nc.Len))
 	} else {
-		distance = int(nc.X) - int(lastc.X)
-		gapLen = AbsInt((int(nc.X) - int(lastc.X)) - (int(nc.Y) - int(lastc.Y)))
+		dX = int(nc.X) - (int(lastc.X) + int(lastc.Len))
+		dY = int(nc.Y) - (int(lastc.Y) + int(lastc.Len))
 	}
-	if gapLen > distance/5 {
-		sc = int(nc.Len) - (gapLen-distance/5)*GapCost
+	if dX > 2000 || dY > 2000 {
+		sc = 0
+		return
+	}
+	min := constructdbg.Min(dX, dY)
+	//a := constructdbg.Min(min, int(nc.Len))
+	a := int(nc.Len)
+	gapLen = AbsInt(dX - dY)
+	if gapLen > min/5+20 {
+		sc = 0
+		return
+	}
+	// a gap length of gapLen costs
+	var b float64
+	if gapLen > 1 {
+		b = float64(0.01)*float64(nc.Len)*float64(gapLen) + float64(0.5)*math.Log2(float64(gapLen))
 	} else {
-		sc = int(nc.Len)
+		if dX == 0 && dY == 0 {
+			b = 0
+		} else {
+			b = 1
+		}
 	}
-
+	//sc = constructdbg.Min(a-int(b), int(nc.Len))
+	sc = a - int(b)
+	//dist := constructdbg.Min(dX, dY)
+	//sc = int(nc.Len) - gapLen*GapCost
 	return
 }
 
@@ -1702,6 +1727,189 @@ func GetMaxChainArr(interSecSortArr []Chain, strand bool, seedKmerLen uint32) (m
 	}*/
 }
 
+func GetChainBlocksSimple(interSecSortArr []Chain, strand bool, seedKmerLen uint32) (chainBlocks []Chain) {
+	flagArr := make([]bool, len(interSecSortArr)) // denote corresponding chain has been used
+	loopNum := 0
+	if strand == constructdbg.MINUS {
+		log.Fatalf("[GetChainBlocksSimple] mapping by '-' strand unprocessed\n")
+	}
+	for { // until to the no flag false chain
+		loopNum++
+		chl := len(chainBlocks)
+		for i := 0; i < len(flagArr); i++ {
+			if flagArr[i] == true {
+				//i++
+				continue
+			}
+			cb := interSecSortArr[i]
+			flagArr[i] = true
+			j := i + 1
+			//nextY := cb.Y + cb.Len
+			for ; j < len(interSecSortArr); j++ {
+				if flagArr[j] == true {
+					continue
+				}
+				nc := interSecSortArr[j]
+				nextX := cb.X + cb.Len
+				if nc.X > nextX {
+					break
+				}
+				// nc.X == nextX
+				/*if nc.Y < cb.Y {
+					continue
+				}
+				if nc.Y > nextY {
+					continue
+				}*/
+				//
+				if nc.X-cb.X == nc.Y-cb.Y {
+					cb.Len = nc.X + nc.Len - cb.X
+					//cb.Len += (nc.X + nc.Len) - (cb.X + cb.Len)
+					flagArr[j] = true
+				}
+			}
+			chainBlocks = append(chainBlocks, cb)
+			//i = j
+		}
+
+		// no new added chainBlock
+		if chl == len(chainBlocks) {
+			break
+		}
+	}
+	fmt.Printf("[GetChainBlocksSimple] loop num: %v\n", loopNum)
+
+	return
+}
+
+func BlockToAnchorsScoreArrSimple(chainBlocks []Chain, idx int, scoreArr []int, visitArr []bool) []int {
+	cen := chainBlocks[idx]
+	// BACKWARD
+	for i := idx - 1; i >= 0; i-- {
+		if visitArr[i] == true {
+			break
+		}
+		if scoreArr[i] == math.MinInt32 {
+			continue
+		}
+		cb := chainBlocks[i]
+		// chainBlocks overlap region
+		if cb.X+cb.Len > cen.X || cb.Y+cb.Len > cen.Y {
+			scoreArr[i] = math.MinInt32
+			continue
+		}
+		sc := GetTwoAnchorScore(cen, cb, 1)
+		if sc > scoreArr[i] {
+			scoreArr[i] = sc
+		}
+	}
+
+	// FORWARD
+	for i := idx + 1; i < len(chainBlocks); i++ {
+		if visitArr[i] == true {
+			break
+		}
+		if scoreArr[i] == math.MinInt32 {
+			continue
+		}
+		cb := chainBlocks[i]
+		// chainBlocks overlap region
+		if cen.X+cen.Len > cb.X || cen.Y+cen.Len > cb.Y {
+			scoreArr[i] = math.MinInt32
+			continue
+		}
+		sc := GetTwoAnchorScore(cen, cb, 1)
+		if sc > scoreArr[i] {
+			scoreArr[i] = sc
+		}
+	}
+
+	return scoreArr
+}
+
+func GetMaxScoreFromBsASimple(bsA []int, visitArr []bool) (max Score) {
+	for i, sc := range bsA {
+		if visitArr[i] {
+			continue
+		}
+		if sc > max.Sc {
+			max.Sc = sc
+			max.Idx = i
+		}
+	}
+	return
+}
+
+func GetMaxScoreChainArr(chainBlocks []Chain) (maxChainArr []Chain) {
+	maxLen := uint32(0)
+	idx := -1
+	for i, cb := range chainBlocks {
+		if maxLen < cb.Len {
+			maxLen = cb.Len
+			idx = i
+		}
+		//fmt.Printf("[GetMaxScoreChainArr]chainBlocks[%v]: %v\n", i, cb)
+	}
+
+	if idx < 0 {
+		return
+	}
+	// find max score
+
+	visitArr := make([]bool, len(chainBlocks))
+	visitArr[idx] = true
+	anchor := chainBlocks[idx]
+	maxChainArr = append(maxChainArr, chainBlocks[idx])
+	bsA := make([]int, len(chainBlocks))
+	bsA[idx] = int(anchor.Len)
+	BlockToAnchorsScoreArrSimple(chainBlocks, idx, bsA, visitArr)
+	fmt.Printf("[GetMaxScoreChainArr]anchor[%v]: %v\n", idx, anchor)
+	for {
+		maxSc := GetMaxScoreFromBsASimple(bsA, visitArr)
+		//fmt.Printf("[GetMaxChainArr] blockToAnchorsScorePat: %v\n\tarr: %v\n", blockToAnchorsScorePat, arr)
+		if maxSc.Sc <= 0 {
+			break
+		}
+
+		// add to Max Chain
+		visitArr[maxSc.Idx] = true
+		//fmt.Printf("[GetMaxScoreChainArr]next[%v]: %v, score: %v\n", maxSc.Idx, chainBlocks[maxSc.Idx], maxSc.Sc)
+		maxChainArr = append(maxChainArr, chainBlocks[maxSc.Idx])
+		BlockToAnchorsScoreArrSimple(chainBlocks, maxSc.Idx, bsA, visitArr)
+	}
+	return
+}
+
+func GetMaxScoreFromChainBlocks(maxChainArr []Chain, GapCost int) (maxScore int) {
+	maxScore = int(maxChainArr[0].Len)
+	for i := 1; i < len(maxChainArr); i++ {
+		cb1, cb2 := maxChainArr[i-1], maxChainArr[i]
+		sc := GetTwoAnchorScore(cb1, cb2, GapCost)
+		maxScore += sc
+	}
+	return
+}
+
+func GetMaxChainArrSimple(interSecSortArr []Chain, strand bool, seedKmerLen uint32) (maxChainArr []Chain, maxScore int) {
+	/*for i, cb := range interSecSortArr {
+		fmt.Printf("[GetMaxChainArrSimple]inter[%v]: %v\n", i, cb)
+	}*/
+	chainBlocks := GetChainBlocksSimple(interSecSortArr, strand, seedKmerLen)
+
+	sort.Sort(ChainArr(chainBlocks))
+	/*for i, cb := range chainBlocks {
+		fmt.Printf("[GetMaxChainArrSimple]Blocks[%v]: %v\n", i, cb)
+	}*/
+	maxChainArr = GetMaxScoreChainArr(chainBlocks)
+	if len(maxChainArr) == 0 {
+		return
+	}
+	sort.Sort(ChainArr(maxChainArr))
+	maxScore = GetMaxScoreFromChainBlocks(maxChainArr, 1)
+
+	return
+}
+
 type CIGAR struct {
 	Ins, Del, Mis, Mch uint32
 }
@@ -1992,6 +2200,9 @@ func GlobalAlignment(seqa, seqb []byte, localFirst bool) (cg CIGAR, lastY int) {
 
 func DPLocalAlign(edgesSeq, readSeq []byte, chainA []Chain) (cg CIGAR) {
 	//enlongation := uint32(200) // same as minimap2 mapping step '-g' argument
+	/*for i, ch := range chainA {
+		fmt.Printf("[DPLocalAlign]%v: %v\n", i, ch)
+	}*/
 	for i := 0; i < len(chainA); i++ {
 		var pch Chain
 		if i == 0 {
@@ -2003,8 +2214,11 @@ func DPLocalAlign(edgesSeq, readSeq []byte, chainA []Chain) (cg CIGAR) {
 		pXEnd := pch.X + pch.Len
 		pYEnd := pch.Y + pch.Len
 		xlen, ylen := int(ch.X)-int(pXEnd), int(ch.Y)-int(pYEnd)
-		//fmt.Printf("[DPLocalAlign] len(edgesSeq): %v, len(readSeq): %v, pch: %v, ch: %v\n", xlen, ylen, pch, ch)
+		//fmt.Printf("[DPLocalAlign] xlen: %v, ylen: %v, pch: %v, ch: %v\n", xlen, ylen, pch, ch)
 		if xlen < 0 || ylen < 0 {
+			log.Fatalf("[DPLocalAlign]pch: %v,ch: %v, overlap!!!\n", pch, ch)
+		}
+		/*if xlen < 0 || ylen < 0 {
 			if xlen < ylen {
 				cg.Ins += uint32(ylen - xlen)
 			} else {
@@ -2022,59 +2236,49 @@ func DPLocalAlign(edgesSeq, readSeq []byte, chainA []Chain) (cg CIGAR) {
 			}
 			cg.Mch += (ch.Len - uint32(max))
 			continue
-		}
+		}*/
 
 		cg.Mch += ch.Len
+		if i == 0 && xlen == 0 && ylen == 0 {
+			continue
+		}
 		if pXEnd == ch.X {
 			cg.Ins += ch.Y - pYEnd
 			continue
 		} else if pYEnd == ch.Y {
 			cg.Del += ch.X - pXEnd
 			continue
-		} else if xlen != ylen {
-			var finished bool // test if a substring in another
+		} else if xlen != ylen && AbsInt(xlen-ylen) == 2 {
 			if xlen < ylen {
-				for j := 1; j <= ylen-xlen; j++ {
-					if reflect.DeepEqual(edgesSeq[pXEnd:ch.X], readSeq[int(pYEnd)+j:int(pYEnd)+j+xlen]) {
-						cg.Ins += uint32(ylen - xlen)
-						cg.Mch += uint32(xlen)
-						finished = true
-						break
-					}
+				if reflect.DeepEqual(edgesSeq[pXEnd:ch.X], readSeq[int(pYEnd)+1:ch.Y-1]) {
+					cg.Ins += uint32(ylen - xlen)
+					cg.Mch += uint32(xlen)
+					continue
 				}
 			} else {
-				for j := 1; j <= xlen-ylen; j++ {
-					if reflect.DeepEqual(readSeq[pYEnd:ch.Y], edgesSeq[int(pXEnd)+j:int(pXEnd)+j+ylen]) {
-						cg.Del += uint32(xlen - ylen)
-						cg.Mch += uint32(ylen)
-						finished = true
-						break
-					}
+				if reflect.DeepEqual(edgesSeq[pXEnd+1:ch.X-1], readSeq[pYEnd:ch.Y]) {
+					cg.Del += uint32(xlen - ylen)
+					cg.Mch += uint32(ylen)
+					continue
 				}
 			}
-			if finished {
-				continue
-			}
-		} else { // ch.X - pXEnd == ch.Y - pYEnd
-			if xlen == 1 {
+		} else if xlen == ylen && xlen > 0 && i > 0 { // ch.X - pXEnd == ch.Y - pYEnd
+			if xlen == 0 {
+				log.Fatalf("[DPLocalAlign] found  between two chain region can connect,pch: %v, ch: %v\n", pch, ch)
+			} else if xlen == 1 {
 				if edgesSeq[pXEnd] != readSeq[pYEnd] {
 					cg.Mis++
 					continue
 				} else {
-					cg.Mch++
-					//log.Fatalf("[DPLocalAlign] found  between two chain region have 100 percent identity sequence, %v == %v\n", edgesSeq[pXEnd], readSeq[pYEnd])
+					//cg.Mch++
+					log.Fatalf("[DPLocalAlign] found  between two chain region have 100 percent identity sequence,[%v] %v == [%v] %v\n\t\tpch: %v, ch: %v\n", pXEnd, edgesSeq[pXEnd], pYEnd, readSeq[pYEnd], pch, ch)
 				}
 			} else if xlen == 2 {
-				if edgesSeq[pXEnd] == readSeq[pYEnd+1] || edgesSeq[pXEnd+1] == readSeq[pYEnd] {
-					cg.Mis++
-					cg.Mch++
-				} else {
-					cg.Mis += 2
-				}
-				continue
-			} else if i > 0 && (int(ch.X)-1)-(int(pXEnd)+1) > 0 && (int(ch.X)-1)-(int(pXEnd)+1) == (int(ch.Y)-1)-(int(pYEnd)+1) && reflect.DeepEqual(edgesSeq[pXEnd+1:ch.X-1], readSeq[pYEnd+1:ch.Y-1]) { // just the first and last diffence
 				cg.Mis += 2
-				cg.Mch += (ch.X - 1 - (pXEnd + 1))
+				continue
+			} else if reflect.DeepEqual(edgesSeq[pXEnd+1:ch.X-1], readSeq[pYEnd+1:ch.Y-1]) { // just the first and last diffence
+				cg.Mis += 2
+				cg.Mch += uint32(xlen) - 2
 				continue
 			}
 		}
@@ -2100,6 +2304,60 @@ func DPLocalAlign(edgesSeq, readSeq []byte, chainA []Chain) (cg CIGAR) {
 	}
 	return
 }*/
+
+func ComputingChainArr(refSeq, readSeq []byte, SeedLen uint32) (maxChain []Chain, chainScore int) {
+	//debug code
+	//readSeq, edgesSeq = readSeq[:651], edgesSeq[:653]
+	//fmt.Printf("[DPAlignEdgePath] len(edgesSeq): %v, len(readSeq): %v\n", len(edgesSeq), len(readSeq))
+	//fmt.Printf("[DPAlignEdgePath]edgesSeq string: %v\n", bnt.TransformSeq(pathSeq))
+	//fmt.Printf("[DPAlignEdgePath]readSeq string: %v\n", bnt.TransformSeq(readSeq))
+	//fmt.Printf("[DPAlignEdgePath] reverse edgesSeq string: %v\n\t\t reverse readSeq string: %v\n", bnt.TransformSeq(constructdbg.GetReverseByteArr(edgesSeq)), bnt.TransformSeq(constructdbg.GetReverseByteArr(readSeq)))
+
+	// found two sequences seed chaining
+	listA := GetKmerList(refSeq, SeedLen)
+	listB := GetKmerList(readSeq, SeedLen)
+	sort.Sort(SKArr(listA))
+	sort.Sort(SKArr(listB))
+	/*i := 0
+	fmt.Printf("[GetChainArr] listA length: %v, listB length: %v\n", len(listA), len(listB))
+	for ; i < len(listA) && i < len(listB); i++ {
+		fmt.Printf("[GetChainArr] listA[%v]: %v:%v\t listB[%v]: %v:%v\n", i, listA[i].Seed>>PosWidth, listA[i].Seed&MUSKPos, i, listB[i].Seed>>PosWidth, listB[i].Seed&MUSKPos)
+	}
+	if i < len(listA) {
+		fmt.Printf("[GetChainArr] listA[%v:]: %v\n", i, listA[i:])
+	} else if i < len(listB) {
+		fmt.Printf("[GetChainArr]\t\t\tlistB[%v:]: %v\n", i, listB[i:])
+	}*/
+	interSecArr := GetInterSection(listA, listB, SeedLen)
+	sort.Sort(ChainArr(interSecArr))
+	/*for i, ch := range interSecArr {
+		fmt.Printf("[GetChainArr] interSecArr[%v]: %v\n", i, ch)
+	}*/
+	//maxChain, maxScore := GetMaxChainArr(interSecArr, constructdbg.PLUS, SeedLen)
+	maxChain, maxScore := GetMaxChainArrSimple(interSecArr, constructdbg.PLUS, SeedLen)
+	//chainA := GetChainArr(interSecArr, seedKmerLen)
+	//chainScore = GetChainScore(chainA)
+	chainScore = maxScore
+	//fmt.Printf("[DPAlignEdgePath] MaxScore: %v\n", maxScore)
+	//fmt.Printf("[DPAlignEdgePath] edgesSeq: %v\n\t\t\treadSeq: %v\nchainScore: %v\n", edgesSeq, readSeq, chainScore)
+	//fmt.Printf("[DPAlignEdgePath] maxChain: %v\n", maxChain)
+	/*AlignmentMinLen := constructdbg.Min(len(refSeq), len(readSeq))
+	if int(maxScore) < AlignmentMinLen/15 {
+		fmt.Printf("[ComputingChainArr] chainScore: %v < min(len(refSeq),len(readSeq))/15: %v\n", chainScore, AlignmentMinLen/15)
+		return
+	}*/
+	//lch := maxChain[len(maxChain)-1]
+	//alignEdgePos = int(lch.X + lch.Len)
+	//alignReadPos = int(lch.Y + lch.Len)
+	//notChainEdgeLen = notMappinglen + (len(edgesSeq) - int(lch.X+lch.Len))
+
+	// Rapid Local Alignment Discovery from seeds chain
+	//cg = DPLocalAlign(pathSeq, readSeq, maxChain)
+
+	//fmt.Printf("[DPAlignEdgePath] cg: %v\n", cg)
+	//score = int(cg.Mch) - int(cg.Ins+cg.Del+cg.Mis)
+	return
+}
 
 func DPAlignEdgePathExtend(pathSeq, readSeq []byte, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode) (cg CIGAR, chainScore int, alignEdgePos, alignReadPos int) {
 	//debug code

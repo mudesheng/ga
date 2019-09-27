@@ -40,6 +40,13 @@ func CheckGlobalArgs(c cli.Command) (opt ArgsOpt, succ bool) {
 	if !ok {
 		log.Fatalf("[CheckGlobalArgs] args 't': %v set error\n", c.Flag("t").String())
 	}
-
 	return opt, true
+}
+
+func AbsInt(a int) int {
+	if a < 0 {
+		return -a
+	} else {
+		return a
+	}
 }

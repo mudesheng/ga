@@ -1136,8 +1136,8 @@ func Correct(c cli.Command) {
 	//constructdbg.PrintTmpDBG(nodesArr, edgesArr, opt.Prefix)
 	constructdbg.CheckInterConnectivity(edgesArr, nodesArr)
 
-	uniqueNum, semiUniqNum, twoEdgeCycleNum, selfCycleNum, selfCycleSameComingNum := constructdbg.SetDBGEdgesUniqueFlag(edgesArr, nodesArr, 5000)
-	fmt.Printf("[Correct] unique edge number is : %v, semiUniqNum: %v, twoEdgeCycleNum: %v,selfCycleNum: %v, selfCycleSameComingNum: %v\n", uniqueNum, semiUniqNum, twoEdgeCycleNum, selfCycleNum, selfCycleSameComingNum)
+	uniqueNum, semiUniqNum, twoEdgeCycleNum, selfCycleNum, selfCycleSameComingNum, bubbleEdgeNum := constructdbg.SetDBGEdgesUniqueFlag(edgesArr, nodesArr, 5000)
+	fmt.Printf("[Correct] unique edge number is : %v, semiUniqNum: %v, twoEdgeCycleNum: %v,selfCycleNum: %v, selfCycleSameComingNum: %v,bubbleEdgeNum: %v\n", uniqueNum, semiUniqNum, twoEdgeCycleNum, selfCycleNum, selfCycleSameComingNum, bubbleEdgeNum)
 	fmt.Printf("[Correct] Smfy DBG used : %v\n", time.Now().Sub(t0))
 	t0 = time.Now()
 	//gfn1 := opt.Prefix + ".afterSmfyDBG.dot"

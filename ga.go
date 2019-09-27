@@ -80,7 +80,7 @@ func init() {
 		decontdbg.DefineIntFlag("AvgDepth", 50, "average coverage estimate by long reads")
 		decontdbg.DefineIntFlag("MinUniqueEdgeLen", 5000, "min allow unique edge merge clean bubble")
 		decontdbg.DefineIntFlag("AvgReadLen", 12000, "average long read length")
-		decontdbg.DefineIntFlag("WinSize", 10, "th size of sliding window for DBG edge Sample")
+		decontdbg.DefineIntFlag("WinSize", 5, "the size of sliding window for DBG edge Sample")
 		decontdbg.DefineIntFlag("MaxNGSReadLen", 550, "Max NGS Read Length")
 		decontdbg.DefineIntFlag("MinMapFreq", 3, "Minimum reads Mapping Frequent")
 		decontdbg.DefineIntFlag("ExtLen", 1000, "Extend Path length for distingush most probable path")

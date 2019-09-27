@@ -186,6 +186,8 @@ func ParseCfg(fn string, correct bool) (cfgInfo CfgInfo, e error) {
 					libInfo.FnName = append(libInfo.FnName, brfn)
 				}
 			}
+		case "f":
+			libInfo.FnName = append(libInfo.FnName, fields[2])
 		default:
 			if fields[0][0] != '#' && fields[0][0] != ';' {
 				log.Fatalf("noknown line: %s", line)

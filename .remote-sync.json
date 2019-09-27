@@ -2,7 +2,7 @@
   "uploadOnSave": true,
   "useAtomicWrites": true,
   "deleteLocal": false,
-  "hostname": "58.250.202.5",
+  "hostname": "10.168.1.226",
   "port": "22",
   "target": "/home/mds/go/src/github.com/mudesheng/ga",
   "ignore": [

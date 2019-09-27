@@ -182,6 +182,14 @@ func (e *DBGEdge) GetMergedFlag() uint8 {
 	return e.Flag & 0x20
 }
 
+func (e *DBGEdge) GetBubbleFlag() uint8 {
+	return e.Flag & 0x40
+}
+
+func (e *DBGEdge) SetBubbleFlag() {
+	e.Flag = e.Flag | 0x40
+}
+
 func (e *DBGEdge) SetSemiUniqueFlag() {
 	e.Flag = e.Flag | 0x8
 }
@@ -192,6 +200,10 @@ func (e *DBGEdge) SetTwoEdgesCycleFlag() {
 
 func (e *DBGEdge) SetMergedFlag() {
 	e.Flag = e.Flag | 0x20
+}
+
+func (e *DBGEdge) ResetBubbleFlag() {
+	e.Flag = e.Flag & (0xFF - 0x40)
 }
 
 func (e *DBGEdge) ResetTwoEdgesCycleFlag() {
@@ -2886,7 +2898,7 @@ func InterSecDBG_MAX_INTArr(ea1, ea2 []DBG_MAX_INT) (arr []DBG_MAX_INT) {
 }
 
 // set the unique edge of edgesArr
-func SetDBGEdgesUniqueFlag(edgesArr []DBGEdge, nodesArr []DBGNode, minUniqueLen int) (uniqueNum, semiUniqueNum, twoCycleNum, selfCycle, selfCycleSameComingNum int) {
+func SetDBGEdgesUniqueFlag(edgesArr []DBGEdge, nodesArr []DBGNode, minUniqueLen int) (uniqueNum, semiUniqueNum, twoCycleNum, selfCycle, selfCycleSameComingNum, bubbleEdgeNum int) {
 	var bubbleNum, bubbleTotalLen, SD, longTipNum, tipTotalLen, selfCycleTotalLen, uniqueTotalLen, repeatNum, repeatTotalLen int
 	for i, e := range edgesArr {
 		if e.ID < 2 || e.GetDeleteFlag() > 0 {
@@ -2935,6 +2947,8 @@ func SetDBGEdgesUniqueFlag(edgesArr []DBGEdge, nodesArr []DBGNode, minUniqueLen 
 		}
 
 		if IsBubbleEdge(e, nodesArr, edgesArr) {
+			edgesArr[i].SetBubbleFlag()
+			bubbleEdgeNum++
 			ea := GetOtherEArr(nodesArr[e.StartNID], e.ID)
 			for _, id := range ea {
 				if IsBubble(e.ID, id, edgesArr) {
@@ -5724,12 +5738,13 @@ func Smfy(c cli.Command) {
 	CheckInterConnectivity(edgesArr, nodesArr)
 	//MakeSelfCycleEdgeOutcomingToIncoming(nodesArr, edgesArr, opt)
 	// set the unique edge of edgesArr
-	uniqueNum, semiUniqueNum, twoEdgeCycleNum, selfCycleNum, selfCycleSameComingNum := SetDBGEdgesUniqueFlag(edgesArr, nodesArr, 5000)
+	uniqueNum, semiUniqueNum, twoEdgeCycleNum, selfCycleNum, selfCycleSameComingNum, bubbleEdgeNum := SetDBGEdgesUniqueFlag(edgesArr, nodesArr, 5000)
 	fmt.Printf("[Smfy] the number of DBG Unique  Edges is : %d\n", uniqueNum)
 	fmt.Printf("[Smfy] the number of DBG Semi-Unique  Edges is : %d\n", semiUniqueNum)
 	fmt.Printf("[Smfy] the number of DBG twoEdgeCycleNum  Edges is : %d\n", twoEdgeCycleNum)
 	fmt.Printf("[Smfy] the number of DBG selfCycleNum  Edges is : %d\n", selfCycleNum)
 	fmt.Printf("[Smfy] the number of DBG selfCycle and have same EdgeIDComing  Edges is : %d\n", selfCycleSameComingNum)
+	fmt.Printf("[Smfy] the number of DBG Bubble  Edges is : %d\n", bubbleEdgeNum)
 
 	// map Illumina reads to the DBG and find reads map path for simplify DBG
 	/*wrFn := opt.Prefix + ".smfy.NGSAlignment"
