@@ -11,7 +11,7 @@ message DBGNodeInfo {
 }
 
 message DBGNodeArr {
-  repeated DBGNodeInfo arr = 1;
+  repeated DBGNodeInfo Arr = 1;
 }
 
 message ReadPath {
@@ -22,5 +22,5 @@ message ReadPath {
 }
 
 message PathArr {
-  repeated ReadPath arr = 1;
+  repeated ReadPath Arr = 1;
 }

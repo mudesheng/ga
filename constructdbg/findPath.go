@@ -5554,8 +5554,6 @@ func IsBubbleEdge(edge DBGEdge, nodesArr []DBGNode, edgesArr []DBGEdge) (b bool)
 			e2 := edgesArr[eIDArr[0]]
 			if e2.StartNID == edge.StartNID && e2.EndNID == edge.EndNID {
 				b = true
-			} else if e2.EndNID == edge.StartNID && e2.StartNID == edge.EndNID {
-				b = true
 			}
 		}
 	}
@@ -5570,8 +5568,6 @@ func IsBubble(eID1, eID2 DBG_MAX_INT, edgesArr []DBGEdge) (b bool) {
 	}
 
 	if e1.StartNID == e2.StartNID && e1.EndNID == e2.EndNID {
-		b = true
-	} else if e1.EndNID == e2.StartNID && e1.StartNID == e2.EndNID {
 		b = true
 	}
 

@@ -2203,13 +2203,8 @@ func DPLocalAlign(edgesSeq, readSeq []byte, chainA []Chain) (cg CIGAR) {
 	/*for i, ch := range chainA {
 		fmt.Printf("[DPLocalAlign]%v: %v\n", i, ch)
 	}*/
-	for i := 0; i < len(chainA); i++ {
-		var pch Chain
-		if i == 0 {
-			pch.X, pch.Y, pch.Len = 0, 0, 0
-		} else {
-			pch = chainA[i-1]
-		}
+	for i := 1; i < len(chainA); i++ {
+		pch := chainA[i-1]
 		ch := chainA[i]
 		pXEnd := pch.X + pch.Len
 		pYEnd := pch.Y + pch.Len
@@ -2357,6 +2352,134 @@ func ComputingChainArr(refSeq, readSeq []byte, SeedLen uint32) (maxChain []Chain
 	//fmt.Printf("[DPAlignEdgePath] cg: %v\n", cg)
 	//score = int(cg.Mch) - int(cg.Ins+cg.Del+cg.Mis)
 	return
+}
+
+//const MaxMiniKmerLen = 64 / bnt.NumBitsInBase
+
+/*type MiniKmer struct {
+	Kmer uint64 // last allow 32 base
+	ID 	 uint32 // seq ID
+	Pos  uint32 // seq position
+}*/
+const MaxKmerInfoLen = 64 / bnt.NumBitsInBase
+
+type KmerInfo struct {
+	Kmer uint64 // just store 2-bits base, allow max 32 kmer base
+	ID   uint32 // edgeID or reads ID
+	Info uint32 // the first high 31-bit for Position,and last bit for strand info
+}
+
+func (k KmerInfo) GetPos() uint32 {
+	return k.Info >> 1
+}
+func (k *KmerInfo) SetPos(p uint32) {
+	info := (p << 1) | (k.Info & 0x1)
+	k.Info = info
+}
+
+func (k KmerInfo) GetStrand() bool {
+	if (k.Info & 0x1) > 0 {
+		return true
+	} else {
+		return false
+	}
+}
+
+func (k *KmerInfo) SetStrand(s bool) {
+	var info uint32
+	if s == constructdbg.PLUS {
+		info = (k.GetPos() << 1) | 0x1
+	} else {
+		info = (k.GetPos() << 1) | 0
+	}
+	k.Info = info
+}
+
+func GetSeqKmerInfoArr(ks []byte, ID uint32, SeedLen int) []KmerInfo {
+	var kmerInfoArr []KmerInfo
+	if len(ks) < SeedLen {
+		return kmerInfoArr
+	}
+	if SeedLen > MaxKmerInfoLen {
+		log.Fatalf("[GetSeqKmerInfoArr] SeedLen: %v just allow <%v\n", SeedLen, MaxKmerInfoLen)
+	}
+	//fmt.Printf("[GetSeqKmerInfoArr] ks: %v\n", ks)
+	kmerInfoArr = make([]KmerInfo, len(ks)-SeedLen+1)
+	MUSK := (uint64(1) << (uint64(SeedLen) * bnt.NumBitsInBase)) - 1
+	ki := GetKmerInfo(ks[:SeedLen], ID, 0, constructdbg.PLUS)
+	kmerInfoArr[0] = ki
+	for i := 1; i < len(ks)-SeedLen+1; i++ {
+		ki.Kmer <<= bnt.NumBitsInBase
+		ki.Kmer |= uint64(ks[i+SeedLen-1])
+		ki.Kmer &= MUSK
+		ki.SetPos(uint32(i))
+		ki.SetStrand(constructdbg.PLUS)
+		kmerInfoArr[i] = ki
+		//fmt.Printf("[GetSeqKmerInfoArr] kmerInfoArr[%v]: %v\n", i, ki)
+	}
+	return kmerInfoArr
+}
+func TransformMKIArrToChainArr(kb []MapingKmerInfo) []Chain {
+	ca := make([]Chain, len(kb))
+	for i, mki := range kb {
+		var ch Chain
+		ch.X = mki.GetEPos()
+		ch.Y = mki.GetRPos()
+		ch.Len = uint32(mki.Len)
+		ca[i] = ch
+	}
+
+	return ca
+}
+
+func AlignmentBlocks(refSeq []byte, querySeqArr [][]byte, SeedLen uint32) []CIGAR {
+	kmerInfoArrA := GetSeqKmerInfoArr(refSeq, 1, int(SeedLen))
+	sort.Sort(KIArr(kmerInfoArrA))
+	var kmerInfoArrB []KmerInfo
+	startID := uint32(0)
+	for i, seq := range querySeqArr {
+		kmerInfoArrB = append(kmerInfoArrB, GetSeqKmerInfoArr(seq, startID+uint32(i), int(SeedLen))...)
+	}
+	sort.Sort(KIArr(kmerInfoArrA))
+	sort.Sort(KIArr(kmerInfoArrB))
+	/*for i, ki := range kmerInfoArrA {
+		fmt.Printf("[AlignmentBlocks] kmerInfoArrA[%v]: %v\n", i, ki)
+	}
+	for i, ki := range kmerInfoArrB {
+		fmt.Printf("[AlignmentBlocks] kmerInfoArrB[%v]: %v\n", i, ki)
+	}*/
+	bucketInterSecKmerInfoArr := GetInterSectionKmerInfo(kmerInfoArrA, kmerInfoArrB, len(querySeqArr), startID, uint16(SeedLen))
+	cgArr := make([]CIGAR, len(querySeqArr))
+	// loop process every edge
+	for i, ka := range bucketInterSecKmerInfoArr {
+		//qID := startID + uint32(i)
+		sort.Sort(MapingKmerInfoArr(ka))
+		/*for j, cb := range kb {
+			fmt.Printf("[AlignmentBlocks]ReadID: %v, kb[%v]: ReadPos: %v, EdgePos: %v, Strand: %v, Len: %v\n", cb.EID, j, cb.GetEPos(), cb.GetRPos(), cb.GetStrand(), cb.Len)
+		}*/
+		kb := GetChainBlocks(ka)
+		/*for j, cb := range kb {
+			fmt.Printf("[AlignmentBlocks]edgeID: %v, kb[%v]: ReadPos: %v, EdgePos: %v, Strand: %v, Len: %v\n", i, j, cb.GetEPos(), cb.GetRPos(), cb.GetStrand(), cb.Len)
+		}*/
+		sort.Sort(MapingKmerInfoArr(kb))
+		chainBlocks := TransformMKIArrToChainArr(kb)
+		maxChainArr := GetMaxScoreChainArr(chainBlocks)
+		if len(maxChainArr) == 0 {
+			continue
+		}
+		sort.Sort(ChainArr(maxChainArr))
+		/*for j, cb := range maxChainArr {
+			fmt.Printf("[AlignmentBlocks]maxChainArr[%v]: X: %v, Y: %v, Len: %v\n", j, cb.X, cb.Y, cb.Len)
+		}*/
+		//maxScore := GetMaxScoreFromChainBlocks(maxChainArr, 1)
+		if len(maxChainArr) == 0 {
+			continue
+		}
+		cgArr[i] = DPLocalAlign(refSeq, querySeqArr[i], maxChainArr)
+		fmt.Printf("[AlignmentBlocks]cgArr[%v]: %v\n", i, cgArr[i])
+
+	}
+	return cgArr
 }
 
 func DPAlignEdgePathExtend(pathSeq, readSeq []byte, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode) (cg CIGAR, chainScore int, alignEdgePos, alignReadPos int) {
@@ -3153,6 +3276,37 @@ func IsBubbleEdge(e constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode) bool 
 	} else {
 		return false
 	}
+
+}
+
+func GetBubbleEIDArr(e constructdbg.DBGEdge, edgesArr []constructdbg.DBGEdge, nodesArr []constructdbg.DBGNode) []constructdbg.DBG_MAX_INT {
+	var arr []constructdbg.DBG_MAX_INT
+	if (e.StartNID < 2) || (e.EndNID < 2) {
+		return arr
+	}
+	var ea1, ea2 []constructdbg.DBG_MAX_INT
+
+	if constructdbg.IsInComing(nodesArr[e.StartNID].EdgeIDIncoming, e.ID) {
+		ea1 = constructdbg.GetComingOtherEArr(nodesArr[e.StartNID].EdgeIDIncoming, e.ID)
+	} else {
+		ea1 = constructdbg.GetComingOtherEArr(nodesArr[e.StartNID].EdgeIDOutcoming, e.ID)
+	}
+	if constructdbg.IsInComing(nodesArr[e.EndNID].EdgeIDIncoming, e.ID) {
+		ea2 = constructdbg.GetComingOtherEArr(nodesArr[e.EndNID].EdgeIDIncoming, e.ID)
+	} else {
+		ea2 = constructdbg.GetComingOtherEArr(nodesArr[e.EndNID].EdgeIDOutcoming, e.ID)
+	}
+
+	arr = constructdbg.InterSecDBG_MAX_INTArr(ea1, ea2)
+	var newArr []constructdbg.DBG_MAX_INT
+	for _, id := range arr {
+		ne := edgesArr[id]
+		if ne.StartNID == e.StartNID && ne.EndNID == e.EndNID {
+			newArr = append(newArr, id)
+		}
+	}
+	newArr = append(newArr, e.ID)
+	return newArr
 
 }
 
