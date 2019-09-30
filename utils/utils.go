@@ -50,3 +50,11 @@ func AbsInt(a int) int {
 		return a
 	}
 }
+
+func MaxInt(a, b int) int {
+	if a > b {
+		return a
+	} else {
+		return b
+	}
+}

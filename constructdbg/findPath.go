@@ -11,6 +11,7 @@ import (
 	"reflect"
 
 	"github.com/mudesheng/ga/bnt"
+	"github.com/mudesheng/ga/utils"
 	//"github.com/mudesheng/ga/constructdbg"
 	//"ga/constructcf"
 
@@ -5548,11 +5549,17 @@ func ParseUniquePath(edgesArr []DBGEdge, nodesArr []DBGNode, LongPathMatArr [][]
 }
 
 func IsBubbleEdge(edge DBGEdge, nodesArr []DBGNode, edgesArr []DBGEdge) (b bool) {
-	if edge.StartNID > 0 {
+	if edge.StartNID > 0 && len(edge.Utg.Ks) < 1000 {
 		eIDArr := GetOtherEArr(nodesArr[edge.StartNID], edge.ID)
-		if len(eIDArr) == 1 {
+		if len(eIDArr) >= 1 {
 			e2 := edgesArr[eIDArr[0]]
+			if utils.AbsInt(len(e2.Utg.Ks)-len(edge.Utg.Ks)) > 100 {
+				b = false
+				return
+			}
 			if e2.StartNID == edge.StartNID && e2.EndNID == edge.EndNID {
+				b = true
+			} else if e2.StartNID == edge.EndNID && e2.EndNID == edge.StartNID {
 				b = true
 			}
 		}
@@ -5568,6 +5575,8 @@ func IsBubble(eID1, eID2 DBG_MAX_INT, edgesArr []DBGEdge) (b bool) {
 	}
 
 	if e1.StartNID == e2.StartNID && e1.EndNID == e2.EndNID {
+		b = true
+	} else if e1.StartNID == e2.EndNID && e1.EndNID == e2.StartNID {
 		b = true
 	}
 

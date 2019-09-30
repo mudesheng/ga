@@ -18,6 +18,7 @@ import (
 	"github.com/mudesheng/ga/cbrotli"
 	"github.com/mudesheng/ga/constructcf"
 	"github.com/mudesheng/ga/constructdbg"
+	"github.com/mudesheng/ga/utils"
 )
 
 const (
@@ -1230,14 +1231,6 @@ func GetChainArr(interSecArr []Chain, seedKmerLen uint32) (chainA []Chain) {
 	return
 }
 
-func AbsInt(a int) int {
-	if a >= 0 {
-		return a
-	} else {
-		return 0 - a
-	}
-}
-
 func FindBestNearChain(chainBlocks []Chain, lastChain Chain, direction uint8, MaxGapLen, GapCost int) (max int, pos int) {
 	max = math.MinInt32
 	for i := 0; i < len(chainBlocks); i++ {
@@ -1270,9 +1263,9 @@ func FindBestNearChain(chainBlocks []Chain, lastChain Chain, direction uint8, Ma
 func GetNearChainScore(nc, lastc Chain, direction uint8, MaxGapLen, GapCost int) (sc int) {
 	var gapLen int
 	if direction == constructdbg.BACKWARD {
-		gapLen = AbsInt((int(lastc.X) - int(nc.X)) - (int(lastc.Y) - int(nc.Y)))
+		gapLen = utils.AbsInt((int(lastc.X) - int(nc.X)) - (int(lastc.Y) - int(nc.Y)))
 	} else {
-		gapLen = AbsInt((int(nc.X) - int(lastc.X)) - (int(nc.Y) - int(lastc.Y)))
+		gapLen = utils.AbsInt((int(nc.X) - int(lastc.X)) - (int(nc.Y) - int(lastc.Y)))
 	}
 	sc = int(nc.Len) - gapLen*GapCost
 	/*if gapLen > MaxGapLen {
@@ -1298,7 +1291,7 @@ func GetTwoAnchorScore(lastc, nc Chain, GapCost int) (sc int) {
 	min := constructdbg.Min(dX, dY)
 	//a := constructdbg.Min(min, int(nc.Len))
 	a := int(nc.Len)
-	gapLen = AbsInt(dX - dY)
+	gapLen = utils.AbsInt(dX - dY)
 	if gapLen > min/5+20 {
 		sc = 0
 		return
@@ -1782,7 +1775,34 @@ func GetChainBlocksSimple(interSecSortArr []Chain, strand bool, seedKmerLen uint
 	return
 }
 
-func BlockToAnchorsScoreArrSimple(chainBlocks []Chain, idx int, scoreArr []int, visitArr []bool) []int {
+func CutBoundary(cen, cb Chain, direction uint8) Chain {
+	if direction == constructdbg.FORWARD {
+		dX := int(cen.X) + int(cen.Len) - int(cb.X)
+		dY := int(cen.Y) + int(cen.Len) - int(cb.Y)
+		max := utils.MaxInt(dX, dY)
+		if max > 0 {
+			if max > int(cb.Len) {
+				max = int(cb.Len)
+			}
+			cb.X += uint32(max)
+			cb.Y += uint32(max)
+			cb.Len -= uint32(max)
+		}
+	} else {
+		dX := int(cb.X) + int(cb.Len) - int(cen.X)
+		dY := int(cb.Y) + int(cb.Len) - int(cen.Y)
+		max := utils.MaxInt(dX, dY)
+		if max > 0 {
+			if max > int(cb.Len) {
+				max = int(cb.Len)
+			}
+			cb.Len -= uint32(max)
+		}
+	}
+	return cb
+}
+
+func BlockToAnchorsScoreArrSimple(chainBlocks []Chain, idx int, scoreArr []int, visitArr []bool, SeedLen uint32) []int {
 	cen := chainBlocks[idx]
 	// BACKWARD
 	for i := idx - 1; i >= 0; i-- {
@@ -1795,8 +1815,13 @@ func BlockToAnchorsScoreArrSimple(chainBlocks []Chain, idx int, scoreArr []int, 
 		cb := chainBlocks[i]
 		// chainBlocks overlap region
 		if cb.X+cb.Len > cen.X || cb.Y+cb.Len > cen.Y {
-			scoreArr[i] = math.MinInt32
-			continue
+			cb = CutBoundary(cen, cb, constructdbg.BACKWARD)
+			if cb.Len >= SeedLen {
+				chainBlocks[i] = cb
+			} else {
+				scoreArr[i] = math.MinInt32
+				continue
+			}
 		}
 		sc := GetTwoAnchorScore(cen, cb, 1)
 		if sc > scoreArr[i] {
@@ -1815,8 +1840,13 @@ func BlockToAnchorsScoreArrSimple(chainBlocks []Chain, idx int, scoreArr []int, 
 		cb := chainBlocks[i]
 		// chainBlocks overlap region
 		if cen.X+cen.Len > cb.X || cen.Y+cen.Len > cb.Y {
-			scoreArr[i] = math.MinInt32
-			continue
+			cb = CutBoundary(cen, cb, constructdbg.FORWARD)
+			if cb.Len >= SeedLen {
+				chainBlocks[i] = cb
+			} else {
+				scoreArr[i] = math.MinInt32
+				continue
+			}
 		}
 		sc := GetTwoAnchorScore(cen, cb, 1)
 		if sc > scoreArr[i] {
@@ -1840,7 +1870,7 @@ func GetMaxScoreFromBsASimple(bsA []int, visitArr []bool) (max Score) {
 	return
 }
 
-func GetMaxScoreChainArr(chainBlocks []Chain) (maxChainArr []Chain) {
+func GetMaxScoreChainArr(chainBlocks []Chain, SeedLen uint32) (maxChainArr []Chain) {
 	maxLen := uint32(0)
 	idx := -1
 	for i, cb := range chainBlocks {
@@ -1862,7 +1892,7 @@ func GetMaxScoreChainArr(chainBlocks []Chain) (maxChainArr []Chain) {
 	maxChainArr = append(maxChainArr, chainBlocks[idx])
 	bsA := make([]int, len(chainBlocks))
 	bsA[idx] = int(anchor.Len)
-	BlockToAnchorsScoreArrSimple(chainBlocks, idx, bsA, visitArr)
+	BlockToAnchorsScoreArrSimple(chainBlocks, idx, bsA, visitArr, uint32(SeedLen))
 	fmt.Printf("[GetMaxScoreChainArr]anchor[%v]: %v\n", idx, anchor)
 	for {
 		maxSc := GetMaxScoreFromBsASimple(bsA, visitArr)
@@ -1875,7 +1905,7 @@ func GetMaxScoreChainArr(chainBlocks []Chain) (maxChainArr []Chain) {
 		visitArr[maxSc.Idx] = true
 		//fmt.Printf("[GetMaxScoreChainArr]next[%v]: %v, score: %v\n", maxSc.Idx, chainBlocks[maxSc.Idx], maxSc.Sc)
 		maxChainArr = append(maxChainArr, chainBlocks[maxSc.Idx])
-		BlockToAnchorsScoreArrSimple(chainBlocks, maxSc.Idx, bsA, visitArr)
+		BlockToAnchorsScoreArrSimple(chainBlocks, maxSc.Idx, bsA, visitArr, uint32(SeedLen))
 	}
 	return
 }
@@ -1900,7 +1930,7 @@ func GetMaxChainArrSimple(interSecSortArr []Chain, strand bool, seedKmerLen uint
 	/*for i, cb := range chainBlocks {
 		fmt.Printf("[GetMaxChainArrSimple]Blocks[%v]: %v\n", i, cb)
 	}*/
-	maxChainArr = GetMaxScoreChainArr(chainBlocks)
+	maxChainArr = GetMaxScoreChainArr(chainBlocks, seedKmerLen)
 	if len(maxChainArr) == 0 {
 		return
 	}
@@ -2243,7 +2273,7 @@ func DPLocalAlign(edgesSeq, readSeq []byte, chainA []Chain) (cg CIGAR) {
 		} else if pYEnd == ch.Y {
 			cg.Del += ch.X - pXEnd
 			continue
-		} else if xlen != ylen && AbsInt(xlen-ylen) == 2 {
+		} else if xlen != ylen && utils.AbsInt(xlen-ylen) == 2 {
 			if xlen < ylen {
 				if reflect.DeepEqual(edgesSeq[pXEnd:ch.X], readSeq[int(pYEnd)+1:ch.Y-1]) {
 					cg.Ins += uint32(ylen - xlen)
@@ -2463,7 +2493,7 @@ func AlignmentBlocks(refSeq []byte, querySeqArr [][]byte, SeedLen uint32) []CIGA
 		}*/
 		sort.Sort(MapingKmerInfoArr(kb))
 		chainBlocks := TransformMKIArrToChainArr(kb)
-		maxChainArr := GetMaxScoreChainArr(chainBlocks)
+		maxChainArr := GetMaxScoreChainArr(chainBlocks, SeedLen)
 		if len(maxChainArr) == 0 {
 			continue
 		}
@@ -2477,7 +2507,6 @@ func AlignmentBlocks(refSeq []byte, querySeqArr [][]byte, SeedLen uint32) []CIGA
 		}
 		cgArr[i] = DPLocalAlign(refSeq, querySeqArr[i], maxChainArr)
 		fmt.Printf("[AlignmentBlocks]cgArr[%v]: %v\n", i, cgArr[i])
-
 	}
 	return cgArr
 }
@@ -3298,15 +3327,8 @@ func GetBubbleEIDArr(e constructdbg.DBGEdge, edgesArr []constructdbg.DBGEdge, no
 	}
 
 	arr = constructdbg.InterSecDBG_MAX_INTArr(ea1, ea2)
-	var newArr []constructdbg.DBG_MAX_INT
-	for _, id := range arr {
-		ne := edgesArr[id]
-		if ne.StartNID == e.StartNID && ne.EndNID == e.EndNID {
-			newArr = append(newArr, id)
-		}
-	}
-	newArr = append(newArr, e.ID)
-	return newArr
+	arr = append(arr, e.ID)
+	return arr
 
 }
 
