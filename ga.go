@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"math"
 	"net/http"
 	_ "net/http/pprof"
 
@@ -49,44 +50,63 @@ func init() {
 	{
 		//pp.DefineInt64Flag("k", 89, "correct cukcoofilter kmer used")
 		pp.DefineInt64Flag("S", 0, "the Size number of items cuckoofilter set")
-		pp.DefineIntFlag("tipMaxLen", 0, "Maximum tip length, default[0] for MaxNGSReadLen")
+		pp.DefineIntFlag("tipMaxLen", 250, "Maximum tip length, default for MaxNGSReadLen")
 		pp.DefineIntFlag("WinSize", 5, "th size of sliding window for DBG edge Sample")
 		pp.DefineIntFlag("MaxNGSReadLen", 250, "Max NGS Read Length")
-		pp.DefineBoolFlag("Correct", true, "Correct NGS Read and merge pair reads")
+		pp.DefineBoolFlag("Correct", false, "Correct NGS Read")
+		pp.DefineBoolFlag("Merge", false, "Merge pair reads")
+		pp.DefineIntFlag("MinKmerFreq", 3, "Min Kmer Freq allown store")
 		//pp.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length(-K * 2)")
 	}
 	ccf := app.DefineSubCommand("ccf", "construct cukcoofilter", constructcf.CCF)
 	{
 		ccf.DefineInt64Flag("S", 0, "the Size number of items cuckoofilter set")
 		ccf.DefineBoolFlag("Correct", false, "Correct NGS Read and merge pair reads")
+		ccf.DefineBoolFlag("Merge", false, "merge pair reads")
+		ccf.DefineIntFlag("MinKmerFreq", 2, "Min Kmer Freq allown store")
 	}
 	cdbg := app.DefineSubCommand("cdbg", "construct De bruijn Graph", constructdbg.CDBG)
 	{
-		cdbg.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length(-K * 2)")
+		cdbg.DefineIntFlag("tipMaxLen", 550, "Maximum tip length(-K * 2)")
+		cdbg.DefineIntFlag("MinKmerFreq", 2, "Min Kmer Freq allown Extend")
+		cdbg.DefineIntFlag("MaxNGSReadLen", 550, "Max NGS Read Length")
 	}
 
-	smfy := app.DefineSubCommand("smfy", "find Illumina reads path and simplify De bruijn Graph", constructdbg.Smfy)
+	smfy := app.DefineSubCommand("smfy", "Simplify De bruijn Graph", constructdbg.Smfy)
 	{
-		smfy.DefineIntFlag("tipMaxLen", 0, "Maximum tip length, default[0] for MaxNGSReadLen")
-		smfy.DefineIntFlag("WinSize", 10, "th size of sliding window for DBG edge Sample")
-		smfy.DefineIntFlag("MaxNGSReadLen", 450, "Max NGS Read Length")
-		smfy.DefineIntFlag("MinMapFreq", 5, "Minimum reads Mapping Frequent")
+		smfy.DefineIntFlag("TipMaxLen", 550, "Maximum tip length, default[0] for MaxNGSReadLen")
+		smfy.DefineIntFlag("WinSize", 5, "th size of sliding window for DBG edge Sample")
+		smfy.DefineIntFlag("MaxNGSReadLen", 550, "Max NGS Read Length")
+		smfy.DefineIntFlag("MinMapFreq", 3, "Minimum reads Mapping Frequent")
 		smfy.DefineBoolFlag("Correct", false, "Correct NGS Read and merge pair reads")
+		smfy.DefineBoolFlag("Graph", false, "output dot graph file")
 		//smfy.DefineIntFlag("MaxMapEdgeLen", 2000, "Max Edge length for mapping Long Reads")
 	}
+	mapNGS := app.DefineSubCommand("MapNGS", "find Illumina reads path", constructdbg.MapNGS)
+	{
+		mapNGS.DefineIntFlag("TipMaxLen", 0, "Maximum tip length, default[0] for MaxNGSReadLen")
+		mapNGS.DefineIntFlag("WinSize", 5, "th size of sliding window for DBG edge Sample")
+		mapNGS.DefineIntFlag("MaxNGSReadLen", 550, "Max NGS Read Length")
+		mapNGS.DefineIntFlag("MinMapFreq", 3, "Minimum reads Mapping Frequent")
+		mapNGS.DefineBoolFlag("Correct", false, "Correct NGS Read and merge pair reads")
+		mapNGS.DefineBoolFlag("Graph", false, "output dot graph file")
+	}
+
 	decontdbg := app.DefineSubCommand("decdbg", "deconstruct DBG using Long Reads Mapping info", deconstructdbg.DeconstructDBG)
 	{
 		decontdbg.DefineIntFlag("MinDepth", 2, "Mininum coverage by long reads")
-		decontdbg.DefineIntFlag("AvgDepth", 50, "average coverage estimate by long reads")
-		decontdbg.DefineIntFlag("MinUniqueEdgeLen", 5000, "min allow unique edge merge clean bubble")
+		decontdbg.DefineIntFlag("AvgDepth", 40, "average coverage estimate by long reads")
+		decontdbg.DefineIntFlag("MinUniqueEdgeLen", 200, "min allow unique edge merge clean bubble")
 		decontdbg.DefineIntFlag("AvgReadLen", 12000, "average long read length")
-		decontdbg.DefineIntFlag("WinSize", 5, "the size of sliding window for DBG edge Sample")
+		decontdbg.DefineIntFlag("WinSize", 14, "the size of sliding window for DBG edge Sample[SeedLen* 2/3]")
 		decontdbg.DefineIntFlag("MaxNGSReadLen", 550, "Max NGS Read Length")
-		decontdbg.DefineIntFlag("MinMapFreq", 3, "Minimum reads Mapping Frequent")
+		decontdbg.DefineIntFlag("MinMapFreq", 2, "Minimum reads Mapping Frequent")
 		decontdbg.DefineIntFlag("ExtLen", 1000, "Extend Path length for distingush most probable path")
+		decontdbg.DefineFloat64Flag("MinChainScoreIdentityPercent", 0.2, "Min Chain Score Identity Percent[0~1]")
 		decontdbg.DefineStringFlag("LongReadFile", "ONT.fa", "Oxford Nanopore Technology long reads file")
-		decontdbg.DefineBoolFlag("Correct", false, "Correct NGS Read and merge pair reads")
-
+		decontdbg.DefineBoolFlag("Correct", false, "Correct NGS Read and merge pair reads[false]")
+		decontdbg.DefineBoolFlag("Haplotype", true, "Enable Haplotype model[true]")
+		decontdbg.DefineBoolFlag("Debug", false, "Enable Debug model[false]")
 	}
 	// mapping long read to the DBG
 	mapDBG := app.DefineSubCommand("mapDBG", "mapping long read to the DBG", constructdbg.MapDBG)
@@ -108,6 +128,25 @@ func init() {
 	fpath := app.DefineSubCommand("fpath", "Merge Parse short and long read path", constructdbg.Fpath)
 	{
 		fpath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
+	}
+	// merge find short and long read mapping path
+	extractpairend := app.DefineSubCommand("extractpairend", "Extract mixtrue pair end reads to two single file", constructcf.ExtractPairEnd)
+	{
+		extractpairend.DefineStringFlag("input", "/dev/stdin", "input *.fq.br file name")
+		extractpairend.DefineStringFlag("IDFile", "", "read ID list file")
+		extractpairend.DefineStringFlag("prefix", "paired_output", "prefix of output file")
+		extractpairend.DefineStringFlag("format", "fa", "output format[fq|fa]")
+		extractpairend.DefineIntFlag("startID", 1, "start read ID")
+		extractpairend.DefineIntFlag("SplitRecordNum", math.MaxUint32, "split big file to mutli files by SplitRecordNum")
+		//extractpairend.DefineIntFlag("splitNum", 1, "split output file number")
+	}
+	filterlong := app.DefineSubCommand("filterlong", "filter long reads", constructcf.FilterLong)
+	{
+		filterlong.DefineStringFlag("input", "", "input *.fq.gz file name")
+		filterlong.DefineStringFlag("output", "output.fa.br", "output file name")
+		filterlong.DefineIntFlag("startID", 0, "start read ID")
+		filterlong.DefineIntFlag("minLen", 5000, "filter by read seq length")
+		filterlong.DefineIntFlag("minMeanQuality", 7, "filter by mean quality")
 	}
 }
 

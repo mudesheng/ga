@@ -4,6 +4,10 @@
 test/*
 svg/*
 tmp*
+tmp/*
 *.gz
 ga*
 GA*
+*.svg
+*.gz
+*.br

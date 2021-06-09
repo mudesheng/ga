@@ -1,7 +1,9 @@
 package utils
 
 import (
+	"errors"
 	"log"
+	"unsafe"
 
 	"github.com/jwaldrip/odin/cli"
 	//"fmt"
@@ -57,4 +59,71 @@ func MaxInt(a, b int) int {
 	} else {
 		return b
 	}
+}
+
+func MaxUint8(a, b uint8) uint8 {
+	if a > b {
+		return a
+	} else {
+		return b
+	}
+}
+
+func MinInt(a, b int) int {
+	if a > b {
+		return b
+	} else {
+		return a
+	}
+}
+
+func MaxUint32(a, b uint32) uint32 {
+	if a > b {
+		return a
+	} else {
+		return b
+	}
+}
+
+func MinUint32(a, b uint32) uint32 {
+	if a > b {
+		return b
+	} else {
+		return a
+	}
+}
+
+func ByteArrInt(id []byte) (d int, err error) {
+	//err := nil
+	for _, c := range id {
+		if c < '0' || c > '9' {
+			err = errors.New("can't convert to digit...")
+			return d, err
+		}
+		d = d*10 + int(c-'0')
+	}
+	return d, nil
+}
+
+func Bytes2String(b []byte) string {
+	return *(*string)(unsafe.Pointer(&b))
+}
+
+func BytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	return Bytes2String(a) == Bytes2String(b)
+}
+
+func BytesEqual2(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

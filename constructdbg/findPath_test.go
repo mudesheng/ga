@@ -1,9 +1,5 @@
 package constructdbg
 
-import (
-	"testing"
-)
+/*func test(t *testing.T) {
 
-func test(t *testing.T) {
-
-}
+}*/

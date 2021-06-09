@@ -1540,7 +1540,7 @@ func MapDBG(c cli.Command) {
 
 	//argsCheck(c)
 	fnName := c.Parent().Flag("C").String()
-	cfgInfo, err := constructcf.ParseCfg(string(fnName), false)
+	cfgInfo, err := constructcf.ParseCfg(string(fnName), false, false)
 	if err != nil {
 		log.Fatal("[parseCfg] found parseCfg err")
 	}

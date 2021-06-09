@@ -1,24 +1,29 @@
 {
+  "logger": {
+    "title": "Remote Sync"
+  },
   "uploadOnSave": true,
   "useAtomicWrites": true,
   "deleteLocal": false,
-  "hostname": "10.168.1.226",
+  "hostname": "192.168.31.254",
   "port": "22",
   "target": "/home/mds/go/src/github.com/mudesheng/ga",
   "ignore": [
-    "*.fish",
-    "*.cfg",
-    "tags*",
+    ".fish",
+    ".cfg",
+    "tags",
     "tmp",
-    "*.svg",
-    "*.out",
-    "*.err",
+    "tmp/**",
+    ".svg",
+    ".out",
+    ".err",
     "ga",
     ".remote-sync.json",
-    ".git/**"
+    ".git/**",
+    ".**"
   ],
   "username": "mds",
-  "keyfile": "/Users/mds/.ssh/id_rsa",
   "watch": [],
-  "transport": "scp"
+  "transport": "scp",
+  "keyfile": "/Users/mudesheng/.ssh/id_rsa"
 }

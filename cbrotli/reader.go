@@ -31,9 +31,9 @@ import "C"
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 )
 
 type decodeError C.BrotliDecoderErrorCode
@@ -59,7 +59,9 @@ type Reader struct {
 // readBufSize is a "good" buffer size that avoids excessive round-trips
 // between C and Go but doesn't waste too much memory on buffering.
 // It is arbitrarily chosen to be equal to the constant used in io.Copy.
-const readBufSize = 32 * 1024
+const readBufSize = 512 * 1024
+
+//const readBufMin = 30 * 1024
 
 // NewReader initializes new Reader instance.
 // Close MUST be called to free resources.
@@ -68,20 +70,6 @@ func NewReader(src io.Reader) *Reader {
 		src:   src,
 		state: C.BrotliDecoderCreateInstance(nil, nil, nil),
 		buf:   make([]byte, readBufSize),
-	}
-}
-
-func NewReaderSize(src io.Reader, size int) *Reader {
-	if size < readBufSize {
-		size = readBufSize
-	}
-	if size > (1 << 28) {
-		log.Fatalf("[NewReaderSize] size: %d must <= %d\n", size, 1<<28)
-	}
-	return &Reader{
-		src:   src,
-		state: C.BrotliDecoderCreateInstance(nil, nil, nil),
-		buf:   make([]byte, size),
 	}
 }
 
@@ -97,8 +85,13 @@ func (r *Reader) Close() error {
 }
 
 func (r *Reader) Read(p []byte) (n int, err error) {
+	if r.state == nil {
+		return 0, errReaderClosed
+	}
 	if int(C.BrotliDecoderHasMoreOutput(r.state)) == 0 && len(r.in) == 0 {
 		m, readErr := r.src.Read(r.buf)
+		//m, readErr := io.ReadAtLeast(r.src, r.buf, readBufMin)
+		//fmt.Printf("[r.src.Read]read %d bytes,err: %v\n", m, readErr)
 		if m == 0 {
 			// If readErr is `nil`, we just proxy underlying stream behavior.
 			return 0, readErr
@@ -150,6 +143,8 @@ func (r *Reader) Read(p []byte) (n int, err error) {
 
 		// Top off the buffer.
 		encN, err := r.src.Read(r.buf)
+		///encN, err := io.ReadAtLeast(r.src, r.buf, readBufMin)
+		fmt.Printf("[r.src.Read]read %d bytes,err: %v\n", encN, err)
 		if encN == 0 {
 			// Not enough data to complete decoding.
 			if err == io.EOF {
@@ -160,7 +155,7 @@ func (r *Reader) Read(p []byte) (n int, err error) {
 		r.in = r.buf[:encN]
 	}
 
-	//return n, nil
+	return n, nil
 }
 
 // Decode decodes Brotli encoded data.

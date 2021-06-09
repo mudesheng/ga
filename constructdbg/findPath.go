@@ -783,6 +783,117 @@ func WriteShortPathToDBG(wc chan []DBG_MAX_INT, edgesArr []DBGEdge, numCPU int) 
 	fmt.Printf("[WriteShortPathToDBG] total path num: %d, total path length: %d\n", totalPathNum, totalPathLen)
 }
 
+func GetNextEdgeIDArr(e *DBGEdge, nodesArr []DBGNode, strand bool, direction uint8) (eIDArr []DBG_MAX_INT) {
+	if direction == FORWARD {
+		if strand == PLUS {
+			if e.EndNID == 0 {
+				return
+			}
+			nd := nodesArr[e.EndNID]
+			if e.StartNID == e.EndNID {
+				if IsInComing(nd.EdgeIDIncoming, e.ID) && IsInComing(nd.EdgeIDOutcoming, e.ID) {
+					eIDArr = GetNearEdgeIDArr(nd, e.ID, true)
+				} else {
+					if IsInComing(nd.EdgeIDIncoming, e.ID) {
+						eIDArr = GetNearEdgeIDArr(nd, e.ID, true)
+					} else {
+						eIDArr = GetNearEdgeIDArr(nd, e.ID, false)
+					}
+				}
+			} else {
+				eIDArr = GetNextEIDArr(e.ID, nd)
+			}
+		} else {
+			if e.StartNID == 0 {
+				return
+			}
+			nd := nodesArr[e.StartNID]
+			if e.StartNID == e.EndNID {
+				if IsInComing(nd.EdgeIDIncoming, e.ID) && IsInComing(nd.EdgeIDOutcoming, e.ID) {
+					eIDArr = GetNearEdgeIDArr(nd, e.ID, false)
+				} else {
+					if IsInComing(nd.EdgeIDIncoming, e.ID) {
+						eIDArr = GetNearEdgeIDArr(nd, e.ID, true)
+					} else {
+						eIDArr = GetNearEdgeIDArr(nd, e.ID, false)
+					}
+				}
+			} else {
+				eIDArr = GetNextEIDArr(e.ID, nd)
+			}
+		}
+	} else {
+		if strand == PLUS {
+			if e.StartNID == 0 {
+				return
+			}
+			nd := nodesArr[e.StartNID]
+			if e.StartNID == e.EndNID {
+				if IsInComing(nd.EdgeIDIncoming, e.ID) && IsInComing(nd.EdgeIDOutcoming, e.ID) {
+					eIDArr = GetNearEdgeIDArr(nd, e.ID, false)
+				} else {
+					if IsInComing(nd.EdgeIDIncoming, e.ID) {
+						eIDArr = GetNearEdgeIDArr(nd, e.ID, true)
+					} else {
+						eIDArr = GetNearEdgeIDArr(nd, e.ID, false)
+					}
+				}
+			} else {
+				eIDArr = GetNextEIDArr(e.ID, nd)
+			}
+		} else {
+			if e.EndNID == 0 {
+				return
+			}
+			nd := nodesArr[e.EndNID]
+			if e.StartNID == e.EndNID {
+				if IsInComing(nd.EdgeIDIncoming, e.ID) && IsInComing(nd.EdgeIDOutcoming, e.ID) {
+					eIDArr = GetNearEdgeIDArr(nd, e.ID, true)
+				} else {
+					if IsInComing(nd.EdgeIDIncoming, e.ID) {
+						eIDArr = GetNearEdgeIDArr(nd, e.ID, true)
+					} else {
+						eIDArr = GetNearEdgeIDArr(nd, e.ID, false)
+					}
+				}
+			} else {
+				eIDArr = GetNextEIDArr(e.ID, nd)
+			}
+		}
+	}
+
+	return
+}
+
+func GetNextEIDArr(eID DBG_MAX_INT, node DBGNode) (neIDArr []DBG_MAX_INT) {
+	var direction uint8
+	for i := 0; i < bnt.BaseTypeNum; i++ {
+		if node.EdgeIDIncoming[i] == eID {
+			direction = BACKWARD
+			break
+		}
+		if node.EdgeIDOutcoming[i] == eID {
+			direction = FORWARD
+			break
+		}
+	}
+	if direction != BACKWARD && direction != FORWARD {
+		log.Fatalf("[GetNextEIDArr] direction not set\n")
+	}
+	for i := 0; i < bnt.BaseTypeNum; i++ {
+		if direction == FORWARD {
+			if node.EdgeIDIncoming[i] > 0 {
+				neIDArr = append(neIDArr, node.EdgeIDIncoming[i])
+			}
+		} else {
+			if node.EdgeIDOutcoming[i] > 0 {
+				neIDArr = append(neIDArr, node.EdgeIDOutcoming[i])
+			}
+		}
+	}
+	return neIDArr
+}
+
 func GetNextEID(eID DBG_MAX_INT, node DBGNode) (neID DBG_MAX_INT) {
 	var direction uint8
 	for i := 0; i < bnt.BaseTypeNum; i++ {
@@ -812,7 +923,7 @@ func GetNextEID(eID DBG_MAX_INT, node DBGNode) (neID DBG_MAX_INT) {
 			}
 		}
 	}
-	if num != 1 {
+	if num > 1 {
 		log.Fatalf("[GetNextEID] found %d edges\n", num)
 	}
 	return neID
@@ -897,6 +1008,13 @@ func IsUniqueEdge(edge DBGEdge, nodesArr []DBGNode) bool {
 	return true
 }
 
+func IsUniqueEdge2(e *DBGEdge) bool {
+	if e.GetUniqueFlag() > 0 || e.GetTwoEdgesCycleFlag() > 0 || e.GetBubbleFlag() > 0 {
+		return true
+	}
+	return false
+}
+
 func MergePath(pathMat []Path, beID DBG_MAX_INT) (uniquePath Path, num int) {
 	for _, p := range pathMat {
 		if p.IDArr[1] == beID {
@@ -936,6 +1054,46 @@ func IndexEID(arr []DBG_MAX_INT, eID DBG_MAX_INT) int {
 	return -1
 }
 
+func IndexEID2(arr []uint32, eID uint32) int {
+	for i, id := range arr {
+		if id == eID {
+			return i
+		}
+	}
+	return -1
+}
+
+func IndexLastEID(arr []DBG_MAX_INT, eID DBG_MAX_INT) int {
+	for i := len(arr) - 1; i >= 0; i-- {
+		id := arr[i]
+		if id == eID {
+			return i
+		}
+	}
+	return -1
+}
+
+func IndexEIDAllowDiffLen(arr []DBG_MAX_INT, eID DBG_MAX_INT, idx, diffLen int) int {
+	/*if idx < 0 || idx >= len(arr) {
+		log.Fatalf("[IndexEIDAllowDiffLen] idx: %v not between [0~%v]\n", idx, 0, len(arr))
+	}*/
+	for i := 0; i <= diffLen; i++ {
+		if idx-i >= 0 && idx-i < len(arr) {
+			if arr[idx-i] == eID {
+				return idx - i
+			}
+		}
+
+		if idx+i < len(arr) && idx+i >= 0 {
+			if arr[idx+i] == eID {
+				return idx + i
+			}
+		}
+	}
+
+	return -1
+}
+
 func IndexUniqueEdge(consisPathArr []DBG_MAX_INT, edgesArr []DBGEdge, direction uint8) int {
 	if direction == FORWARD {
 		for i, eID := range consisPathArr {
@@ -965,6 +1123,68 @@ func GetReverseDBG_MAX_INTArr(arr []DBG_MAX_INT) []DBG_MAX_INT {
 
 	return rarr
 
+}
+
+func GetReverseDBG_MAX_INTArr2(arr, rArr []DBG_MAX_INT) []DBG_MAX_INT {
+	la := len(arr)
+	if len(rArr) < la {
+		rArr = make([]DBG_MAX_INT, la)
+	} else {
+		rArr = rArr[:la]
+	}
+	for i, id := range arr {
+		rArr[la-1-i] = id
+	}
+	return rArr
+}
+
+func CountEdgeFreqArr(path []EdgeFreq, eID DBG_MAX_INT) (count int) {
+	for _, ef := range path {
+		if ef.ID == eID {
+			count++
+		}
+	}
+	return
+}
+
+func CountEIDArr(eIDArr []DBG_MAX_INT, eID DBG_MAX_INT) (count int) {
+	for _, id := range eIDArr {
+		if id == eID {
+			count++
+		}
+	}
+	return
+}
+
+func GetReverseEdgeFreqArr(arr, rArr []EdgeFreq) []EdgeFreq {
+	la := len(arr)
+	if cap(rArr) < la {
+		rArr = make([]EdgeFreq, la)
+	} else {
+		rArr = rArr[:la]
+	}
+	for i, ef := range arr {
+		rArr[la-1-i] = ef
+	}
+	return rArr
+}
+
+func GetReverseEdgeFreqArr2(arr []EdgeFreq) []EdgeFreq {
+	la := len(arr)
+	rArr := make([]EdgeFreq, la)
+	for i, ef := range arr {
+		rArr[la-1-i] = ef
+	}
+	return rArr
+}
+
+func ReverseEdgeFreqArr(arr []EdgeFreq) []EdgeFreq {
+	al := len(arr)
+	for i := 0; i < al/2; i++ {
+		arr[i], arr[al-1-i] = arr[al-1-i], arr[i]
+	}
+
+	return arr
 }
 
 func mutualReachable(a1, a2 []DBG_MAX_INT, eID1, eID2 DBG_MAX_INT) bool {
@@ -1120,13 +1340,11 @@ func DeleteEdgeID(nodesArr []DBGNode, nID, eID DBG_MAX_INT) (success bool) {
 }
 
 func IsInDBG_MAX_INTArr(arr []DBG_MAX_INT, eID DBG_MAX_INT) bool {
-
 	for _, id := range arr {
 		if id == eID {
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -2913,7 +3131,8 @@ func FSpath(c cli.Command) {
 	//StoreEdgesToFn(edgesfn, edgesArr, true)
 	StoreEdgesToFn(edgesfn, edgesArr)
 	nodesfn := prefix + ".nodes.ShortPath.Arr"
-	NodesArrWriter(nodesArr, nodesfn)
+	fc := make(chan int, 1)
+	NodesArrWriter(nodesArr, nodesfn, fc)
 }
 
 func Convert2LA(fields []string, RefIDMapArr []DBG_MAX_INT) (la LA) {
@@ -3827,6 +4046,15 @@ func IsInComing(eIDcoming [4]DBG_MAX_INT, eID DBG_MAX_INT) bool {
 func CountEdgeIDComing(eIDComing [4]DBG_MAX_INT, eID DBG_MAX_INT) (count int) {
 	for _, id := range eIDComing {
 		if id == eID {
+			count++
+		}
+	}
+	return
+}
+
+func CountNumEdgeIDComing(eIDComing [4]DBG_MAX_INT) (count int) {
+	for _, id := range eIDComing {
+		if id > 0 {
 			count++
 		}
 	}
@@ -5182,6 +5410,28 @@ func GetIndexDBG_MAX_INTArr(arr []DBG_MAX_INT, ele DBG_MAX_INT) int {
 	return idx
 }
 
+func GetIndexDBG_MAX_INTArrDirection(arr []DBG_MAX_INT, ele DBG_MAX_INT, direction uint8) int {
+	idx := -1
+	if direction == FORWARD {
+		for i, id := range arr {
+			if id == ele {
+				idx = i
+				break
+			}
+		}
+	} else {
+		for i := len(arr) - 1; i >= 0; i-- {
+			id := arr[i]
+			if id == ele {
+				idx = i
+				break
+			}
+		}
+	}
+
+	return idx
+}
+
 func GetCrossPathMat(neighbourEIDArr []DBG_MAX_INT, LongPathMatArr [][]Path, eID DBG_MAX_INT) (crossPathA []Path) {
 
 	for _, id := range neighbourEIDArr {
@@ -5548,24 +5798,30 @@ func ParseUniquePath(edgesArr []DBGEdge, nodesArr []DBGNode, LongPathMatArr [][]
 	return mergeMat
 }
 
-func IsBubbleEdge(edge DBGEdge, nodesArr []DBGNode, edgesArr []DBGEdge) (b bool) {
-	if edge.StartNID > 0 && len(edge.Utg.Ks) < 1000 {
-		eIDArr := GetOtherEArr(nodesArr[edge.StartNID], edge.ID)
-		if len(eIDArr) >= 1 {
-			e2 := edgesArr[eIDArr[0]]
-			if utils.AbsInt(len(e2.Utg.Ks)-len(edge.Utg.Ks)) > 100 {
+func IsBubbleEdge(e *DBGEdge, nodesArr []DBGNode, edgesArr []DBGEdge) (eIDArr []DBG_MAX_INT, b bool) {
+	if e.StartNID == 0 || e.EndNID == 0 || e.StartNID == e.EndNID {
+		return
+	}
+	arr1 := GetOtherEArr(nodesArr[e.StartNID], e.ID)
+	arr2 := GetOtherEArr(nodesArr[e.EndNID], e.ID)
+	eIDArr = InterSecDBG_MAX_INTArr(arr1, arr2)
+	if len(eIDArr) == len(arr1) && len(eIDArr) == len(arr2) {
+		for _, id := range eIDArr {
+			e2 := &edgesArr[id]
+			if utils.AbsInt(e.GetSeqLen()-e2.GetSeqLen()) > 100 {
 				b = false
 				return
 			}
-			if e2.StartNID == edge.StartNID && e2.EndNID == edge.EndNID {
-				b = true
-			} else if e2.StartNID == edge.EndNID && e2.EndNID == edge.StartNID {
-				b = true
+			if (e2.StartNID == e.StartNID && e2.EndNID == e.EndNID) || (e2.StartNID == e.EndNID && e2.EndNID == e.StartNID) {
+
+			} else {
+				return
 			}
 		}
+		b = true
 	}
 
-	return b
+	return
 }
 
 func IsBubble(eID1, eID2 DBG_MAX_INT, edgesArr []DBGEdge) (b bool) {
@@ -5613,7 +5869,7 @@ func StaticsLongPath(LongPathMatArr [][]Path, edgesArr []DBGEdge, nodesArr []DBG
 			freqdistri[freq]++
 		} else {
 			freqdistri[freq]++
-			if IsBubbleEdge(edgesArr[i], nodesArr, edgesArr) {
+			if _, ok := IsBubbleEdge(&edgesArr[i], nodesArr, edgesArr); ok {
 				bubbleNum++
 				// arr := GetOtherEArr(nodesArr[edgesArr[i].StartNID], edgesArr[i].ID)
 				// fmt.Fprintf(os.Stderr, "%v\n", freqNum[arr[0]])
@@ -5665,7 +5921,8 @@ func Fpath(c cli.Command) {
 	nodesSize, edgesSize := DBGStatReader(DBGStatfn)
 	smfyNodesfn := prefix + ".nodes.smfy.Arr"
 	nodesArr := make([]DBGNode, nodesSize)
-	NodesArrReader(smfyNodesfn, nodesArr, kmerlen)
+	fc := make(chan int, 1)
+	NodesArrReader(smfyNodesfn, nodesArr, kmerlen, fc)
 	// NodeMap2NodeArr(nodeMap, nodesArr)
 
 	// Restore edges info
@@ -5728,7 +5985,8 @@ func Fpath(c cli.Command) {
 	StoreEdgesToFn(edgesfn, edgesArr)
 	// StoreEdgesToFn(edgesfn, edgesArr, false)
 	nodesfn := prefix + ".nodes.LongPath.Arr"
-	NodesArrWriter(nodesArr, nodesfn)
+	fc1 := make(chan int, 1)
+	NodesArrWriter(nodesArr, nodesfn, fc1)
 	// CleanDBG(edgesArr, nodesArr)
 	// // simplify DBG
 	// // SmfyDBG(edgesArr, nodesArr)
