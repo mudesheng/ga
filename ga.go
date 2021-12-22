@@ -1,29 +1,22 @@
 package main
 
 import (
-	"log"
 	"math"
 	"net/http"
-	_ "net/http/pprof"
-
-	"github.com/mudesheng/ga/constructcf"
-	"github.com/mudesheng/ga/constructdbg"
-	//"./constructdbg"
-	//"./findPath"
+	"net/http/pprof"
 
 	"github.com/jwaldrip/odin/cli"
-	//"github.com/mudesheng/ga/constructdbg"
-	"github.com/mudesheng/ga/deconstructdbg"
-	"github.com/mudesheng/ga/preprocess"
 )
 
 //"./mapDBG"
 // "strconv"
 //	"fmt"
 
-const Kmerdef = 203
+//Kmerdef set default kmerlen
+const Kmerdef int = 203
 
-type GAArgs struct {
+//GAArgs used collect global args
+type gaArgs struct {
 	cfg         string
 	cpuproffile string
 	kmer        int
@@ -38,61 +31,66 @@ var app = cli.New("1.0.0", "Graph Assembler for complex genome", func(c cli.Comm
 
 func init() {
 	go func() {
-		log.Println(http.ListenAndServe("localhost:6090", nil))
+		r := http.NewServeMux()
+		r.Handle("/debug/pprof/", http.HandlerFunc(pprof.Index))
+		//log.Println(http.ListenAndServe("localhost:6090", nil))
+		http.ListenAndServe("localhost:8090", nil)
 	}()
 	app.DefineStringFlag("C", "ga.cfg", "configure file")
 	app.DefineStringFlag("cpuprofile", "cpu.prof", "write cpu profile to file")
 	app.DefineIntFlag("K", Kmerdef, "kmer length")
 	// app.DefineStringFlag("p", "K"+strconv.Itoa(Kmerdef), "prefix of the output file")
 	app.DefineStringFlag("p", "./test/t20150708/K203", "prefix of the output file")
-	app.DefineIntFlag("t", 1, "number of CPU used")
-	pp := app.DefineSubCommand("pp", "correct Illumina sequence reads and link pair end reads to single merged read", preprocess.Correct)
+	app.DefineIntFlag("t", 2, "number of CPU used")
+	pp := app.DefineSubCommand("pp", "correct Illumina sequence reads and link pair end reads to single merged read", Correct)
 	{
 		//pp.DefineInt64Flag("k", 89, "correct cukcoofilter kmer used")
-		pp.DefineInt64Flag("S", 0, "the Size number of items cuckoofilter set")
-		pp.DefineIntFlag("tipMaxLen", 250, "Maximum tip length, default for MaxNGSReadLen")
-		pp.DefineIntFlag("WinSize", 5, "th size of sliding window for DBG edge Sample")
+		pp.DefineIntFlag("S", 0, "the Size number of items cuckoofilter set")
+		pp.DefineIntFlag("TipMaxLen", 250, "Maximum tip length, default for MaxNGSReadLen")
+		pp.DefineIntFlag("WinSize", 8, "th size of sliding window for DBG edge Sample")
 		pp.DefineIntFlag("MaxNGSReadLen", 250, "Max NGS Read Length")
+		pp.DefineIntFlag("MinNGSReadLen", 250, "Max NGS Read Length")
 		pp.DefineBoolFlag("Correct", false, "Correct NGS Read")
 		pp.DefineBoolFlag("Merge", false, "Merge pair reads")
 		pp.DefineIntFlag("MinKmerFreq", 3, "Min Kmer Freq allown store")
 		//pp.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length(-K * 2)")
 	}
-	ccf := app.DefineSubCommand("ccf", "construct cukcoofilter", constructcf.CCF)
+	ccf := app.DefineSubCommand("ccf", "construct cukcoofilter", CCF)
 	{
-		ccf.DefineInt64Flag("S", 0, "the Size number of items cuckoofilter set")
+		ccf.DefineIntFlag("S", 0, "the Size number of items cuckoofilter set")
 		ccf.DefineBoolFlag("Correct", false, "Correct NGS Read and merge pair reads")
 		ccf.DefineBoolFlag("Merge", false, "merge pair reads")
-		ccf.DefineIntFlag("MinKmerFreq", 2, "Min Kmer Freq allown store")
+		ccf.DefineIntFlag("MinKmerFreq", 3, "Min Kmer Freq allown store")
 	}
-	cdbg := app.DefineSubCommand("cdbg", "construct De bruijn Graph", constructdbg.CDBG)
+	cdbg := app.DefineSubCommand("cdbg", "construct De bruijn Graph", CDBG)
 	{
-		cdbg.DefineIntFlag("tipMaxLen", 550, "Maximum tip length(-K * 2)")
-		cdbg.DefineIntFlag("MinKmerFreq", 2, "Min Kmer Freq allown Extend")
-		cdbg.DefineIntFlag("MaxNGSReadLen", 550, "Max NGS Read Length")
+		cdbg.DefineIntFlag("S", 0, "the Size number of items cuckoofilter set")
+		cdbg.DefineIntFlag("TipMaxLen", 250, "Maximum tip length(-K * 2)")
+		cdbg.DefineIntFlag("MinKmerFreq", 3, "Min Kmer Freq allown Extend")
+		cdbg.DefineIntFlag("MaxNGSReadLen", 250, "Max NGS Read Length")
 	}
 
-	smfy := app.DefineSubCommand("smfy", "Simplify De bruijn Graph", constructdbg.Smfy)
+	smfy := app.DefineSubCommand("smfy", "Simplify De bruijn Graph", Smfy)
 	{
-		smfy.DefineIntFlag("TipMaxLen", 550, "Maximum tip length, default[0] for MaxNGSReadLen")
-		smfy.DefineIntFlag("WinSize", 5, "th size of sliding window for DBG edge Sample")
-		smfy.DefineIntFlag("MaxNGSReadLen", 550, "Max NGS Read Length")
-		smfy.DefineIntFlag("MinMapFreq", 3, "Minimum reads Mapping Frequent")
+		smfy.DefineIntFlag("TipMaxLen", 250, "Maximum tip length, default[0] for MaxNGSReadLen")
+		smfy.DefineIntFlag("WinSize", 8, "th size of sliding window for DBG edge Sample")
+		smfy.DefineIntFlag("MaxNGSReadLen", 250, "Max NGS Read Length")
+		smfy.DefineIntFlag("MinMapFreq", 2, "Minimum reads Mapping Frequent")
 		smfy.DefineBoolFlag("Correct", false, "Correct NGS Read and merge pair reads")
+		//smfy.DefineBoolFlag("ReNameID", false, "Rename edge and node ID, make array compact")
 		smfy.DefineBoolFlag("Graph", false, "output dot graph file")
 		//smfy.DefineIntFlag("MaxMapEdgeLen", 2000, "Max Edge length for mapping Long Reads")
 	}
-	mapNGS := app.DefineSubCommand("MapNGS", "find Illumina reads path", constructdbg.MapNGS)
+	mapNGS := app.DefineSubCommand("MapNGS", "find Illumina reads path", MapNGS)
 	{
 		mapNGS.DefineIntFlag("TipMaxLen", 0, "Maximum tip length, default[0] for MaxNGSReadLen")
-		mapNGS.DefineIntFlag("WinSize", 5, "th size of sliding window for DBG edge Sample")
+		mapNGS.DefineIntFlag("WinSize", 8, "th size of sliding window for DBG edge Sample")
 		mapNGS.DefineIntFlag("MaxNGSReadLen", 550, "Max NGS Read Length")
-		mapNGS.DefineIntFlag("MinMapFreq", 3, "Minimum reads Mapping Frequent")
-		mapNGS.DefineBoolFlag("Correct", false, "Correct NGS Read and merge pair reads")
-		mapNGS.DefineBoolFlag("Graph", false, "output dot graph file")
+		mapNGS.DefineIntFlag("MinNGSReadLen", 250, "Min NGS Read Length")
+		mapNGS.DefineIntFlag("MinMapFreq", 2, "Minimum reads Mapping Frequent")
 	}
 
-	decontdbg := app.DefineSubCommand("decdbg", "deconstruct DBG using Long Reads Mapping info", deconstructdbg.DeconstructDBG)
+	decontdbg := app.DefineSubCommand("decdbg", "deconstruct DBG using Long Reads Mapping info", DeconstructDBG)
 	{
 		decontdbg.DefineIntFlag("MinDepth", 2, "Mininum coverage by long reads")
 		decontdbg.DefineIntFlag("AvgDepth", 40, "average coverage estimate by long reads")
@@ -109,28 +107,28 @@ func init() {
 		decontdbg.DefineBoolFlag("Debug", false, "Enable Debug model[false]")
 	}
 	// mapping long read to the DBG
-	mapDBG := app.DefineSubCommand("mapDBG", "mapping long read to the DBG", constructdbg.MapDBG)
+	mapDBG := app.DefineSubCommand("mapDBG", "mapping long read to the DBG", MapDBG)
 	{
 		mapDBG.DefineIntFlag("Seed", 15, "the seek length(must <=16)")
 		mapDBG.DefineIntFlag("Width", 5, "band width for found min kmer")
 	}
 	// find short read mapping
-	fspath := app.DefineSubCommand("fspath", "Parse short read path", constructdbg.FSpath)
+	fspath := app.DefineSubCommand("fspath", "Parse short read path", FSpath)
 	{
 		fspath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
 	// find long read mapping
-	flpath := app.DefineSubCommand("flpath", "Parse long read path", constructdbg.FLpath)
+	flpath := app.DefineSubCommand("flpath", "Parse long read path", FLpath)
 	{
 		flpath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
 	// merge find short and long read mapping path
-	fpath := app.DefineSubCommand("fpath", "Merge Parse short and long read path", constructdbg.Fpath)
+	fpath := app.DefineSubCommand("fpath", "Merge Parse short and long read path", Fpath)
 	{
 		fpath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
 	}
 	// merge find short and long read mapping path
-	extractpairend := app.DefineSubCommand("extractpairend", "Extract mixtrue pair end reads to two single file", constructcf.ExtractPairEnd)
+	extractpairend := app.DefineSubCommand("extractpairend", "Extract mixtrue pair end reads to two single file", ExtractPairEnd)
 	{
 		extractpairend.DefineStringFlag("input", "/dev/stdin", "input *.fq.br file name")
 		extractpairend.DefineStringFlag("IDFile", "", "read ID list file")
@@ -140,7 +138,7 @@ func init() {
 		extractpairend.DefineIntFlag("SplitRecordNum", math.MaxUint32, "split big file to mutli files by SplitRecordNum")
 		//extractpairend.DefineIntFlag("splitNum", 1, "split output file number")
 	}
-	filterlong := app.DefineSubCommand("filterlong", "filter long reads", constructcf.FilterLong)
+	filterlong := app.DefineSubCommand("filterlong", "filter long reads", FilterLong)
 	{
 		filterlong.DefineStringFlag("input", "", "input *.fq.gz file name")
 		filterlong.DefineStringFlag("output", "output.fa.br", "output file name")
