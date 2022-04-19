@@ -203,9 +203,9 @@ func ParseCfg(fn string, merge, correct bool) (cfgInfo CfgInfo, e error) {
 			if len(fs) < 2 || fs[len(fs)-1] != "zst" || (fs[len(fs)-2] != "fa" && fs[len(fs)-2] != "fasta" && fs[len(fs)-2] != "fq" && fs[len(fs)-2] != "fastq") {
 				log.Fatalf("[ParseCfg] fn: %v, must used suffix *.[fasta|fa|fq|fastq].zst\n", fields[2])
 			}
-			if correct == true {
+			if correct {
 				libInfo.FnName = append(libInfo.FnName, fields[2])
-			} else if merge == true {
+			} else if merge {
 				if libInfo.Merged < 2 {
 					zstfn := strings.Join(fs[:len(fs)-2], ".") + ".Correct." + "fa." + fs[len(fs)-1]
 					libInfo.FnName = append(libInfo.FnName, zstfn)
@@ -316,6 +316,15 @@ func GetReverseCompletUint64(bs uint64, slen uint32) uint64 {
 	bs = (bs&0x00000000FFFFFFFF)<<32 | (bs&0xFFFFFFFF00000000)>>32
 	bs >>= (64 - (slen << 1))
 	return bs
+}
+
+func GetReverseCompletUint16(bs uint16, slen int) (rs uint16) {
+	for i := 0; i < slen; i++ {
+		rs <<= NumBitsInBase
+		rs |= uint16(BntRev[bs&0x3])
+		bs >>= NumBitsInBase
+	}
+	return rs
 }
 
 func GetReverseComplet(kb KmerBnt) KmerBnt {
@@ -541,7 +550,7 @@ func ParaConstructCF(cf *CuckooFilter, rbytesPool *sync.Pool, seqArrPool *sync.P
 	ws := wbytesPool.Get().([]byte)
 	ws = ws[:0]
 	var kmerNum int
-	rSeq := make([]byte, 700)
+	rSeq := make([]byte, 800)
 	var seq, kb, rb, min []byte
 	var lenS int
 
@@ -593,7 +602,7 @@ func ParaConstructCF(cf *CuckooFilter, rbytesPool *sync.Pool, seqArrPool *sync.P
 				}
 				//cpbMin := CompressToBnt(min)
 				count, suc := cf.Insert(min)
-				if suc == false {
+				if !suc {
 					log.Fatal("[ParaConstructCF] Insert to the CuckooFilter false")
 				}
 				//fmt.Printf("retrun count : %d\n", count)
@@ -631,6 +640,13 @@ type IDSeqPool struct {
 
 type RIPool struct {
 	RIArr               []ReadInfo
+	Cs                  []byte
+	NotFoundRecordBytes []byte
+	MergeSeqArr         [][]byte
+}
+
+type RISPool struct {
+	RIArr               []ReadInfoS
 	Cs                  []byte
 	NotFoundRecordBytes []byte
 	MergeSeqArr         [][]byte
@@ -816,7 +832,7 @@ func checkArgsCCF(c cli.Command) (opt optionsCCF, suc bool) {
 func GetReadsFileFormat(fn string) (format string) {
 	sfn := strings.Split(fn, ".")
 	if len(sfn) < 3 {
-		log.Fatalf("[GetReadsFileFormat] reads file: %v need suffix end with '*.fa.br | *.fasta.br | *.fq.br | *.fastq.br'\n", fn)
+		log.Fatalf("[GetReadsFileFormat] reads file: %v need suffix end with '*.fa.zst | *.fasta.zst | *.fq.zst | *.fastq.zst'\n", fn)
 	}
 	tmp := sfn[len(sfn)-2]
 	if tmp == "fa" || tmp == "fasta" {
@@ -849,6 +865,30 @@ func WriteBr(fn string, wc <-chan []byte, wbytePool *sync.Pool, wfinish chan<- b
 	}
 
 	if err := brfp.Flush(); err != nil {
+		log.Fatalf("[WriteBrFa] write read seq err: %v\n", err)
+	}
+	wfinish <- true
+}
+
+func WriteGz(fn string, wc <-chan []byte, wbytePool *sync.Pool, wfinish chan<- bool) {
+	outfp, err1 := os.Create(fn)
+	if err1 != nil {
+		log.Fatal(err1)
+	}
+	defer outfp.Close()
+	gzfp := gzip.NewWriter(outfp)
+	defer gzfp.Close()
+	//outbuffp := bufio.NewWriterSize(brfp, 1<<20)
+	for {
+		wb, ok := <-wc
+		if !ok {
+			break
+		}
+		gzfp.Write(wb)
+		wbytePool.Put(wb)
+	}
+
+	if err := gzfp.Flush(); err != nil {
 		log.Fatalf("[WriteBrFa] write read seq err: %v\n", err)
 	}
 	wfinish <- true
@@ -983,6 +1023,44 @@ func ReadBrFile2(brfn string, bytesPool *sync.Pool, cs chan<- []byte) {
 	return
 }
 
+func ReadGzFile2(gzfn string, bytesPool *sync.Pool, cs chan<- []byte) {
+	fp, err1 := os.Open(gzfn)
+	if err1 != nil {
+		log.Fatalf("[ReadBrFile] open file: %v failed..., err: %v\n", gzfn, err1)
+	}
+	defer fp.Close()
+	//size := (1 << 26)
+	//brfp1 := cbrotli.NewReader(fp1)
+	gzfp, _ := gzip.NewReader(fp)
+	defer gzfp.Close()
+	//buffp := brfp
+	//buffp := bufio.NewReaderSize(brfp, 1<<20)
+	var err error
+	var num int
+	for err != io.EOF {
+		//buf := make([]byte, size)
+		buf := bytesPool.Get().([]byte)
+		buf = buf[:cap(buf)]
+		//num, err = buffp.Read(buf)
+		num, err = gzfp.Read(buf)
+		if err != nil {
+			if err != io.EOF {
+				log.Fatalf("[ReadGzFile2] read file: %s, found err: %v\n", gzfn, err)
+			}
+		}
+
+		fmt.Printf("[ReadGzFile2]read %d bytes\n", num)
+		if num > 0 {
+			cs <- buf[:num]
+		}
+		//time.Sleep(time.Second)
+	}
+
+	close(cs)
+	//time.Sleep(time.Second * 10)
+	return
+}
+
 const WindowSize = 1 << 16
 
 func ReadZstdFile(zstdfn string, bytesPool *sync.Pool, cs chan<- []byte) {
@@ -1006,6 +1084,7 @@ func ReadZstdFile(zstdfn string, bytesPool *sync.Pool, cs chan<- []byte) {
 	buf := bytesPool.Get().([]byte)
 	buf = buf[:cap(buf)]
 	count := 0
+	csSum := 0
 	for err != io.EOF {
 		//buf := make([]byte, size)
 		//num, err = buffp.Read(buf)
@@ -1016,19 +1095,23 @@ func ReadZstdFile(zstdfn string, bytesPool *sync.Pool, cs chan<- []byte) {
 			}
 		}
 		count += num
+		if err == nil && count < len(buf)*8/10 {
+			continue
+		}
 		if len(cs) == cap(cs) {
 			fullCount++
 		} else if len(cs) == 0 {
 			emptyCount++
 		}
 		cs <- buf[:count]
+		csSum++
 		buf = bytesPool.Get().([]byte)
 		buf = buf[:cap(buf)]
 		count = 0
 		//time.Sleep(time.Second)
 	}
 	close(cs)
-	fmt.Printf("[ReadZstdFile]emptyCount:%d fullCount:%d\n", emptyCount, fullCount)
+	fmt.Printf("[ReadZstdFile]emptyCount:%d fullCount:%d csSum:%d\n", emptyCount, fullCount, csSum)
 	//time.Sleep(time.Second * 10)
 	return
 }
@@ -1542,6 +1625,39 @@ func GetNextReadInfo(bs []byte, format string) (ri ReadInfo, idx int) {
 	return ri, idx
 }
 
+func GetNextReadInfoS(bs []byte, format string) (ri ReadInfoS, idx int) {
+	bl := 2
+	if format == "fq" {
+		bl = 4
+	}
+	//idx := 0
+	for i := 0; i < bl; i++ {
+		sz := bytes.IndexByte(bs[idx:], '\n')
+		if sz < 0 {
+			ri.Seq = nil
+			idx = -1
+			break
+			//log.Fatalf("[GetNextReadSeq] not found proper Record, bs:%s\n", string(bs))
+		}
+		if i == 0 {
+			c := bytes.IndexAny(bs[idx:], " \t\n")
+			if c > 2 && bs[idx+c-2] == '/' {
+				c -= 2
+			}
+			ri.ID = bs[idx+1 : idx+c]
+			if bs[idx+c] != '\n' {
+				ri.Anotition = bs[idx+c+1 : idx+sz]
+			}
+		} else if i == 1 {
+			ri.Seq = bs[idx : idx+sz]
+		} else if format == "fq" && i == 3 {
+			ri.Qual = bs[idx : idx+sz]
+		}
+		idx += sz + 1
+	}
+	return ri, idx
+}
+
 func GetReadFileSeq(sp *SeqPool, format string, bnt bool) (idx int) {
 
 	if len(sp.NotFoundRecordBytes) > 0 {
@@ -1642,6 +1758,93 @@ func GetReadFileIDSeq(sp *IDSeqPool, format string, bnt bool) (idx int) {
 }
 
 func GetReadFileReadInfo(rp *RIPool, format string, bnt bool, pair bool) (idx int) {
+	if len(rp.NotFoundRecordBytes) > 0 {
+		var blockLineNum int
+		if format == "fa" {
+			blockLineNum = 2
+		} else { // format == "fq"
+			blockLineNum = 4
+		}
+		if pair {
+			blockLineNum *= 2
+		}
+		m := bytes.Count(rp.NotFoundRecordBytes, []byte("\n"))
+		if m >= blockLineNum {
+			log.Fatalf("m:%d > blockLineNum:%d\n", m, blockLineNum)
+		}
+		i := 0
+		for ; i < blockLineNum-m; i++ {
+			if idx >= len(rp.Cs) {
+				break
+			}
+			sz := bytes.IndexByte(rp.Cs[idx:], '\n')
+			if sz < 0 {
+				break
+			}
+			idx += sz + 1
+		}
+		if i != blockLineNum-m {
+			//log.Fatalf("[GetReadFileReadInfo] not found proper Record, nb:%s\n", string(rp.Cs))
+			//rp.NotFoundRecordBytes = append(rp.NotFoundRecordBytes, rp.Cs...)
+			idx = -1
+			return
+		}
+		rp.NotFoundRecordBytes = append(rp.NotFoundRecordBytes, rp.Cs[:idx]...)
+		ri, p := GetNextReadInfo(rp.NotFoundRecordBytes, format)
+		if p < 0 {
+			return
+		}
+		if bnt {
+			Transform2BntByte2(ri.Seq)
+		}
+		rp.RIArr = append(rp.RIArr, ri)
+
+		if pair {
+			ri, p = GetNextReadInfo(rp.NotFoundRecordBytes[p:], format)
+			if p < 0 {
+				return
+			}
+			if bnt {
+				Transform2BntByte2(ri.Seq)
+			}
+			rp.RIArr = append(rp.RIArr, ri)
+		}
+	}
+	if pair {
+		for {
+			ri1, idx1 := GetNextReadInfo(rp.Cs[idx:], format)
+			if idx1 < 0 {
+				break
+			}
+			ri2, idx2 := GetNextReadInfo(rp.Cs[idx+idx1:], format)
+			if idx2 < 0 {
+				break
+			}
+			if bnt {
+				Transform2BntByte2(ri1.Seq)
+				Transform2BntByte2(ri2.Seq)
+			}
+			rp.RIArr = append(rp.RIArr, ri1, ri2)
+			idx += idx1 + idx2
+		}
+	} else {
+		for {
+			ri1, idx1 := GetNextReadInfo(rp.Cs[idx:], format)
+			if idx1 < 0 {
+				break
+			}
+			if bnt {
+				Transform2BntByte2(ri1.Seq)
+			}
+			rp.RIArr = append(rp.RIArr, ri1)
+			idx += idx1
+		}
+	}
+
+	return
+}
+
+func GetReadFileReadInfoS(rp *RISPool, format string, bnt bool, pair bool) (idx int) {
 
 	if len(rp.NotFoundRecordBytes) > 0 {
 		var blockLineNum int
@@ -1672,14 +1875,14 @@ func GetReadFileReadInfo(rp *RIPool, format string, bnt bool, pair bool) (idx in
 			log.Fatalf("[GetReadFileReadInfo] not found proper Record, nb:%s\n", string(rp.Cs))
 		}
 		rp.NotFoundRecordBytes = append(rp.NotFoundRecordBytes, rp.Cs[:idx]...)
-		ri, p := GetNextReadInfo(rp.NotFoundRecordBytes, format)
+		ri, p := GetNextReadInfoS(rp.NotFoundRecordBytes, format)
 		if bnt {
 			Transform2BntByte2(ri.Seq)
 		}
 		rp.RIArr = append(rp.RIArr, ri)
 
 		if pair {
-			ri, _ = GetNextReadInfo(rp.NotFoundRecordBytes[p:], format)
+			ri, _ = GetNextReadInfoS(rp.NotFoundRecordBytes[p:], format)
 			if bnt {
 				Transform2BntByte2(ri.Seq)
 			}
@@ -1689,11 +1892,11 @@ func GetReadFileReadInfo(rp *RIPool, format string, bnt bool, pair bool) (idx in
 
 	if pair {
 		for {
-			ri1, idx1 := GetNextReadInfo(rp.Cs[idx:], format)
+			ri1, idx1 := GetNextReadInfoS(rp.Cs[idx:], format)
 			if idx1 < 0 {
 				break
 			}
-			ri2, idx2 := GetNextReadInfo(rp.Cs[idx+idx1:], format)
+			ri2, idx2 := GetNextReadInfoS(rp.Cs[idx+idx1:], format)
 			if idx2 < 0 {
 				break
 			}
@@ -1706,7 +1909,7 @@ func GetReadFileReadInfo(rp *RIPool, format string, bnt bool, pair bool) (idx in
 		}
 	} else {
 		for {
-			ri1, idx1 := GetNextReadInfo(rp.Cs[idx:], format)
+			ri1, idx1 := GetNextReadInfoS(rp.Cs[idx:], format)
 			if idx1 < 0 {
 				break
 			}
@@ -1903,6 +2106,49 @@ func GetReadInfoBucket(fn string, cs <-chan []byte, riArrPool *sync.Pool, riPool
 	return
 }
 
+func GetReadInfoSBucket(fn string, cs <-chan []byte, riArrPool *sync.Pool, riPoolChan chan<- RISPool, pair bool) (readNum int) {
+	//var processNumReads int
+	//var bucketCount int
+	format := GetReadsFileFormat(fn)
+	var notFoundNewRecord []byte
+	//bufSize := (1 << 20)
+	//size := 8000
+	//fncs1 := make(chan []byte, 10)
+	//recordChan1 := make(chan ReadInfo, size)
+	fmt.Printf("[GetReadInfoBucket] begin processe file: %v...\n", fn)
+	//go ReadBrFile(fn, fncs1, bufSize)
+	//go GetReadFileRecord(fncs1, recordChan1, format, bufSize, true)
+
+	//var count int
+	for {
+		bs, ok := <-cs
+		if !ok {
+			if len(notFoundNewRecord) != 0 {
+				log.Fatalf("[GetReadInfoBucket] to the file end, but len(notFoundNewRecord) = %d\n", len(notFoundNewRecord))
+			}
+			break
+		}
+
+		var rp RISPool
+		rp.RIArr = riArrPool.Get().([]ReadInfoS)
+		rp.RIArr = rp.RIArr[:0]
+		rp.Cs = bs
+		rp.NotFoundRecordBytes = notFoundNewRecord
+		idx := GetReadFileReadInfoS(&rp, format, true, pair)
+		readNum += len(rp.RIArr)
+		var nf []byte
+		if idx < len(rp.Cs) {
+			nf = append(nf, rp.Cs[idx:]...)
+		}
+		notFoundNewRecord = nf
+		riPoolChan <- rp
+	}
+	// send read finish signal
+	close(riPoolChan)
+	fmt.Printf("[GetReadInfoBucket] processed reads number is: %d,finished processed file: %v\n", readNum, fn)
+	return
+}
+
 /*func GetReadFileRecord(fn string, cs <-chan []byte, recordChan chan<- ReadInfo) {
 	//var processNumReads int
 	//var bucketCount int
@@ -2003,7 +2249,7 @@ func CCF(c cli.Command) {
 	close(wc)
 	wn := <-cc
 	if wn%opt.Kmer != 0 {
-		log.Fatalf("wn:%d wn%opt.Kmer:%d != 0\n", wn, wn%opt.Kmer)
+		log.Fatalf("wn:%d wn//pt.Kmer:%d != 0\n", wn, wn%opt.Kmer)
 	}
 	writeKmerNum := wn / opt.Kmer
 	kmerInfofn := opt.Prefix + ".uniqkmerseq.info"
@@ -2053,10 +2299,11 @@ func CopyReadInfoS(dst, src *ReadInfoS) {
 
 func ExtractPairEnd(c cli.Command) {
 	var err error
-	input := c.Flag("input").String()
+	input1 := c.Flag("read1").String()
+	input2 := c.Flag("read2").String()
 	IDFile := c.Flag("IDFile").String()
 	prefix := c.Flag("prefix").String()
-	format := c.Flag("format").String()
+	//format := c.Flag("format").String()
 	startID := c.Flag("startID").Get().(int)
 	//splitRecordNum := c.Flag("SplitRecordNum").Get().(int)
 	//splitNum := c.Flag("splitNum").Get().(int)
@@ -2203,7 +2450,7 @@ func ExtractPairEnd(c cli.Command) {
 		}
 	} else {
 		bufSize := (1 << 19) * 5
-		size := 5000
+		//size := 5000
 		nextSize := 600
 		//recordChan := make(chan ReadInfo, size)
 
@@ -2226,6 +2473,11 @@ func ExtractPairEnd(c cli.Command) {
 			return bytes
 		}}
 
+		seqArrPool := sync.Pool{New: func() interface{} {
+			arr := make([]ReadInfoS, bufSize/(ReadLen*2))
+			return arr
+		}}
+
 		wbytesPool := sync.Pool{New: func() interface{} {
 			bytes := make([]byte, bufSize+nextSize)
 			return bytes
@@ -2235,116 +2487,135 @@ func ExtractPairEnd(c cli.Command) {
 		//	return readInfos
 		//}}
 
-		fncs := make(chan []byte)
-		wc := make(chan []byte)
 		//var f string
-		if input == "/dev/stdin" {
-			//f = "fq"
-			go ReadStdin(fncs, &rbytesPool)
-		} else {
-			//f = GetReadsFileFormat(input)
-			go ReadBrFile2(input, &rbytesPool, fncs)
+		//if input == "/dev/stdin" {
+		//f = "fq"
+		//go ReadStdin(fncs, &rbytesPool)
+		//f = GetReadsFileFormat(input)
+		idMap := make(map[string]uint8)
+		{
+			fncs := make(chan []byte)
+			seqPoolChan := make(chan RISPool, 2)
+			go ReadGzFile2(input1, &rbytesPool, fncs)
+			go GetReadInfoSBucket(input1, fncs, &seqArrPool, seqPoolChan, false)
+			for {
+				sp, ok := <-seqPoolChan
+				if !ok {
+					break
+				}
+				for _, seq := range sp.RIArr {
+					idMap[string(seq.ID)]++
+				}
+				rbytesPool.Put(sp.Cs)
+				seqArrPool.Put(sp.RIArr)
+			}
 		}
-		riBuf := make([]ReadInfoS, size)
-		notFoundNewLineBuf := make([]byte, 0, nextSize)
-		var lastRI ReadInfoS
-		var wfn string
-		var n int
-		if format == "fa" {
-			wfn = prefix + ".fa.br"
-		} else {
-			wfn = prefix + ".fq.br"
+
+		{
+			fncs := make(chan []byte)
+			seqPoolChan := make(chan RISPool, 2)
+			go ReadGzFile2(input2, &rbytesPool, fncs)
+			go GetReadInfoSBucket(input2, fncs, &seqArrPool, seqPoolChan, false)
+			for {
+				sp, ok := <-seqPoolChan
+				if !ok {
+					break
+				}
+				for _, seq := range sp.RIArr {
+					idMap[string(seq.ID)]++
+				}
+				rbytesPool.Put(sp.Cs)
+				seqArrPool.Put(sp.RIArr)
+			}
 		}
-		var readBlockNum, writeBlockNum int
-		wfinish := make(chan bool)
-		go WriteBr(wfn, wc, &wbytesPool, wfinish)
-		for {
-			if len(fncs) == 0 {
-				readBlockNum++
-			}
-			cs, okcs := <-fncs
-			if !okcs {
-				break
-			}
-			//cs = append(cs, notFoundNewLineBuf...)
-			//riBuf, n = GetReadFileRecordS(cs, notFoundNewLineBuf, riBuf, f, false)
-			if n == 0 {
-				notFoundNewLineBuf = append(notFoundNewLineBuf, cs...)
-				continue
-			}
-			var last *ReadInfoS
-			idx := 0
-			//fmt.Printf("[ExtractPairEnd] lastRI.ID:%s, riBuf[0].ID:%s\n", string(lastRI.ID), string(riBuf[0].ID))
-			if len(lastRI.ID) == 0 {
-				last = &riBuf[0]
-				idx = 1
-			} else {
-				last = &lastRI
-			}
-			//fmt.Printf("[ExtractPairEnd]last.ID:%s\n", string(last.ID))
-			wbp := wbytesPool.Get().([]byte)
-			wbp = wbp[:0]
-			for j := idx; j < len(riBuf); j++ {
-				if last == nil {
-					last = &riBuf[j]
-				} else {
-					//fmt.Printf("[ExtractPairEnd]last.ID:%s\triBuf[%d]:%s\n", string(last.ID), j, string(riBuf[j].ID))
-					if BytesEqual(last.ID, riBuf[j].ID) {
-						if format == "fq" {
-							wbp = append(wbp, '@')
-							wbp = append(wbp, strconv.Itoa(startID)...)
-							wbp = append(wbp, '\n')
-							wbp = append(wbp, last.Seq...)
-							wbp = append(wbp, "\n+\n"...)
-							wbp = append(wbp, last.Qual...)
 
-							wbp = append(wbp, "\n@"...)
-							wbp = append(wbp, strconv.Itoa(startID)...)
-							wbp = append(wbp, '\n')
-							wbp = append(wbp, riBuf[j].Seq...)
-							wbp = append(wbp, "\n+\n"...)
-							wbp = append(wbp, riBuf[j].Qual...)
-							wbp = append(wbp, '\n')
-						} else {
-							wbp = append(wbp, '>')
-							wbp = append(wbp, strconv.Itoa(startID)...)
-							wbp = append(wbp, '\n')
-							wbp = append(wbp, last.Seq...)
-
-							wbp = append(wbp, "\n>"...)
-							wbp = append(wbp, strconv.Itoa(startID)...)
-							wbp = append(wbp, '\n')
-							wbp = append(wbp, riBuf[j].Seq...)
-							wbp = append(wbp, '\n')
-						}
-						startID++
+		{
+			pairNum, singleNum = 0, 0
+			wfn := prefix + "1.fq.gz"
+			wc := make(chan []byte, 2)
+			wfinish := make(chan bool, 1)
+			go WriteGz(wfn, wc, &wbytesPool, wfinish)
+			fncs := make(chan []byte)
+			seqPoolChan := make(chan RISPool, 2)
+			go ReadGzFile2(input1, &rbytesPool, fncs)
+			go GetReadInfoSBucket(input1, fncs, &seqArrPool, seqPoolChan, false)
+			for {
+				sp, ok := <-seqPoolChan
+				if !ok {
+					break
+				}
+				wbp := wbytesPool.Get().([]byte)
+				wbp = wbp[:0]
+				for _, seq := range sp.RIArr {
+					if idMap[string(seq.ID)] == 2 {
+						wbp = append(wbp, '@')
+						wbp = append(wbp, seq.ID...)
+						wbp = append(wbp, '\t')
+						wbp = append(wbp, seq.Anotition...)
+						wbp = append(wbp, '\n')
+						Transform2Char2(seq.Seq)
+						wbp = append(wbp, seq.Seq...)
+						wbp = append(wbp, "\n+\n"...)
+						wbp = append(wbp, seq.Qual...)
+						wbp = append(wbp, '\n')
 						pairNum++
-						last = nil
 					} else {
-						// write to single file
-						//fmt.Printf("[ExtractPairEnd]last.ID:%s\triBuf[%d]:%s\n", string(last.ID), j, string(riBuf[j].ID))
 						singleNum++
-						last = &riBuf[j]
 					}
 				}
+				wc <- wbp
+				rbytesPool.Put(sp.Cs)
+				seqArrPool.Put(sp.RIArr)
 			}
-			if last != nil {
-				CopyReadInfoS(&lastRI, last)
-			} else {
-				lastRI.ID = lastRI.ID[:0]
-			}
-			notFoundNewLineBuf = append(notFoundNewLineBuf[:0], cs[n:]...)
-			rbytesPool.Put(cs)
-			if len(wc) == 1 {
-				writeBlockNum++
-			}
-			wc <- wbp
+			close(wc)
+			<-wfinish
+			fmt.Printf("[ExtractPairEnd] pairNum:%d single:%d\n", pairNum, singleNum)
 		}
 
-		close(wc)
-		<-wfinish
-		fmt.Printf("[ExtractPairEnd] pairNum:%d, single:%d, readBlockNum:%d, writeBlockNum:%d\n", pairNum, singleNum, readBlockNum, writeBlockNum)
+		{
+			pairNum, singleNum = 0, 0
+			wfn := prefix + "2.fq.gz"
+			wc := make(chan []byte, 2)
+			wfinish := make(chan bool, 1)
+			go WriteGz(wfn, wc, &wbytesPool, wfinish)
+			fncs := make(chan []byte)
+			seqPoolChan := make(chan RISPool, 2)
+			go ReadGzFile2(input2, &rbytesPool, fncs)
+			go GetReadInfoSBucket(input2, fncs, &seqArrPool, seqPoolChan, false)
+			for {
+				sp, ok := <-seqPoolChan
+				if !ok {
+					break
+				}
+				wbp := wbytesPool.Get().([]byte)
+				wbp = wbp[:0]
+				for _, seq := range sp.RIArr {
+					if idMap[string(seq.ID)] == 2 {
+						wbp = append(wbp, '@')
+						wbp = append(wbp, seq.ID...)
+						wbp = append(wbp, '\t')
+						wbp = append(wbp, seq.Anotition...)
+						wbp = append(wbp, '\n')
+						Transform2Char2(seq.Seq)
+						wbp = append(wbp, seq.Seq...)
+						wbp = append(wbp, "\n+\n"...)
+						wbp = append(wbp, seq.Qual...)
+						wbp = append(wbp, '\n')
+						pairNum++
+					} else {
+						singleNum++
+					}
+				}
+				wc <- wbp
+				rbytesPool.Put(sp.Cs)
+				seqArrPool.Put(sp.RIArr)
+			}
+			close(wc)
+			<-wfinish
+			fmt.Printf("[ExtractPairEnd] pairNum:%d single:%d\n", pairNum, singleNum)
+		}
 	}
+
 	//readMap := make(map[int64]ReadInfo)
 	//outf1, outf2 := prefix+"_1.fa.br", prefix+"_2.fa.br"
 	//go WriteSplitBrFa(prefix, ".single.fa.br", wcS, splitRecordNum)

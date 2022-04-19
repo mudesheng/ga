@@ -101,13 +101,13 @@ func init() {
 		decontdbg.DefineIntFlag("MinMapFreq", 2, "Minimum reads Mapping Frequent")
 		decontdbg.DefineIntFlag("ExtLen", 1000, "Extend Path length for distingush most probable path")
 		decontdbg.DefineFloat64Flag("MinChainScoreIdentityPercent", 0.2, "Min Chain Score Identity Percent[0~1]")
-		decontdbg.DefineStringFlag("LongReadFile", "ONT.fa", "Oxford Nanopore Technology long reads file")
+		decontdbg.DefineStringFlag("LongReadFile", "ONT.fa.zst", "Oxford Nanopore Technology long reads file")
 		decontdbg.DefineBoolFlag("Correct", false, "Correct NGS Read and merge pair reads[false]")
-		decontdbg.DefineBoolFlag("Haplotype", true, "Enable Haplotype model[true]")
+		decontdbg.DefineBoolFlag("Haplotype", false, "Enable Haplotype model[false]")
 		decontdbg.DefineBoolFlag("Debug", false, "Enable Debug model[false]")
 	}
 	// mapping long read to the DBG
-	mapDBG := app.DefineSubCommand("mapDBG", "mapping long read to the DBG", MapDBG)
+	/*mapDBG := app.DefineSubCommand("mapDBG", "mapping long read to the DBG", MapDBG)
 	{
 		mapDBG.DefineIntFlag("Seed", 15, "the seek length(must <=16)")
 		mapDBG.DefineIntFlag("Width", 5, "band width for found min kmer")
@@ -126,11 +126,12 @@ func init() {
 	fpath := app.DefineSubCommand("fpath", "Merge Parse short and long read path", Fpath)
 	{
 		fpath.DefineIntFlag("tipMaxLen", Kmerdef*2, "Maximum tip length")
-	}
+	}*/
 	// merge find short and long read mapping path
 	extractpairend := app.DefineSubCommand("extractpairend", "Extract mixtrue pair end reads to two single file", ExtractPairEnd)
 	{
-		extractpairend.DefineStringFlag("input", "/dev/stdin", "input *.fq.br file name")
+		extractpairend.DefineStringFlag("read1", "/dev/stdin", "input *1.fq.gz file name")
+		extractpairend.DefineStringFlag("read2", "/dev/stdin", "input *2.fq.gz file name")
 		extractpairend.DefineStringFlag("IDFile", "", "read ID list file")
 		extractpairend.DefineStringFlag("prefix", "paired_output", "prefix of output file")
 		extractpairend.DefineStringFlag("format", "fa", "output format[fq|fa]")
@@ -145,6 +146,21 @@ func init() {
 		filterlong.DefineIntFlag("startID", 0, "start read ID")
 		filterlong.DefineIntFlag("minLen", 5000, "filter by read seq length")
 		filterlong.DefineIntFlag("minMeanQuality", 7, "filter by mean quality")
+	}
+	addONTQC := app.DefineSubCommand("addONTQC", "add ONT reads Quality Score", AddONTQC)
+	{
+		addONTQC.DefineStringFlag("input", "", "input *.fa.zst file name")
+		addONTQC.DefineStringFlag("output", "output.fa.zst", "output file name")
+		addONTQC.DefineStringFlag("paf", "", "ONT paf file")
+
+	}
+	simulateNGS := app.DefineSubCommand("simulateNGS", "simulate NGS reads", SimulateNGS)
+	{
+		simulateNGS.DefineStringFlag("input", "", "input *.fa.zst file name")
+		simulateNGS.DefineStringFlag("output", "output.fa.zst", "output file name")
+		simulateNGS.DefineIntFlag("ID", 1, "read start ID")
+		simulateNGS.DefineIntFlag("Step", 10, "Step move by reference seq")
+
 	}
 }
 

@@ -300,98 +300,6 @@ func findPathOverlap(jp Path, pathArr []uint32, edgesArr []DBGEdge) (id uint32, 
 	return id, num
 }
 
-/*func LoadPathFromFile(pathfn string, cs chan<- MapingInfo) {
-	bufSize := (1 << 15)
-	fncs := make(chan []byte, 2)
-	go ReadBrFile(pathfn, fncs, bufSize)
-	buf := make([]byte, 0, 1<<16)
-	//lb := make([]byte, 100)
-	var lb []byte
-	pos := 0
-	var suc bool
-	for {
-		lb, pos, suc = GetNextLine(buf, pos)
-		if !suc {
-			nb, ok := <-fncs
-			if !ok {
-				break
-			}
-			if pos < len(buf) {
-				copy(buf[0:], buf[pos:len(buf)])
-			}
-			buf = buf[:len(buf)-pos]
-			pos = 0
-			buf = append(buf, nb...)
-			continue
-		}
-		var mi MapingInfo
-		colList := SplitEIDArr(lb, '\t')
-		id, err := strconv.Atoi(string(colList[0]))
-		if err != nil {
-			log.Fatalf("[LoadPathFromFile]%s transform read id error\n", colList[0])
-		}
-		mi.ID = uint32(id)
-		mi.Anotition = string(colList[6])
-		var pathMat [][][]uint32
-		var path []uint32
-		//flist := strings.Fields(string(lb))
-		//eIDArr := make([]uint32, len(colList))
-		list := SplitEIDArr(colList[5], '>')
-		for _, ele := range list {
-			bubbleArr := SplitEIDArr(ele, '|')
-			if len(bubbleArr) == 1 {
-				bs := bubbleArr[0]
-				eID, err := strconv.Atoi(string(bs))
-				if err != nil {
-					log.Fatalf("[LoadPathFromFile]%s transform eID error\n", bs)
-				}
-				path = append(path, uint32(eID))
-			} else {
-				pathMat = append(pathMat, [][]uint32{path})
-				var tmp []uint32
-				path = tmp
-				pathArr := make([][]uint32, len(bubbleArr))
-				for x, path := range bubbleArr {
-					arr := SplitEIDArr(path, '-')
-					for _, bs := range arr {
-						//eID, err := ByteArrInt(id)
-						eID, err := strconv.Atoi(string(bs))
-						if err != nil {
-							log.Fatalf("[LoadPathFromFile]%s transform eID error\n", bs)
-						}
-						pathArr[x] = append(pathArr[x], uint32(eID))
-					}
-				}
-				pathMat = append(pathMat, pathArr)
-			}
-		}
-		//fmt.Printf("[LoadPathFromFile]eIDArr:%v\n", eIDArr)
-		mi.PathMat = pathMat
-		cs <- mi
-	}
-	close(cs)
-	/*pathfp, err := os.Open(pathfn)
-	if err != nil {
-		log.Fatalf("[LoadPathFromFile] file %s create error, err: %v\n", pathfn, err)
-	}
-	defer pathfp.Close()
-	cbrofp := cbrotli.NewReaderSize(pathfp, 1<<20)
-	defer cbrofp.Close()
-	buffp := bufio.NewReaderSize(cbrofp, 1<<20) // 1<<25 == 2**25
-	buf, err := ioutil.ReadAll(buffp)
-	if err != nil {
-		log.Fatalf("[LoadPathFromFile] read file %s failed, err:%v\n", pathfn, err)
-	}
-	var a PathArr
-	err = proto.Unmarshal(buf, &a)
-	if err != nil {
-		log.Fatalf("[LoadPathFromFile] proto.Unmarshal() err:%v\n", err)
-	}
-	readPathArr = a
-
-	return
-}*/
-
 /*func MappingNGSRead(dk DBGKmer, ri ReadInfo, rpos int, rstrand bool, edgesArr []DBGEdge, nodesArr []DBGNode, kmerlen int) (errorNum, mappingNum int, path []uint32) {
 	var strand bool
 	if dk.Strand == rstrand {
@@ -810,6 +718,10 @@ func GetExtendUniquePath(e *DBGEdge, edgesArr []DBGEdge) (efArr []EdgeFreq, eIDA
 			break
 		}
 		if te.GetProcessFlag() > 0 {
+			i0 := IndexEdgeFreq(efArr, eIDArr[len(eIDArr)-1])
+			if i0 == i-1 {
+				continue
+			}
 			//idx := IndexEdgeFreq(efArr[:i], te.ID)
 			for j, id := range eIDArr {
 				fmt.Printf("[GetExtendUniquePath]error! eIDArr[%d]:%d NGSPath:%v\n", j, id, edgesArr[id].NGSPathArr)
@@ -859,6 +771,13 @@ func GetExtendUniquePath(e *DBGEdge, edgesArr []DBGEdge) (efArr []EdgeFreq, eIDA
 			break
 		}
 		if te.GetProcessFlag() > 0 {
+			i0 := IndexEdgeFreq(efArr, eIDArr[len(eIDArr)-1])
+			if i0 == i-1 {
+				continue
+			}
+			for j, id := range eIDArr {
+				fmt.Printf("[GetExtendUniquePath]error! eIDArr[%d]:%d NGSPath:%v\n", j, id, edgesArr[id].NGSPathArr)
+			}
 			//idx := IndexEdgeFreq(efArr[:i], te.ID)
 			fmt.Printf("[GetExtendUniquePath]error! eID:%v has processed,efArr:%v NGSPath:%v \n", te.ID, efArr, te.NGSPathArr)
 			break
@@ -1119,7 +1038,6 @@ func ParaSetProcessFlag(flag *uint8) bool {
 		}
 		//fmt.Printf("[insert] oc:%d fc:%d\n", oc, fc)
 	}
-	return false
 }
 
 func ParaResetProcessFlag(flag *uint8) bool {
@@ -1136,7 +1054,6 @@ func ParaResetProcessFlag(flag *uint8) bool {
 		}
 		//fmt.Printf("[insert] oc:%d fc:%d\n", oc, fc)
 	}
-	return false
 }
 
 func EqualEdgeFreqArr(arr1, arr2 []EdgeFreq) bool {
@@ -1182,6 +1099,9 @@ func EqualEdgeFreqArrPathNoDirection(arr []EdgeFreq, path []uint32) bool {
 
 func EqualEdgeFreqArrNoDirection(arr1, arr2 []EdgeFreq) bool {
 	if len(arr1) != len(arr2) || len(arr1) == 0 || len(arr2) == 0 {
+		return false
+	}
+	if arr1[0].Freq < 2 || arr1[len(arr1)-1].Freq < 2 {
 		return false
 	}
 
@@ -1275,6 +1195,127 @@ func DeleteEID(ea []uint32, eID uint32) []uint32 {
 }
 
 func RePlaceNGSPath2(path, mergePath, revMP []EdgeFreq) []EdgeFreq {
+	eID1, eID2 := mergePath[0].ID, revMP[0].ID
+	idx1 := IndexEdgeFreq(path, eID1)
+	idx2 := IndexEdgeFreq(path, eID2)
+	if idx1 < 0 && idx2 < 0 {
+		return path
+	}
+	ml := len(mergePath)
+	c1, c2 := CountEdgeFreqArr(path, eID1), CountEdgeFreqArr(path, eID2)
+	if c1 <= 1 && c2 <= 1 {
+		pl := len(path)
+		if idx1 >= 0 && idx2 >= 0 {
+			if idx1 < idx2 {
+				if EqualEdgeFreqArr(path[idx1:idx2+1], mergePath) {
+					if idx2 < pl-1 {
+						copy(path[idx1+1:], path[idx2+1:])
+					}
+					path = path[:idx1+1+pl-1-idx2]
+				}
+			} else {
+				if EqualEdgeFreqArr(path[idx2:idx1+1], revMP) {
+					path[idx2].ID = eID1
+					if idx1 < pl-1 {
+						copy(path[idx2+1:], path[idx1+1:])
+					}
+					path = path[:idx2+1+pl-1-idx1]
+				}
+			}
+		} else if idx1 >= 0 && idx2 < 0 {
+			if idx1 < pl-1 && pl-idx1 <= ml && EqualEdgeFreqArr(path[idx1:], mergePath[:pl-idx1]) {
+				path = path[:idx1+1]
+			} else if idx1+1 <= ml && EqualEdgeFreqArr(revMP[ml-(idx1+1):], path[:idx1+1]) {
+				path = path[idx1:]
+			} else if idx1 == pl-1 && pl-idx1 <= ml && EqualEdgeFreqArr(path[idx1:], mergePath[:pl-idx1]) {
+				path = path[:idx1+1]
+			}
+		} else if idx1 < 0 && idx2 >= 0 {
+			if idx2 > 0 && idx2+1 <= ml && EqualEdgeFreqArr(mergePath[ml-(idx2+1):], path[:idx2+1]) {
+				path[idx2].ID = eID1
+				path = path[idx2:]
+			} else if pl-idx2 <= ml && EqualEdgeFreqArr(revMP[:pl-idx2], path[idx2:]) {
+				path[idx2].ID = eID1
+				path = path[:idx2+1]
+			} else if idx2 == 0 && idx2+1 <= ml && EqualEdgeFreqArr(mergePath[ml-(idx2+1):], path[:idx2+1]) {
+				path[idx2].ID = eID1
+				path = path[idx2:]
+			}
+		}
+		return path
+	}
+
+	nID1, nID2 := mergePath[1].ID, revMP[1].ID // next edge ID
+	fmt.Printf("[RePlaceNGSPath2]path:%v\n", path)
+	for i := 0; i < len(path); i++ {
+		id := path[i].ID
+		if id == eID1 {
+			if i+ml <= len(path) {
+				if i < ml {
+					if i > 0 {
+						if path[i-1].ID == nID1 {
+							path = path[i-1:]
+							i = 0
+							continue
+						}
+					} else if path[i+1].ID != nID1 {
+						continue
+					}
+				}
+				if EqualEdgeFreqArr(path[i:i+ml], mergePath) {
+					copy(path[i+1:], path[i+ml:])
+					path = path[:len(path)-(ml-1)]
+				} else {
+					log.Fatalf("[RePlaceNGSPath2]i:%d path:%v mergePath:%v can't RePlace\n", i, path, mergePath)
+				}
+			} else {
+				if i+1 < len(path) {
+					if path[i+1].ID == nID1 {
+						path = path[:i+1]
+					}
+				}
+			}
+		} else if id == eID2 {
+			if i+ml <= len(path) {
+				if i < ml {
+					if i > 0 {
+						if path[i-1].ID == nID2 {
+							path[i].ID = eID1
+							path = path[i-1:]
+							i = 0
+							continue
+						}
+					} else if path[i+1].ID != nID2 {
+						path[i].ID = eID1
+						continue
+					}
+				}
+				if EqualEdgeFreqArr(path[i:i+ml], revMP) {
+					path[i].ID = eID1
+					copy(path[i+1:], path[i+ml:])
+					path = path[:len(path)-(ml-1)]
+				} else {
+					log.Fatalf("[RePlaceNGSPath2]i:%d path:%v revMP:%v can't RePlace\n", i, path, revMP)
+				}
+			} else {
+				if i+1 < len(path) {
+					if path[i+1].ID == nID2 {
+						path[i].ID = eID1
+						path = path[:i+1]
+					}
+				}
+			}
+		}
+	}
+
+	if idx1 >= 0 || idx2 >= 0 {
+		//fmt.Printf("[RePlaceNGSPath2]idx1:%d idx2:%d path:%v\n", idx1, idx2, path)
+		//fmt.Printf("\tchanged path:%v\n", path)
+	}
+	return path
+}
+
+/*func RePlaceNGSPath2(path, mergePath, revMP []EdgeFreq) []EdgeFreq {
 	eID1, eID2 := mergePath[0].ID, mergePath[len(mergePath)-1].ID
 	idx1 := IndexEdgeFreq(path, eID1)
 	idx2 := IndexEdgeFreq(path, eID2)
@@ -1323,7 +1364,7 @@ func RePlaceNGSPath2(path, mergePath, revMP []EdgeFreq) []EdgeFreq {
 		//fmt.Printf("\tchanged path:%v\n", path)
 	}
 	return path
-}
+}*/
 
 func GetOverlapPath(p1, rP1, p2 []EdgeFreq, idx1, idx1R, idx2, overlapLen int) []EdgeFreq {
 	var catArr []EdgeFreq
@@ -1527,7 +1568,7 @@ func AddPathToEdge(e *DBGEdge, path []uint32, idx, kmerlen int) {
 		if added {
 			return
 		}
-		// need complex alignment
+		/*// need complex alignment
 		for i, p := range e.NGSPathArr {
 			if len(path) >= len(p) {
 				continue
@@ -1544,7 +1585,7 @@ func AddPathToEdge(e *DBGEdge, path []uint32, idx, kmerlen int) {
 		}
 		if added {
 			return
-		}
+		}*/
 		np := make([]EdgeFreq, len(path))
 		for j := range path {
 			np[j].ID = path[j]
@@ -1572,7 +1613,7 @@ func AddPathToEdge(e *DBGEdge, path []uint32, idx, kmerlen int) {
 	//fmt.Printf("[AddPathToEdge2]eID:%d, e.NGSPathArr:%v\n", e.ID, e.NGSPathArr)
 }
 
-const MaxPathSize = 9
+const MaxPathSize = 17
 
 func paraAddNGSPathToDBG(cs <-chan []uint32, arrPool *sync.Pool, edgesArr []DBGEdge, opt optionsMN) {
 	var path []uint32
@@ -1609,14 +1650,15 @@ func paraAddNGSPathToDBG(cs <-chan []uint32, arrPool *sync.Pool, edgesArr []DBGE
 
 // merge contained NGSPath
 func MergeNGSPathArr(edgesArr []DBGEdge) {
-	maxCount, mergeNum := 0, 0
+	maxCount, mergeNum, catNum := 0, 0, 0
 	for i := range edgesArr {
 		e := &edgesArr[i]
 		if i < 2 || e.GetDeleteFlag() > 0 {
 			continue
 		}
+		fmt.Printf("[MergeNGSPathArr]eID:%d el:%d NGSPathArr:%v\n", e.ID, len(e.Ks), e.NGSPathArr)
 		if len(e.NGSPathArr) == MaxPathSize {
-			//e.NGSPathArr = nil
+			e.NGSPathArr = nil
 			//fmt.Printf("[MergeNGSPathArr]max eID:%d el:%d NGSPathArr:%v\n", e.ID, len(e.Ks), e.NGSPathArr)
 			maxCount++
 			continue
@@ -1630,29 +1672,13 @@ func MergeNGSPathArr(edgesArr []DBGEdge) {
 				continue
 			}
 			for k := 0; k < j; k++ {
-				if e.NGSPathArr[k] == nil {
+				if e.NGSPathArr[k] == nil || len(e.NGSPathArr[k]) != len(e.NGSPathArr[j]) {
 					continue
 				}
-				if len(e.NGSPathArr[j]) < len(e.NGSPathArr[k]) {
-					x := len(e.NGSPathArr[k]) - len(e.NGSPathArr[j])
-					for l := 0; l <= x; l++ {
-						jl := len(e.NGSPathArr[j])
-						if EqualEdgeFreqArrNoDirection(e.NGSPathArr[k][l:l+jl], e.NGSPathArr[j]) {
-							AddEdgeFreqArr(e.NGSPathArr[k][l:l+jl], e.NGSPathArr[j])
-							e.NGSPathArr[j] = nil
-							break
-						}
-					}
-				} else {
-					x := len(e.NGSPathArr[j]) - len(e.NGSPathArr[k])
-					for l := 0; l <= x; l++ {
-						kl := len(e.NGSPathArr[k])
-						if EqualEdgeFreqArrNoDirection(e.NGSPathArr[j][l:l+kl], e.NGSPathArr[k]) {
-							AddEdgeFreqArr(e.NGSPathArr[j][l:l+kl], e.NGSPathArr[j])
-							e.NGSPathArr[j] = nil
-							break
-						}
-					}
+				if EqualEdgeFreqArrNoDirection(e.NGSPathArr[k], e.NGSPathArr[j]) {
+					AddEdgeFreqArr(e.NGSPathArr[k], e.NGSPathArr[j])
+					e.NGSPathArr[j] = nil
+					break
 				}
 			}
 		}
@@ -1666,9 +1692,35 @@ func MergeNGSPathArr(edgesArr []DBGEdge) {
 			}
 		}
 		e.NGSPathArr = e.NGSPathArr[:ngsi]
+
+		// can merge one path
+		path := make([]EdgeFreq, len(e.NGSPathArr[len(e.NGSPathArr)-1]))
+		copy(path, e.NGSPathArr[len(e.NGSPathArr)-1])
+		ok := true
+		overlapLen := 2
+		if e.GetTwoEdgesCycleFlag() > 0 {
+			overlapLen = 3
+		} else if e.GetUniqueFlag() > 0 || e.GetBubbleFlag() > 0 {
+			overlapLen = 1
+		}
+		for j := 0; j < len(e.NGSPathArr)-1; j++ {
+			rpath := GetReverseEdgeFreqArr2(path)
+			idx1, idx1R, idx2 := IndexEdgeFreq(path, e.ID), IndexEdgeFreq(rpath, e.ID), IndexEdgeFreq(e.NGSPathArr[j], e.ID)
+			path = GetOverlapPath(path, rpath, e.NGSPathArr[j], idx1, idx1R, idx2, overlapLen)
+			if len(path) == 0 {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			e.NGSPathArr[0] = path
+			e.NGSPathArr = e.NGSPathArr[:1]
+			catNum++
+		}
+		//fmt.Printf("[MergeNGSPathArr]eID:%d el:%d NGSPathArr:%v\n", e.ID, len(e.Ks), e.NGSPathArr)
 		//fmt.Printf("[MergeNGSPathArr]eID:%d el:%d NGSPathArr:%v\n", e.ID, len(e.Ks), e.NGSPathArr)
 	}
-	fmt.Printf("[MergeNGSPathArr]maxCount:%d mergeNum:%d\n", maxCount, mergeNum)
+	fmt.Printf("[MergeNGSPathArr]maxCount:%d mergeNum:%d catNum:%d\n", maxCount, mergeNum, catNum)
 }
 
 func DeleteLowFreqEdge(edgesArr []DBGEdge, nodesArr []DBGNode) {
@@ -1795,9 +1847,9 @@ func CatLeftRigthPath(edgesArr []DBGEdge) {
 			for k := 1; k < len(p1); k++ {
 				ea = append(ea, p1[k])
 			}
-			//fmt.Printf("[CatLeftRigthPath]p0:%v p1:%v catArr:%v\n", p0, p1, ea)
 			e.NGSPathArr[0] = ea
 			e.NGSPathArr = e.NGSPathArr[:1]
+			//fmt.Printf("[CatLeftRigthPath]eID:%d p0:%v p1:%v e.NGSPathArr:%v\n", e.ID, p0, p1, e.NGSPathArr)
 			catNum++
 		}
 	}
@@ -1860,15 +1912,35 @@ func MergeUniquePath(edgesArr []DBGEdge, nodesArr []DBGNode, kmerlen int) {
 
 		e, e1 := &edgesArr[efArr[idx1].ID], &edgesArr[efArr[idx1+1].ID]
 		nID := GetShareNodeID(e, e1)
+		var nID2 uint32
+		if nID == e.StartNID {
+			nID2 = e.EndNID
+		} else {
+			nID2 = e.StartNID
+		}
+
+		//for j := idx1; j < idx2+1; j++ {
+		//	ej := &edgesArr[efArr[j].ID]
+		//	fmt.Printf("[MergeUniquePath]eID:%d StartNID:%d EndNID:%d\n", ej.ID, ej.StartNID, ej.EndNID)
+		//}
+		//fmt.Printf("[MergeUniquePath]eID:%d StartNID:%d EndNID:%d eID2:%d StartNID:%d EndNID:%d\n", e.ID, e.StartNID, e.EndNID, efArr[idx2].ID, edgesArr[efArr[idx2].ID].StartNID, edgesArr[efArr[idx2].ID].EndNID)
 		te := ConcatEdgePathUtg(efArr[idx1:idx2+1], edgesArr, nodesArr, kmerlen)
+		//fmt.Printf("[MergeUniquePath]teID:%d StartNID:%d EndNID:%d\n", te.ID, te.StartNID, te.EndNID)
 		// reset DBG
 		if !SubstituteEdgeID(nodesArr, nID, e.ID, 0) {
-			fmt.Printf("[MergeUniquePath]e.StartNID:%d e.EndNID:%d e1.StartNID:%d e1.EndNID:%d\n", e.StartNID, e.EndNID, e1.StartNID, e1.EndNID)
 			log.Fatalf("[MergeUniquePath]nID:%d v: %v\ne.ID:%d substitute by 0 failed\n", nID, nodesArr[nID], e.ID)
 		}
-		if te.EndNID > 0 {
-			if !SubstituteEdgeID(nodesArr, te.EndNID, eIDArr[len(eIDArr)-1], e.ID) {
-				log.Fatalf("[MergeUniquePath]v: %v\ne.ID:%d substitute by :%d failed\n", nodesArr[te.EndNID], eIDArr[len(eIDArr)-1], e.ID)
+		if te.EndNID == nID2 {
+			if te.StartNID > 0 {
+				if !SubstituteEdgeID(nodesArr, te.StartNID, eIDArr[len(eIDArr)-1], te.ID) {
+					log.Fatalf("[MergeUniquePath]v: %v\ne.ID:%d substitute by :%d failed\n", nodesArr[te.StartNID], eIDArr[len(eIDArr)-1], te.ID)
+				}
+			}
+		} else {
+			if te.EndNID > 0 {
+				if !SubstituteEdgeID(nodesArr, te.EndNID, eIDArr[len(eIDArr)-1], te.ID) {
+					log.Fatalf("[MergeUniquePath]v: %v\ne.ID:%d substitute by :%d failed\n", nodesArr[te.EndNID], eIDArr[len(eIDArr)-1], te.ID)
+				}
 			}
 		}
 		for _, eID := range eIDArr[1:] {
@@ -1918,6 +1990,15 @@ func MergeUniquePath(edgesArr []DBGEdge, nodesArr []DBGNode, kmerlen int) {
 			}
 			for j, tmp := range edgesArr[id].NGSPathArr {
 				edgesArr[id].NGSPathArr[j] = RePlaceNGSPath2(tmp, mergePath, revMP)
+				/*for _, ef1 := range edgesArr[id].NGSPathArr[j] {
+					if ef1.ID == te.ID {
+						continue
+					}
+					ne := &edgesArr[ef1.ID]
+					for x := range ne.NGSPathArr {
+						ne.NGSPathArr[x] = RePlaceNGSPath2(ne.NGSPathArr[x], mergePath, revMP)
+					}
+				}*/
 				//if tl != len(edgesArr[id].NGSPathArr[j]) {
 				//	fmt.Printf("[AddNGSPathToDBG]eID:%d j:%d path:%v\n\t\tchanged:%v\n", id, j, td, edgesArr[id].NGSPathArr[j])
 				//}
@@ -1927,7 +2008,7 @@ func MergeUniquePath(edgesArr []DBGEdge, nodesArr []DBGNode, kmerlen int) {
 	fmt.Printf("[MergeUniquePath]mergeNum:%d\n", mergeNum)
 }
 
-func AddNGSPathToDBG(NGSPathfn string, nodesArr []DBGNode, edgesArr []DBGEdge, opt optionsMN, ngsPathSize int) {
+func AddNGSPathToDBG(NGSPathfn string, nodesArr []DBGNode, edgesArr []DBGEdge, opt optionsMN, ngsPathSize int, MergeUnique bool) {
 	bufSize := WindowSize
 	cs := make(chan []uint32, opt.NumCPU)
 	arrPool := sync.Pool{New: func() interface{} {
@@ -1948,10 +2029,12 @@ func AddNGSPathToDBG(NGSPathfn string, nodesArr []DBGNode, edgesArr []DBGEdge, o
 	DeleteLowFreqNGSPath(edgesArr, opt.MinMapFreq)
 	// merge contained NGSPath
 	MergeNGSPathArr(edgesArr)
-	// cat left and rigth edge path or merge consistence path
-	CatLeftRigthPath(edgesArr)
-	// merge Unique path
-	MergeUniquePath(edgesArr, nodesArr, opt.Kmer)
+	if MergeUnique {
+		// cat left and rigth edge path or merge consistence path
+		CatLeftRigthPath(edgesArr)
+		// merge Unique path
+		MergeUniquePath(edgesArr, nodesArr, opt.Kmer)
+	}
 }
 
 /*
@@ -3069,7 +3152,7 @@ func checkArgsMN(c cli.Command) (opt optionsMN, suc bool) {
 	return opt, suc
 }
 
-func MapingNGSFindDBGPath(opt optionsMN, nodesArr []DBGNode, edgesArr []DBGEdge) int {
+func MapingNGSFindDBGPath(opt optionsMN, nodesArr []DBGNode, edgesArr []DBGEdge, pathfn string) int {
 	// construct cuckoofilter of DBG sample
 	cfSize := GetCuckoofilterDBGSampleSize(edgesArr, opt.WinSize, opt.Kmer)
 	fmt.Printf("[MapingNGSFindDBGPath]cfSize:%d\n", cfSize)
@@ -3095,7 +3178,6 @@ func MapingNGSFindDBGPath(opt optionsMN, nodesArr []DBGNode, edgesArr []DBGEdge)
 		return arr
 	}}
 
-	pathfn := opt.Prefix + ".NGSPath.zst"
 	go WriteNGSPath(pathfn, wc, &pathArrPool, writeNumC)
 	for _, lib := range cfgInfo.Libs {
 		if lib.AsmFlag != AllState && lib.SeqProfile != 1 {
@@ -3131,6 +3213,12 @@ func NGSPathSizeReader(fn string) (size int) {
 	return
 }
 
+func ResetNGSPathArr(edgesArr []DBGEdge) {
+	for i := range edgesArr {
+		edgesArr[i].NGSPathArr = nil
+	}
+}
+
 func MapNGS(c cli.Command) {
 
 	t0 := time.Now()
@@ -3140,7 +3228,7 @@ func MapNGS(c cli.Command) {
 	if suc == false {
 		log.Fatalf("[MapNGS] check Arguments error, opt:%v\n", opt)
 	}
-	fmt.Printf("Arguments: %v\n", opt)
+	fmt.Printf("Arguments: %+v\n", opt)
 	/*DebugModel := true
 	if DebugModel {
 		profileFn := opt.Prefix + ".MapNGS.prof"
@@ -3176,23 +3264,44 @@ func MapNGS(c cli.Command) {
 	NGSPathfn := opt.Prefix + ".NGSPath.zst"
 	NGSPathSizefn := opt.Prefix + ".NGSPathSize"
 	if _, err := os.Stat(NGSPathfn); err != nil {
-		size := MapingNGSFindDBGPath(opt, nodesArr, edgesArr)
+		size := MapingNGSFindDBGPath(opt, nodesArr, edgesArr, NGSPathfn)
 		NGSPathSizeWriter(NGSPathSizefn, size)
 		t2 := time.Now()
 		fmt.Printf("[MapNGS]MapingNGSFindDBGPath:%v\n", t2.Sub(t0))
-		runtime.GC()
 	}
+	runtime.GC()
 	ngsPathSize := NGSPathSizeReader(NGSPathSizefn)
-	AddNGSPathToDBG(NGSPathfn, nodesArr, edgesArr, opt, ngsPathSize)
+	//PrintTmpNodesArr(nodesArr, opt.Prefix)
+	AddNGSPathToDBG(NGSPathfn, nodesArr, edgesArr, opt, ngsPathSize, true)
 	var optSF optionsSF
-	optSF.ArgsOpt, optSF.TipMaxLen, optSF.MinMapFreq = opt.ArgsOpt, opt.TipMaxLen, opt.MinMapFreq
+	optSF.ArgsOpt, optSF.MinMapFreq = opt.ArgsOpt, opt.MinMapFreq
+	//optSF.TipMaxLen = opt.Kmer - 1
+	optSF.TipMaxLen = opt.TipMaxLen
 	SmfyDBG(nodesArr, edgesArr, optSF)
 
-	//edgesArr = SetEdgeID(nodesArr, edgesArr)
-	//nodesArr = SetNodeID(nodesArr, edgesArr)
+	edgesArr = SetEdgeID(nodesArr, edgesArr)
+	nodesArr = SetNodeID(nodesArr, edgesArr)
+	ResetNGSPathArr(edgesArr)
+	AddNodeInfo2DBGEdgeArr(edgesArr, nodesArr)
 
 	CheckDBGSelfCycle(nodesArr, edgesArr, opt.Kmer)
 	CheckInterConnectivity(edgesArr, nodesArr)
+
+	// remap NGS to new EdgesArr
+	fmt.Printf("[MapNGS]remap MapingNGSFindDBGPath\n")
+	NGSPathfn = opt.Prefix + ".NGSPath2.zst"
+	NGSPathSizefn = opt.Prefix + ".NGSPathSize2"
+	if _, err := os.Stat(NGSPathfn); err != nil {
+		size := MapingNGSFindDBGPath(opt, nodesArr, edgesArr, NGSPathfn)
+		NGSPathSizeWriter(NGSPathSizefn, size)
+		t2 := time.Now()
+		fmt.Printf("[MapNGS]MapingNGSFindDBGPath2:%v\n", t2.Sub(t0))
+	}
+	runtime.GC()
+	ngsPathSize = NGSPathSizeReader(NGSPathSizefn)
+	//PrintTmpNodesArr(nodesArr, opt.Prefix)
+	AddNGSPathToDBG(NGSPathfn, nodesArr, edgesArr, opt, ngsPathSize, false)
+	CheckNGSPathArr(edgesArr, nodesArr)
 
 	//store DBG
 	mapDBGNodesfn := opt.Prefix + ".nodes.MapDBG.Arr"
@@ -3200,7 +3309,7 @@ func MapNGS(c cli.Command) {
 	go NodesArrWriter(nodesArr, mapDBGNodesfn, fc2)
 
 	mapDBGEdgesfn := opt.Prefix + ".edges.MapDBG.fa.zst"
-	StoreEdgesToFn(mapDBGEdgesfn, edgesArr)
+	StoreEdgesToFn(mapDBGEdgesfn, edgesArr, opt.TipMaxLen)
 	<-fc2
 	//mappingEdgefn := opt.Prefix + ".edges.mapping.fa"
 	// StoreMappingEdgesToFn(mappingEdgefn, edgesArr, opt.MaxMapEdgeLen)

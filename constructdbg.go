@@ -32,6 +32,10 @@ type DBGNode struct {
 	Flag uint8 // from low~high, 1:Process, 2:
 }
 
+func (n *DBGNode) String() string {
+	return fmt.Sprintf("ID:%d EdgeIncoming:%v EdgeOutcoming:%v\n", n.ID, n.EdgeIDIncoming, n.EdgeIDOutcoming)
+}
+
 type NodeInfo struct {
 	ID              uint32
 	EdgeIDIncoming  [BaseTypeNum]uint32 // the ID of EdgeID inclming
@@ -123,7 +127,7 @@ func (k SeedInfo) GetKmer() uint64 {
 }
 func (k *SeedInfo) SetKmer(kmer uint64) {
 	//fmt.Printf("[SetKmer]kmer:%b\n", kmer)
-	*k = (*k << (seqPositionBitNum + 1)) | (*k & kmerMask)
+	*k = SeedInfo(kmer<<(seqPositionBitNum+1)) | (*k & kmerMask)
 	//fmt.Printf("[SetKmer]k.Kmer:%b\n", k.GetKmer())
 }
 
@@ -154,6 +158,7 @@ func (k *SeedInfo) SetStrand(s bool) {
 		//k.Kmer = k.Kmer & KmerResetStrand
 		*k >>= 1
 		*k <<= 1
+
 	}
 }
 
@@ -184,6 +189,10 @@ type DBGEdge struct {
 	PathMat, PathMat1 []Path // read Path matrix
 	//GFAPath           []*[][][]uint32
 	SeedInfoArr []SeedInfo // store seq seed array
+}
+
+func (e *DBGEdge) String() string {
+	return fmt.Sprintf("eID:%d StartNID:%d EndNID:%d el:%d EdgeIDIncoming:%v EdgeIDOutcoming:%d\n", e.ID, e.StartNID, e.EndNID, len(e.Ks), e.EdgeIDIncoming, e.EdgeIDOutcoming)
 }
 
 /*
@@ -360,7 +369,7 @@ func GetKmerRecord(fncs <-chan []byte, cs chan<- KmerBntBucket, bufSize, kmerlen
 			if len(nb) == 0 {
 				break
 			}
-			copy(buf[0:], buf[pos:len(buf)])
+			copy(buf[0:], buf[pos:])
 			buf = buf[:len(buf)-pos]
 			pos = 0
 			buf = append(buf, nb...)
@@ -1051,6 +1060,25 @@ func GetReverseCompByteArr(seq []byte) []byte {
 	rv := make([]byte, sl)
 	for i := 0; i < len(rv); i++ {
 		rv[i] = BntRev[seq[sl-1-i]]
+	}
+
+	return rv
+}
+
+func GetReverseCompNtByteArr(seq []byte) []byte {
+	sl := len(seq)
+	rv := make([]byte, sl)
+	for i := 0; i < len(rv); i++ {
+		c := seq[sl-1-i]
+		if c == 'A' {
+			rv[i] = 'T'
+		} else if c == 'C' {
+			rv[i] = 'G'
+		} else if c == 'G' {
+			rv[i] = 'C'
+		} else {
+			rv[i] = 'A'
+		}
 	}
 
 	return rv
@@ -2627,7 +2655,7 @@ func IsContainCycleEdge(nd *DBGNode, arr []uint32) bool {
 		}
 	}
 	for i := 0; i < len(arr)-1; i++ {
-		for j := 0; j < len(arr); j++ {
+		for j := i + 1; j < len(arr); j++ {
 			if arr[i] == arr[j] {
 				return true
 			}
@@ -2844,7 +2872,7 @@ func SetEdgeID(nodesArr []DBGNode, edgesArr []DBGEdge) []DBGEdge {
 			edgeID++
 			continue
 		}
-		if e.GetDeleteFlag() > 0 {
+		if e.ID < 2 || e.GetDeleteFlag() > 0 {
 			continue
 		}
 		if e.StartNID > 0 {
@@ -2885,7 +2913,7 @@ func SetNodeID(nodesArr []DBGNode, edgesArr []DBGEdge) []DBGNode {
 			nodeID++
 			continue
 		}
-		if n.GetDeleteFlag() > 0 {
+		if n.ID < 2 || n.GetDeleteFlag() > 0 {
 			continue
 		}
 		if CountNumEdgeIDComing(n.EdgeIDIncoming) == 0 && CountNumEdgeIDComing(n.EdgeIDOutcoming) == 0 {
@@ -3090,14 +3118,14 @@ func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt optionsSF) {
 	// delete maybe short repeat edge small than opt.MaxNGSReadLen
 	var e *DBGEdge
 	for i := range edgesArr {
-		if i < 2 {
+		e = &edgesArr[i]
+		if e.ID < 2 {
 			continue
 		}
-		e = &edgesArr[i]
 
 		if e.GetDeleteFlag() > 0 {
 			//deleteEdgeNum++
-			fmt.Printf("[SmfyDBG]has been deleted edgeID:%d el:%d\n", i, e.GetSeqLen())
+			fmt.Printf("[SmfyDBG]has been deleted edge:%s", e.String())
 			if e.StartNID > 0 {
 				SubstituteEdgeID(nodesArr, e.StartNID, e.ID, 0)
 			}
@@ -3126,9 +3154,9 @@ func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt optionsSF) {
 
 		if deleteFlag {
 			edgesArr[i].SetDeleteFlag()
-			edgesArr[i].Ks = nil
 			deleteEdgeNum++
-			fmt.Printf("[SmfyDBG]delete tip edgeID:%d el:%d\n", i, e.GetSeqLen())
+			fmt.Printf("[SmfyDBG]delete tip edge:%s", e.String())
+			edgesArr[i].Ks = nil
 			continue
 		}
 		if (e.StartNID == 0 || e.EndNID == 0) && len(e.Ks) >= opt.TipMaxLen {
@@ -3152,10 +3180,9 @@ func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt optionsSF) {
 	var e1, e2 *DBGEdge
 	comingArr := make([]uint32, BaseTypeNum*2)
 	for i, v := range nodesArr {
-		if i < 2 || v.GetDeleteFlag() > 0 || IsContainCycleEdge(&v, comingArr) {
+		if v.ID < 2 || v.GetDeleteFlag() > 0 || IsContainCycleEdge(&v, comingArr) {
 			continue
 		}
-		//fmt.Printf("[SmfyDBG] v: %v\n", v)
 		inNum, inID := GetEdgeIDComing(v.EdgeIDIncoming)
 		outNum, outID := GetEdgeIDComing(v.EdgeIDOutcoming)
 		if inNum == 0 && outNum == 0 {
@@ -3165,6 +3192,12 @@ func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt optionsSF) {
 			id := inID
 			if outNum == 1 {
 				id = outID
+			}
+			if edgesArr[id].GetDeleteFlag() > 0 {
+				nodesArr[i].SetDeleteFlag()
+				fmt.Printf("[SmfyDBG]delete tip node ID:%d eID:%d\n", i, id)
+				deleteNodeNum++
+				continue
 			}
 			if edgesArr[id].StartNID == edgesArr[id].EndNID {
 				continue
@@ -3178,7 +3211,6 @@ func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt optionsSF) {
 			//}
 			if len(edgesArr[id].Ks) < opt.TipMaxLen {
 				edgesArr[id].SetDeleteFlag()
-				edgesArr[id].Ks = nil
 				deleteEdgeNum++
 				fmt.Printf("[SmfyDBG]delete tip edge ID:%d el:%d\n", id, edgesArr[id].GetSeqLen())
 				if edgesArr[id].StartNID > 0 && int(edgesArr[id].StartNID) != i && !SubstituteEdgeID(nodesArr, edgesArr[id].StartNID, id, 0) {
@@ -3186,6 +3218,7 @@ func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt optionsSF) {
 				} else if edgesArr[id].EndNID > 0 && int(edgesArr[id].EndNID) != i && !SubstituteEdgeID(nodesArr, edgesArr[id].EndNID, id, 0) {
 					log.Fatalf("[SmfyDBG]v: %v\ne.ID: %v substitute by 0 failed\n", nodesArr[edgesArr[id].EndNID], id)
 				}
+				edgesArr[id].Ks = nil
 			} else {
 				if edgesArr[id].StartNID == v.ID {
 					edgesArr[id].StartNID = uint32(0)
@@ -3229,14 +3262,15 @@ func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt optionsSF) {
 
 	// get merge path
 	mergePathMap := make(map[uint32][]EdgeFreq, 1000)
-	for i, v := range nodesArr {
-		if i < 2 || v.GetDeleteFlag() > 0 || IsContainCycleEdge(&v, comingArr) {
+	for _, v := range nodesArr {
+		if v.ID < 2 || v.GetDeleteFlag() > 0 || IsContainCycleEdge(&v, comingArr) {
 			continue
 		}
-		//fmt.Printf("[SmfyDBG] v: %v\n", v)
+		fmt.Printf("[SmfyDBG]v:%s\n", v.String())
 		inNum, inID := GetEdgeIDComing(v.EdgeIDIncoming)
 		outNum, outID := GetEdgeIDComing(v.EdgeIDOutcoming)
 		if inNum == 1 && outNum == 1 && inID != outID { // prevent cycle ring
+			fmt.Printf("[SmfyDBG]inNum:%d outNum:%d inID:%d outID:%d\n", inNum, outNum, inID, outID)
 			e1 = &edgesArr[inID]
 			e2 = &edgesArr[outID]
 			if e1.StartNID == e1.EndNID || e2.StartNID == e2.EndNID { // if  encounter cycle ring have same EdgeIDcoming
@@ -3301,7 +3335,7 @@ func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt optionsSF) {
 		}
 	}
 
-	// reset DBG and merge path
+	// reset DBG
 	var mergeNum int
 	{
 		var em DBGEdge
@@ -3334,33 +3368,48 @@ func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt optionsSF) {
 		}
 	}
 
-	// reset NGSPath
+	/*// reset NGSPath
 	changedNGSPathCount := 0
+	rmp := make([]EdgeFreq, 40)
+	idArr := make([]uint32, 5)
 	for i := range edgesArr {
 		e = &edgesArr[i]
 		if i < 2 || e.GetDeleteFlag() > 0 || len(e.NGSPathArr) == 0 {
 			continue
 		}
 		for j := range e.NGSPathArr {
+			idArr = idArr[:0]
 			for x := 0; x < len(e.NGSPathArr[j]); x++ {
 				id := e.NGSPathArr[j][x].ID
+				if IsInUint32Arr(idArr, id) {
+					continue
+				}
 				if mp, ok := mergePathMap[id]; ok {
-					rmp := GetReverseEdgeFreqArr2(mp)
+					rmp = GetReverseEdgeFreqArr(mp, rmp)
+					idArr = append(idArr, mp[0].ID, rmp[0].ID)
 					al := len(e.NGSPathArr[j])
 					e.NGSPathArr[j] = RePlaceNGSPath2(e.NGSPathArr[j], mp, rmp)
 					if al != len(e.NGSPathArr[j]) {
-						x = 0
+						x = 1
 					}
 					changedNGSPathCount++
 				}
 			}
 		}
-	}
+	}*/
 
-	// check code
+	//fmt.Printf("[SmfyDBG]changed NGSPath number is : %d\n", changedNGSPathCount)
+	fmt.Printf("[SmfyDBG]merged path number is : %d\n", mergeNum)
+	fmt.Printf("[SmfyDBG]deleted nodes number is : %d\n", deleteNodeNum)
+	fmt.Printf("[SmfyDBG]deleted edges number is : %d\n", deleteEdgeNum)
+	fmt.Printf("[SmfyDBG]long tips number is : %d\n", longTipsEdgesNum)
+}
+
+// check code
+func CheckNGSPathArr(edgesArr []DBGEdge, nodesArr []DBGNode) {
 	for i := range edgesArr {
-		e = &edgesArr[i]
-		if i < 2 || e.GetDeleteFlag() > 0 || len(e.NGSPathArr) == 0 {
+		e := &edgesArr[i]
+		if e.ID < 2 || e.GetDeleteFlag() > 0 || len(e.NGSPathArr) == 0 {
 			continue
 		}
 		idx := 0
@@ -3383,12 +3432,6 @@ func SmfyDBG(nodesArr []DBGNode, edgesArr []DBGEdge, opt optionsSF) {
 		}
 		e.NGSPathArr = e.NGSPathArr[:idx]
 	}
-
-	fmt.Printf("[SmfyDBG]changed NGSPath number is : %d\n", changedNGSPathCount)
-	fmt.Printf("[SmfyDBG]merged path number is : %d\n", mergeNum)
-	fmt.Printf("[SmfyDBG]deleted nodes number is : %d\n", deleteNodeNum)
-	fmt.Printf("[SmfyDBG]deleted edges number is : %d\n", deleteEdgeNum)
-	fmt.Printf("[SmfyDBG]long tips number is : %d\n", longTipsEdgesNum)
 }
 
 func CountEdgeIDComing(eIDComing [4]uint32, eID uint32) (count int) {
@@ -3438,8 +3481,8 @@ func PrintTmpNodesArr(nodesArr []DBGNode, prefix string) {
 		if v.ID < 2 || v.GetDeleteFlag() > 0 {
 			continue
 		}
-		s := fmt.Sprintf("ID:%v EdgeIncoming:%v EdgeOutcoming:%v\n", v.ID, v.EdgeIDIncoming, v.EdgeIDOutcoming)
-		nodesfp.WriteString(s)
+		//s := fmt.Sprintf("ID:%v EdgeIncoming:%v EdgeOutcoming:%v\n", v.ID, v.EdgeIDIncoming, v.EdgeIDOutcoming)
+		nodesfp.WriteString(v.String())
 	}
 }
 
@@ -3567,7 +3610,7 @@ func SetDefaultQual(seq Unitig) (new Unitig) {
 	close(wc)
 }*/
 
-func StoreEdgesToFn(edgesfn string, edgesArr []DBGEdge) {
+func StoreEdgesToFn(edgesfn string, edgesArr []DBGEdge, TipMaxLen int) {
 	//wc := make(chan []byte, 2000)
 	//go GetEdgesByteArr(edgesArr, wc)
 
@@ -3583,7 +3626,7 @@ func StoreEdgesToFn(edgesfn string, edgesArr []DBGEdge) {
 	}
 	count := 0
 	for _, e := range edgesArr {
-		if e.ID < 2 || e.GetDeleteFlag() > 0 || (e.StartNID == 0 && e.EndNID == 0) {
+		if e.ID < 2 || e.GetDeleteFlag() > 0 || (e.StartNID == 0 && e.EndNID == 0 && len(e.Ks) < TipMaxLen) {
 			continue
 		}
 		WritefaRecord(fp, &e)
@@ -4034,34 +4077,6 @@ func IsBubbleEdge(e *DBGEdge, nodesArr []DBGNode) (ea []uint32, ok bool) {
 	return
 }
 
-func IsBubble(e1, e2 *DBGEdge, nodesArr []DBGNode) bool {
-	if (e1.StartNID == e1.EndNID) || (e2.StartNID == e2.EndNID) || (e1.StartNID < 2) || (e1.EndNID < 2) || (e2.StartNID < 2) || (e2.EndNID < 2) {
-		return false
-	}
-	// test startNID
-	if IsInComing(nodesArr[e1.StartNID].EdgeIDIncoming, e1.ID) {
-		if !IsInComing(nodesArr[e1.StartNID].EdgeIDIncoming, e2.ID) {
-			return false
-		}
-	} else {
-		if !IsInComing(nodesArr[e1.StartNID].EdgeIDOutcoming, e2.ID) {
-			return false
-		}
-	}
-	// test endNID
-	if IsInComing(nodesArr[e1.EndNID].EdgeIDIncoming, e1.ID) {
-		if !IsInComing(nodesArr[e1.EndNID].EdgeIDIncoming, e2.ID) {
-			return false
-		}
-	} else {
-		if !IsInComing(nodesArr[e1.EndNID].EdgeIDOutcoming, e2.ID) {
-			return false
-		}
-	}
-
-	return true
-}
-
 func GetOtherEArr(node DBGNode, eID uint32) (eIDArr []uint32) {
 	var direction uint8
 	if eID <= 0 {
@@ -4261,9 +4276,15 @@ func SetDBGEdgesUniqueFlag(edgesArr []DBGEdge, nodesArr []DBGNode, kmerlen int) 
 	return
 }
 
+func ResetComing(coming *[4]uint32) {
+	coming[0], coming[1], coming[2], coming[3] = 0, 0, 0, 0
+}
+
 func AddNodeInfo2DBGEdgeArr(edgesArr []DBGEdge, nodesArr []DBGNode) {
 	for i := range edgesArr {
 		e := &edgesArr[i]
+		ResetComing(&e.EdgeIDIncoming)
+		ResetComing(&e.EdgeIDOutcoming)
 		if e.ID < 2 || e.GetDeleteFlag() > 0 {
 			continue
 		}
@@ -4473,15 +4494,15 @@ func EqualByteArr(kb, rb []byte) bool {
 	return true
 }
 
-func GetCuckoofilterDBGSampleSize(edgesArr []DBGEdge, winSize, kmerLen int) (cfSize int) {
-
-	for _, e := range edgesArr {
+func GetCuckoofilterDBGSampleSize(edgesArr []DBGEdge, winSize, kmerlen int) (cfSize int) {
+	var e *DBGEdge
+	for i := range edgesArr {
+		e = &edgesArr[i]
 		if e.GetDeleteFlag() > 0 || e.ID < 2 {
 			continue
 		}
 		//fmt.Printf("[GetCuckoofilterDBGSampleSize] e: %v\n", e)
-		el := len(e.Ks)
-		cfSize += ((el - kmerLen + winSize - 1) / winSize) + 1
+		cfSize += ((len(e.Ks) - kmerlen + winSize - 1) / winSize) + 1
 		/*if el < 2*maxNGSReadLen-kmerLen { // get whole length sliding windowns
 			cfSize += ((el - kmerLen + winSize - 1) / winSize) + 1
 		} else { // just sample two ends
@@ -4581,18 +4602,18 @@ func ConstructCFDBGMinimizers(cf *CuckooFilterDBGKmer, edgesArr []DBGEdge, kmerl
 			if last < 0 || idx-last > winSize {
 				minDS, x := FindMinDBGKmerSeq(buf[idx-winSize : idx])
 				y := idx - winSize + x
+				//fmt.Printf("[constructCFDBGSample]dk:%v\n", minDS)
 				if cf.Insert(minDS.ks, minDS.dk) == false {
-					log.Fatalf("[constructCFDBGSample] Insert to the CuckooFilter of DBGSample false, cf.Count:%d\n", cf.Count)
+					log.Fatalf("[ConstructCFDBGMinimizers] Insert to the CuckooFilter of DBGSample false, cf.Count:%d\n", cf.Count)
 				}
-				//fmt.Printf("[constructCFDBGSample]dk:%v\n", minDS.dk)
 				cf.Count++
 				last = y
 			} else {
 				if BiggerThan(buf[last].ks, buf[idx-1].ks) {
+					//fmt.Printf("[constructCFDBGSample]dk:%v\n", buf[idx-1])
 					if cf.Insert(buf[idx-1].ks, buf[idx-1].dk) == false {
-						log.Fatalf("[constructCFDBGSample] Insert to the CuckooFilter of DBGSample false, cf.Count:%d\n", cf.Count)
+						log.Fatalf("[ConstructCFDBGMinimizers] Insert to the CuckooFilter of DBGSample false, cf.Count:%d\n", cf.Count)
 					}
-					//fmt.Printf("[constructCFDBGSample]dk:%v\n", buf[idx-1].dk)
 					cf.Count++
 					last = idx - 1
 				}
@@ -6267,7 +6288,7 @@ func ResetNodeEdgecoming(edgesArr []DBGEdge, nodesArr []DBGNode) {
 }
 
 func InitialDBGNodeProcessFlag(nodesArr []DBGNode) {
-	for i, _ := range nodesArr {
+	for i := range nodesArr {
 		nodesArr[i].ResetProcessFlag()
 	}
 }
@@ -6834,7 +6855,7 @@ func Smfy(c cli.Command) {
 	//GraphvizDBG(nodeMap, edgesArr, gfn)
 	// reconstruct consistence De Bruijn Graph
 	// ReconstructConsistenceDBG(nodeMap, edgesArr)
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 3; i++ {
 		fmt.Printf("[Smfy] %v cycle smfy DBG....\n", i)
 		SmfyDBG(nodesArr, edgesArr, opt)
 	}
@@ -6885,7 +6906,7 @@ func Smfy(c cli.Command) {
 	go NodesArrWriter(nodesArr, smfyNodesfn, fc1)
 
 	smfyEdgesfn := opt.Prefix + ".edges.smfy.fa.zst"
-	StoreEdgesToFn(smfyEdgesfn, edgesArr)
+	StoreEdgesToFn(smfyEdgesfn, edgesArr, opt.TipMaxLen)
 	<-fc1
 	//mappingEdgefn := opt.Prefix + ".edges.mapping.fa"
 	// StoreMappingEdgesToFn(mappingEdgefn, edgesArr, opt.MaxMapEdgeLen)
@@ -7049,6 +7070,16 @@ func GetShareNodeID(e, e1 *DBGEdge) uint32 {
 	}
 	var nID uint32
 	return nID
+}
+
+func GetShareNodeIDArr(e, e1 *DBGEdge) (arr []uint32) {
+	if e.StartNID == e1.StartNID || e.StartNID == e1.EndNID {
+		arr = append(arr, e.StartNID)
+	}
+	if e.EndNID == e1.StartNID || e.EndNID == e1.EndNID {
+		arr = append(arr, e.EndNID)
+	}
+	return arr
 }
 
 func GetNumInuint32Arr(arr []uint32, eID uint32) (count int) {
@@ -7224,14 +7255,33 @@ func IsConnectNode(v DBGNode, eID1, eID2 uint32) bool {
 	return ok
 }
 
+func IsLinearNode(nd *DBGNode, eID1, eID2 uint32) bool {
+	inNum, inID := GetEdgeIDComing(nd.EdgeIDIncoming)
+	outNum, outID := GetEdgeIDComing(nd.EdgeIDOutcoming)
+	if inNum == 1 && outNum == 1 {
+		if inID == eID1 && outID == eID2 {
+			return true
+		} else if inID == eID2 && outID == eID1 {
+			return true
+		}
+	}
+	return false
+}
+
 // this version just used for smfy, incoming == outcoming == 1
 func ConcatEdgePathUtg(path []EdgeFreq, edgesArr []DBGEdge, nodesArr []DBGNode, kmerlen int) (e DBGEdge) {
 	sl := GetEdgeFreqPathSeqLen(path, edgesArr, kmerlen)
 	e.Ks = make([]byte, 0, sl)
-	e0 := &edgesArr[path[0].ID]
 	e.ID = path[0].ID
+	e0, e1 := &edgesArr[e.ID], &edgesArr[path[1].ID]
+	narr := GetShareNodeIDArr(e0, e1)
+	if len(narr) > 1 {
+		if IsLinearNode(&nodesArr[narr[1]], e0.ID, e1.ID) {
+			narr[0] = narr[1]
+		}
+	}
 	var strand bool
-	if (edgesArr[path[0].ID].EndNID == edgesArr[path[1].ID].StartNID || edgesArr[path[0].ID].EndNID == edgesArr[path[1].ID].EndNID) && IsMergedNode(&nodesArr[edgesArr[path[0].ID].EndNID]) {
+	if edgesArr[e0.ID].EndNID == narr[0] {
 		strand = PLUS
 		e.StartNID = e0.StartNID
 		e.EdgeIDIncoming = e0.EdgeIDIncoming
@@ -7244,11 +7294,12 @@ func ConcatEdgePathUtg(path []EdgeFreq, edgesArr []DBGEdge, nodesArr []DBGNode, 
 	if !strand {
 		ReverseCompByteArr(e.Ks)
 	}
+	//fmt.Printf("[ConcatEdgePathUtg]eID:%d strand:%v\n", e0.ID, strand)
 	var e2 *DBGEdge
 	for i := 1; i < len(path); i++ {
 		e2 = &edgesArr[path[i].ID]
 		strand = GetNextEdgeStrand2(e0, e2, strand, FORWARD)
-		//fmt.Printf("[ConcatEdgePathUtg]e2:%v\n", e2)
+		//fmt.Printf("[ConcatEdgePathUtg]eID:%d strand:%v\n", e2.ID, strand)
 		if strand {
 			e.Ks = append(e.Ks, e2.Ks[kmerlen-1:]...)
 			e.EndNID = e2.EndNID

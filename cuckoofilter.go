@@ -49,7 +49,7 @@ const (
 
 const BucketSize = 4
 const MaxLoad = 0.95
-const KMaxCount = 10000
+const KMaxCount = 20000
 
 // KEY used for highwayhash function, must len(KEY) == 32
 //var KEY = []byte{35, 158, 189, 243, 123, 39, 95, 219, 58, 253, 127, 163, 91, 235, 248, 177, 139, 67, 229, 171, 195, 81, 95, 149, 191, 249, 148, 45, 155, 235}
@@ -373,7 +373,7 @@ func getIndexAndFingerprint(hash uint64, bucketPow uint) (uint64, uint16) {
 	//i1 := (hash >> NumFpBits) & masks[bucketPow]
 	//i1 := (((hash >> NumFpBits) & masks[bucketPow]) ^ (hash >> (NumFpBits + bucketPow))) & masks[bucketPow]
 	m := 64 - NumFpBits - bucketPow
-	fmt.Printf("[getIndexAndFingerprint]bucketPow:%d m:%d\n", bucketPow, m)
+	//fmt.Printf("[getIndexAndFingerprint]bucketPow:%d m:%d\n", bucketPow, m)
 	i1 := (hash >> (m + NumFpBits)) ^ (((hash >> NumFpBits) & masks[m]) << ((bucketPow - m) >> 1))
 	return i1, fp
 }
@@ -436,7 +436,6 @@ func (cf *CuckooFilter) Add1(i uint64, j int, fp uint16) bool {
 			return false
 		}
 	}
-	return false
 }
 
 func AddDBGKmer(b *[BucketSize]DBGKmer, d DBGKmer) (ok bool) {
@@ -452,9 +451,9 @@ func AddDBGKmer(b *[BucketSize]DBGKmer, d DBGKmer) (ok bool) {
 
 func (cf *CuckooFilter) Insert(kb []byte) (uint16, bool) {
 	hash := xxhash.Sum64(kb)
-	fmt.Printf("[cf.Insert]hash:%X\n", hash)
+	//fmt.Printf("[cf.Insert]hash:%X\n", hash)
 	i1, fp := getIndexAndFingerprint(hash, cf.BucketPow)
-	fmt.Printf("[cf.Insert]i1:%X fp:%X\n", i1, fp)
+	//fmt.Printf("[cf.Insert]i1:%X fp:%X\n", i1, fp)
 	// lookup
 	j, c := cf.Hash[i1].getFingerprintIndex(fp)
 	if j >= 0 {
@@ -518,10 +517,10 @@ func (cf *CuckooFilterDBGKmer) reinsert(i uint64, dk DBGKmer) bool {
 }
 
 func (cf *CuckooFilterDBGKmer) Insert(kb []byte, dk DBGKmer) bool {
-	//fmt.Printf("[cf.Insert]dk:%v\n", dk)
 	hash := xxhash.Sum64(kb)
 	i1, fp := getIndexAndFingerprintDBGKmer(hash, cf.BucketPow)
 	dk.FP = fp
+	fmt.Printf("[cf.Insert]dk:%v\n", dk)
 	if AddDBGKmer(&cf.Hash[i1], dk) {
 		//cf.Count++
 		return true

@@ -46,7 +46,7 @@ func CheckGlobalArgs(c cli.Command) (opt ArgsOpt, succ bool) {
 	if opt.Kmer >= NODEMAP_KEY_LEN*32 {
 		log.Fatalf("[CheckGlobalArgs] the argument 'K':%d must small than [NODEMAP_KEY_LEN * 32]:%d\n", opt.Kmer, NODEMAP_KEY_LEN*32)
 	} else if opt.Kmer%2 != 1 {
-		log.Fatalf("[CheckGlobalArgs] the argument 'K':%d must odd Number\n", opt.Kmer, NODEMAP_KEY_LEN*32)
+		log.Fatalf("[CheckGlobalArgs] the argument 'K':%d must odd Number\n", opt.Kmer)
 	}
 	opt.NumCPU, ok = c.Flag("t").Get().(int)
 	if !ok {
@@ -178,6 +178,24 @@ func CountEqualByte(a, b []byte, strand bool) (count int) {
 
 	return
 }
+func IsInUint32Arr(arr []uint32, eID uint32) bool {
+	for _, id := range arr {
+		if id == eID {
+			return true
+		}
+	}
+	return false
+}
+
+func ReverseUint32Arr(arr []uint32) []uint32 {
+	al := len(arr)
+	dl := al / 2
+	for i := 0; i < dl; i++ {
+		arr[i], arr[al-1-i] = arr[al-1-i], arr[i]
+	}
+
+	return arr
+}
 
 func GetReverseUint32Arr(arr []uint32) []uint32 {
 	la := len(arr)
@@ -210,4 +228,13 @@ func IndexUint32(arr []uint32, eID uint32) int {
 		}
 	}
 	return -1
+}
+
+func IsInIntArr(arr []int, idx int) bool {
+	for _, a := range arr {
+		if a == idx {
+			return true
+		}
+	}
+	return false
 }
