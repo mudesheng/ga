@@ -4568,91 +4568,188 @@ type DBGKmerSeq struct {
 	ks []byte
 }
 
+const DBGKmerSyncmerMinimizerLen = 7
+const DBGKmerSyncmerMinimizerMask = (uint16(1) << (DBGKmerSyncmerMinimizerLen * NumBitsInBase)) - 1
+
+//const DBGKmerSyncmerPos1 = 3
+//const DBGKmerSyncmerPos2 = SeedLen - SyncmerPos1 - SyncmerMinimizerLen
+func PrintDk(dk DBGKmer) {
+	fmt.Printf("[PrintDk]ID:%d Pos:%d FP:%d strand:%t\n", dk.GetID(), dk.GetPos(), dk.GetFP(), dk.GetStrand())
+}
+
+func GetDkString(dk DBGKmer) string {
+	return fmt.Sprintf("[PrintDk]ID:%d Pos:%d FP:%d strand:%t", dk.GetID(), dk.GetPos(), dk.GetFP(), dk.GetStrand())
+}
+
+func GetDBGEdgeSyncmerArr(ks, rks []byte, buf []uint16, dkArr []DBGKmerSeq, ID uint64, kmerlen, windowSize int) []DBGKmerSeq {
+	dkArr = dkArr[:0]
+	if len(ks) < kmerlen {
+		return dkArr
+	}
+	buf = buf[:cap(buf)]
+	if len(buf) < kmerlen*2 {
+		log.Fatalf("[GetDBGEdgeSyncmerArr] len(buf):%d < kmerlen*2:%d\n", len(buf), kmerlen*2)
+	}
+
+	idx := 0
+	bufLeastIdx := 0
+	sm := CompressToUint16(ks[:DBGKmerSyncmerMinimizerLen])
+	rsm := GetReverseCompletUint16(sm, DBGKmerSyncmerMinimizerLen)
+	if sm < rsm {
+		buf[idx] = sm
+	} else {
+		buf[idx] = rsm
+	}
+	minsm := buf[idx]
+	minIdx := idx
+	idx++
+	for i := DBGKmerSyncmerMinimizerLen; i < kmerlen; i++ {
+		sm <<= NumBitsInBase
+		sm &= DBGKmerSyncmerMinimizerMask
+		sm |= uint16(ks[i])
+		rsm >>= NumBitsInBase
+		rsm |= (uint16(BntRev[ks[i]]) << (DBGKmerSyncmerMinimizerLen * NumBitsInBase))
+
+		if sm < rsm {
+			buf[idx] = sm
+		} else {
+			buf[idx] = rsm
+		}
+		if buf[idx] < minsm {
+			minsm = buf[idx]
+			minIdx = idx
+		}
+		//fmt.Printf("[GetSeqSyncmerArr]buf[%d]:%b minIdx:%d\n", idx, buf[idx], minIdx)
+		idx++
+	}
+	if minIdx%windowSize == 0 {
+		pos := idx - 1 + DBGKmerSyncmerMinimizerLen - kmerlen
+		bs := ks[pos : pos+kmerlen]
+		rbs := rks[len(rks)-(pos+kmerlen) : len(rks)-pos]
+		var ds DBGKmerSeq
+		ds.dk.SetID(ID)
+		ds.dk.SetPos(uint64(pos))
+		if BiggerThan(bs, rbs) {
+			ds.ks = rbs
+			ds.dk.SetStrand(false)
+		} else {
+			ds.ks = bs
+			ds.dk.SetStrand(true)
+		}
+		dkArr = append(dkArr, ds)
+		//fmt.Printf("[GetDBGEdgeSyncmerArr]ID:%d pos:%d bufLeastIdx+minIdx:%d\n", ID, pos, bufLeastIdx+minIdx)
+	}
+	//fmt.Printf("[GetSeqMiniKmerInfos]i:%d ks:%v\n\tki.SeedInfo:%b rki.SeedInfo:%b\n", i, ks[i:i+SeedLen], ki.GetKmer(), rki.GetKmer())
+	//ki := GetKmerInfo(ks[WinSize-1:WinSize-1+SeedLen], ID, uint32(WinSize-1), true)
+	//rki := GetKmerInfo(rs[sl-(WinSize-1)-SeedLen:sl-(WinSize-1)], ID, uint32(WinSize-1), false)
+	sl := len(ks)
+	for i := kmerlen; i < sl; i++ {
+		sm <<= NumBitsInBase
+		sm &= DBGKmerSyncmerMinimizerMask
+		sm |= uint16(ks[i])
+		rsm >>= NumBitsInBase
+		rsm |= (uint16(BntRev[ks[i]]) << (DBGKmerSyncmerMinimizerLen * NumBitsInBase))
+
+		if sm < rsm {
+			buf[idx] = sm
+		} else {
+			buf[idx] = rsm
+		}
+		if buf[idx] < minsm {
+			minsm = buf[idx]
+			minIdx = idx
+		} else if bufLeastIdx+minIdx < i+1-kmerlen {
+			minIdx = GetMinSyncmerMinimizerIdx(buf, idx+DBGKmerSyncmerMinimizerLen-kmerlen, idx+1)
+			minsm = buf[minIdx]
+		}
+		//fmt.Printf("[GetSeqSyncmerArr]buf[%d]:%b minIdx:%d\n", idx, buf[idx], minIdx)
+		idx++
+		//rki = GetKmerInfo(rbs, ID, uint64(i-(SeedLen-1)), MINUS)
+		pos := bufLeastIdx + idx - 1 + DBGKmerSyncmerMinimizerLen - kmerlen
+		if (bufLeastIdx+minIdx-pos)%windowSize == 0 {
+			bs := ks[pos : pos+kmerlen]
+			rbs := rks[len(rks)-(pos+kmerlen) : len(rks)-pos]
+			var ds DBGKmerSeq
+			ds.dk.SetID(ID)
+			ds.dk.SetPos(uint64(pos))
+			if BiggerThan(bs, rbs) {
+				ds.ks = rbs
+				ds.dk.SetStrand(false)
+			} else {
+				ds.ks = bs
+				ds.dk.SetStrand(true)
+			}
+			//fmt.Printf("[GetDBGEdgeSyncmerArr]ID:%d pos:%d bufLeastIdx+minIdx:%d\n", ID, pos, bufLeastIdx+minIdx)
+			//PrintDk(ds.dk)
+			dkArr = append(dkArr, ds)
+			//fmt.Printf("[GetSeqSyncmerArr]add KI pos:%d minIdx:%d\n", i-(SeedLen-1), bufLeastIdx+minIdx)
+		}
+		// adjust buf
+		if idx == len(buf) {
+			bufLeastIdx += minIdx
+			copy(buf[0:], buf[minIdx:])
+			idx = len(buf) - minIdx
+			minIdx = 0
+		}
+	}
+
+	return dkArr
+}
+
 func ConstructCFDBGMinimizers(cf *CuckooFilterDBGKmer, edgesArr []DBGEdge, kmerlen, winSize int) {
-	bufSize := winSize * 10
-	buf := make([]DBGKmerSeq, bufSize)
+	//bufSize := winSize * 10
+	notInsertCount := 0
+	buf := make([]uint16, kmerlen*2)
+	dkArr := make([]DBGKmerSeq, 400)
 	rs := make([]byte, 5000)
-	var ds, drs DBGKmerSeq
+	//var ds, drs DBGKmerSeq
 	for _, e := range edgesArr {
 		if e.ID < 2 || e.GetDeleteFlag() > 0 {
 			continue
 		}
 		ks := e.Ks
-		sl := len(ks)
 		rs = GetReverseCompByteArr2(ks, rs)
-		idx := 0
-		last := -1
-
-		for j := 0; j <= sl-kmerlen; j++ {
-			ds.ks = ks[j : j+kmerlen]
-			ds.dk.ID, ds.dk.Pos, ds.dk.Strand = e.ID, uint32(j), PLUS
-			drs.ks = rs[sl-j-kmerlen : sl-j]
-			drs.dk.ID, drs.dk.Pos, drs.dk.Strand = e.ID, uint32(j), MINUS
-			if BiggerThan(ds.ks, drs.ks) {
-				buf[idx] = drs
+		dkArr = GetDBGEdgeSyncmerArr(ks, rs, buf, dkArr, uint64(e.ID), kmerlen, winSize)
+		for j := range dkArr {
+			if cf.Insert(dkArr[j].ks, dkArr[j].dk) == false {
+				fmt.Fprintf(os.Stderr, "[ConstructCFDBGMinimizers] Insert to the CuckooFilter of DBGSample false, cf.Count:%d e.ID:%d el:%d pos:%d\n", cf.Count, e.ID, len(e.Ks), dkArr[j].dk.GetPos())
+				notInsertCount++
 			} else {
-				buf[idx] = ds
-			}
-			idx++
-
-			if j < winSize-1 {
-				continue
-			}
-
-			if last < 0 || idx-last > winSize {
-				minDS, x := FindMinDBGKmerSeq(buf[idx-winSize : idx])
-				y := idx - winSize + x
-				//fmt.Printf("[constructCFDBGSample]dk:%v\n", minDS)
-				if cf.Insert(minDS.ks, minDS.dk) == false {
-					log.Fatalf("[ConstructCFDBGMinimizers] Insert to the CuckooFilter of DBGSample false, cf.Count:%d\n", cf.Count)
-				}
 				cf.Count++
-				last = y
-			} else {
-				if BiggerThan(buf[last].ks, buf[idx-1].ks) {
-					//fmt.Printf("[constructCFDBGSample]dk:%v\n", buf[idx-1])
-					if cf.Insert(buf[idx-1].ks, buf[idx-1].dk) == false {
-						log.Fatalf("[ConstructCFDBGMinimizers] Insert to the CuckooFilter of DBGSample false, cf.Count:%d\n", cf.Count)
-					}
-					cf.Count++
-					last = idx - 1
-				}
-			}
-
-			// adjust buf
-			if idx == bufSize {
-				copy(buf[:bufSize-last], buf[last:])
-				idx = bufSize - last
-				last = 0
 			}
 		}
 	}
+	fmt.Printf("[ConstructCFDBGMinimizers]cf.Count:%d notInsertCount:%d\n", cf.Count, notInsertCount)
 }
 
 // found kmer seed position in the DBG edges
 func LocateSeedKmerCF(cf CuckooFilterDBGKmer, ri ReadInfo, winSize, kmerlen int, edgesArr []DBGEdge, ka []DBGKmerSeq, rSeq []byte, dbgKArr []DBGKmer) ([]DBGKmer, DBGKmer) {
-	//MaxStepNum := 10
-	sl := len(ri.Seq)
-	rSeq = GetReverseCompByteArr2(ri.Seq, rSeq)
-	//ka := make([]KmerInfo, MaxStepNum*winSize)
-	//fmt.Printf("[constructCFDBGSample] e: %v\n", e)
-	idx := 0
-	var ds, drs DBGKmerSeq
-	for j := 0; j < winSize; j++ {
-		ds.ks = ri.Seq[j : j+kmerlen]
-		ds.dk.Pos, ds.dk.Strand = uint32(j), PLUS
-		drs.ks = rSeq[sl-j-kmerlen : sl-j]
-		drs.dk.Pos, drs.dk.Strand = uint32(j), MINUS
-		if BiggerThan(drs.ks, ds.ks) {
-			ka[idx] = ds
-		} else {
-			ka[idx] = drs
-		}
-		idx++
+	var dk DBGKmer
+	dbgKArr = dbgKArr[:0]
+	MaxStepNum := 1
+	if len(ri.Seq) < kmerlen+winSize*MaxStepNum {
+		return dbgKArr, dk
 	}
-	min, x := FindMinDBGKmerSeq(ka[:idx])
-	dbgKArr = cf.Lookup(min.ks, dbgKArr)
-	return dbgKArr, ka[x].dk
+	buf := make([]uint16, kmerlen*2)
+	dkArr := make([]DBGKmerSeq, 3)
+	rSeq = GetReverseCompByteArr2(ri.Seq[:kmerlen+winSize*MaxStepNum], rSeq)
+	//fmt.Printf("[LocateSeedKmerCF]ks:%v\n\trs:%v\n", ri.Seq[:kmerlen+winSize*MaxStepNum], rSeq)
+	dkArr = GetDBGEdgeSyncmerArr(ri.Seq[:kmerlen+winSize*MaxStepNum], rSeq, buf, dkArr, uint64(ri.ID), kmerlen, winSize)
+	for i := range dkArr {
+		//PrintDk(dkArr[i].dk)
+		dbgKArr = cf.Lookup(dkArr[i].ks, dbgKArr)
+		if len(dbgKArr) > 0 {
+			dk = dkArr[i].dk
+			//break
+		}
+	}
+	fmt.Printf("[LocateSeedKmerCF]len(dbgKArr):%d len(dkArr):%d\n", len(dbgKArr), len(dkArr))
+	if len(dbgKArr) == 0 {
+		for i := range dkArr {
+			PrintDk(dkArr[i].dk)
+		}
+	}
+	return dbgKArr, dk
 }
 
 const (

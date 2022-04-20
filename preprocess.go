@@ -333,30 +333,30 @@ func MappingReadToEdges(dk, rdk DBGKmer, ri ReadInfo, edgesArr []DBGEdge, kmerle
 	rmi.PathSeqArr = make([]PathSeq, 0, 5)
 	var strand bool
 	var ps PathSeq
-	if dk.Strand == rdk.Strand {
-		rmi.StartP = int(dk.Pos)
-		dk.Pos += uint32(kmerlen)
+	if dk.GetStrand() == rdk.GetStrand() {
+		rmi.StartP = int(dk.GetPos())
+		dk.SetPos(uint64(rmi.StartP) + uint64(kmerlen))
 		strand = PLUS
 	} else {
-		rmi.StartP = int(dk.Pos) + kmerlen - 1
+		rmi.StartP = int(dk.GetPos()) + kmerlen - 1
 		//dk.Pos-- // need check if Pos == 0
 		strand = MINUS
 	}
-	rdk.Pos += uint32(kmerlen)
+	rdk.SetPos(rdk.GetPos() + uint64(kmerlen))
 	mappingNum += int(kmerlen)
 	eIDArr := make([]uint32, 0, BaseTypeNum)
 
 	//fmt.Printf("[MappingReadToEdges]len(ri.Seq): %v\n", len(ri.Seq))
-	for i := int(rdk.Pos); i < len(ri.Seq); {
-		e := &edgesArr[dk.ID]
+	for i := int(rdk.GetPos()); i < len(ri.Seq); {
+		e := &edgesArr[dk.GetID()]
 		b := len(ri.Seq)
 		var j int
 		//fmt.Printf("[MappingReadToEdges]i: %v,  strand: %v, dk.Pos: %v, dk.ID: %v, errorNum: %v\n", i, strand, dk.Pos, dk.ID, errorNum)
 		if strand == PLUS {
-			if len(e.Ks)-int(dk.Pos) < len(ri.Seq)-i {
-				b = i + (len(e.Ks) - int(dk.Pos))
+			if len(e.Ks)-int(dk.GetPos()) < len(ri.Seq)-i {
+				b = i + (len(e.Ks) - int(dk.GetPos()))
 			}
-			j = int(dk.Pos)
+			j = int(dk.GetPos())
 			for ; i < b && j < len(e.Ks); i++ {
 				if ri.Seq[i] != e.Ks[j] {
 					/*if e.Ks[j] > 3 {
@@ -370,10 +370,10 @@ func MappingReadToEdges(dk, rdk DBGKmer, ri ReadInfo, edgesArr []DBGEdge, kmerle
 				j++
 			}
 		} else { // strand == MINUS
-			if len(ri.Seq)-i > int(dk.Pos) {
-				b = i + int(dk.Pos)
+			if len(ri.Seq)-i > int(dk.GetPos()) {
+				b = i + int(dk.GetPos())
 			}
-			j = int(dk.Pos) - 1
+			j = int(dk.GetPos()) - 1
 			for ; i < b && j >= 0; i++ {
 				/*if e.Ks[j] > 3 {
 					fmt.Printf("[MappingReadToEdges] b: %v,i: %v,  j: %v, es:%v, eID:%d\n\te: %v", b, i, j, e.Ks[j], e.ID, e)
@@ -411,7 +411,7 @@ func MappingReadToEdges(dk, rdk DBGKmer, ri ReadInfo, edgesArr []DBGEdge, kmerle
 
 		// find next edge
 		{
-			rdk.Pos = uint32(i)
+			rdk.SetPos(uint64(i))
 			eIDArr = GetNextEdgeIDArr(e, strand, FORWARD, eIDArr)
 			if len(eIDArr) == 0 {
 				ri.Seq = ri.Seq[:i]
@@ -420,13 +420,13 @@ func MappingReadToEdges(dk, rdk DBGKmer, ri ReadInfo, edgesArr []DBGEdge, kmerle
 				//fmt.Printf("[MappingReadToEdges]len(eIDArr):%d\n", len(eIDArr))
 				break
 			} else if len(eIDArr) == 1 {
-				dk.ID = eIDArr[0]
-				ne := &edgesArr[dk.ID]
+				dk.SetID(uint64(eIDArr[0]))
+				ne := &edgesArr[dk.GetID()]
 				strand = GetNextEdgeStrand2(e, ne, strand, FORWARD)
 				if strand {
-					dk.Pos = uint32(kmerlen) - 1
+					dk.SetPos(uint64(kmerlen) - 1)
 				} else {
-					dk.Pos = uint32(ne.GetSeqLen() - (kmerlen - 1))
+					dk.SetPos(uint64(ne.GetSeqLen() - (kmerlen - 1)))
 				}
 				//fmt.Printf("[MappingReadToEdges]i:%d, dk.Pos:%d errorNum:%d\n", i, dk.Pos, errorNum)
 				continue
@@ -466,12 +466,12 @@ func MappingReadToEdges(dk, rdk DBGKmer, ri ReadInfo, edgesArr []DBGEdge, kmerle
 			}
 
 			if maxScore > 0 && nextMaxScore == 0 {
-				dk.ID = eIDArr[maxIdx]
+				dk.SetID(uint64(eIDArr[maxIdx]))
 				strand = strandArr[maxIdx]
 				if strand {
-					dk.Pos = uint32(kmerlen) - 1
+					dk.SetPos(uint64(kmerlen) - 1)
 				} else {
-					dk.Pos = uint32(edgesArr[dk.ID].GetSeqLen() - (kmerlen - 1))
+					dk.SetPos(uint64(edgesArr[dk.GetID()].GetSeqLen() - (kmerlen - 1)))
 				}
 				//fmt.Printf("[MappingReadToEdges]maxScore:%d i:%d, dk.Pos:%d errorNum:%d\n", maxScore, i, dk.Pos, errorNum)
 			} else {
@@ -1120,7 +1120,7 @@ func paraMapNGSAndCorrect(cs <-chan RIPool, wc chan<- RIPool, nodesArr []DBGNode
 				continue
 			} else if len(dbgKArr) > 1 {
 				dbgKArr[0] = ReLocation(dbgKArr, rdbgK, ri, edgesArr, opt.Kmer)
-				if dbgKArr[0].ID == 0 {
+				if dbgKArr[0].GetID() == 0 {
 					oneMoreLocationNum++
 					//fmt.Fprintf(os.Stderr, "[paraMapNGSAndCorrect]read ID:%d ReLocation failed!!!\n", ri.ID)
 					continue
@@ -1319,10 +1319,10 @@ func ReLocation(da []DBGKmer, ra DBGKmer, ri ReadInfo, edgesArr []DBGEdge, kmerl
 	//seq1 := make([]byte, kmerlen)
 	//seq2 := make([]byte, kmerlen)
 	var seq1, seq2 []byte
-	if ra.Strand {
-		seq1 = ri.Seq[ra.Pos : int(ra.Pos)+kmerlen]
+	if ra.GetStrand() {
+		seq1 = ri.Seq[ra.GetPos() : int(ra.GetPos())+kmerlen]
 	} else {
-		seq1 = GetReverseCompByteArr(ri.Seq[ra.Pos : int(ra.Pos)+kmerlen])
+		seq1 = GetReverseCompByteArr(ri.Seq[ra.GetPos() : int(ra.GetPos())+kmerlen])
 	}
 	count := 0
 	//fmt.Fprintf(os.Stderr, "[ReLocation]seq1:%s\n", Transform2Char(ri.Seq[ra.Pos:int(ra.Pos)+kmerlen]))
@@ -1330,31 +1330,31 @@ func ReLocation(da []DBGKmer, ra DBGKmer, ri ReadInfo, edgesArr []DBGEdge, kmerl
 	for _, dk := range da {
 		//fmt.Fprintf(os.Stderr, "[ReLocation]eID:%d len(e.ks):%d seq2:%s\n", dk.ID, len(edgesArr[dk.ID].Ks), Transform2Char(edgesArr[dk.ID].Ks[dk.Pos:int(dk.Pos)+kmerlen]))
 		//fmt.Fprintf(os.Stderr, "[ReLocation]seq2:%s\n", Transform2Char(edgesArr[dk.ID].Ks[dk.Pos:int(dk.Pos)+kmerlen]))
-		if dk.Strand {
-			seq2 = edgesArr[dk.ID].Ks[dk.Pos : int(dk.Pos)+kmerlen]
+		if dk.GetStrand() {
+			seq2 = edgesArr[dk.GetID()].Ks[dk.GetPos() : int(dk.GetPos())+kmerlen]
 		} else {
-			seq2 = GetReverseCompByteArr(edgesArr[dk.ID].Ks[dk.Pos : int(dk.Pos)+kmerlen])
+			seq2 = GetReverseCompByteArr(edgesArr[dk.GetID()].Ks[dk.GetPos() : int(dk.GetPos())+kmerlen])
 		}
 		if EqualByteArr(seq1, seq2) {
 			count++
 			dbgK = dk
 		}
 	}
-	if count == 2 {
-		if da[0].ID == da[1].ID {
-			if ra.Strand == da[0].Strand {
+	if count >= 2 {
+		if da[0].GetID() == da[1].GetID() {
+			if ra.GetStrand() == da[0].GetStrand() {
 				dbgK = da[0]
-			} else if ra.Strand == da[1].Strand {
+			} else if ra.GetStrand() == da[1].GetStrand() {
 				dbgK = da[1]
 			} else {
-				dbgK.ID = 0
+				dbgK.SetID(0)
 			}
 		} else {
-			fmt.Fprintf(os.Stderr, "[ReLocation]count:%d >1 DBGKmer arr:%v\n", count, da)
+			fmt.Fprintf(os.Stderr, "[ReLocation]count:%d >1 DBGKmer arr[0]:%s arr[1]:%s\n", count, GetDkString(da[0]), GetDkString(da[1]))
 		}
 	} else if count == 0 {
 		fmt.Fprintf(os.Stderr, "[ReLocation]count:%d ==0 DBGKmer arr:%v\n", count, da)
-		dbgK.ID = 0
+		dbgK.SetID(0)
 	}
 	return dbgK
 }
@@ -1404,7 +1404,7 @@ func paraMapNGSAndMerge(cs <-chan RIPool, wc chan<- RIPool, nodesArr []DBGNode, 
 					continue
 				} else if len(da[j-i]) > 1 {
 					da[j-i][0] = ReLocation(da[j-i], ra[j-i], ri, edgesArr, opt.Kmer)
-					if da[j-i][0].ID == 0 {
+					if da[j-i][0].GetID() == 0 {
 						oneMoreLocationNum++
 						needMerge = false
 						//fmt.Fprintf(os.Stderr, "[paraMapNGSAndMerge]read ID:%d ReLocation failed!!!\n", ri.ID)
@@ -1453,18 +1453,18 @@ func paraMapNGSAndMerge(cs <-chan RIPool, wc chan<- RIPool, nodesArr []DBGNode, 
 					continue
 				}
 				mIdx++
-				xl := int(ra[0].Pos + ra[1].Pos)
+				xl := int(ra[0].GetPos() + ra[1].GetPos())
 				if len(seq)+xl > cap(seq) {
 					tmp := make([]byte, len(seq)+xl)
-					copy(tmp[ra[0].Pos:], seq)
+					copy(tmp[ra[0].GetPos():], seq)
 					seq = tmp
 				} else {
 					seq = seq[:len(seq)+xl]
-					copy(seq[ra[0].Pos:], seq[:len(seq)-xl])
+					copy(seq[ra[0].GetPos():], seq[:len(seq)-xl])
 				}
-				copy(seq[:ra[0].Pos], riPool.RIArr[i].Seq[:ra[0].Pos])
-				copy(seq[len(seq)-int(ra[1].Pos):], riPool.RIArr[i+1].Seq[:ra[1].Pos])
-				ReverseCompByteArr(seq[len(seq)-int(ra[1].Pos):])
+				copy(seq[:ra[0].GetPos()], riPool.RIArr[i].Seq[:ra[0].GetPos()])
+				copy(seq[len(seq)-int(ra[1].GetPos()):], riPool.RIArr[i+1].Seq[:ra[1].GetPos()])
+				ReverseCompByteArr(seq[len(seq)-int(ra[1].GetPos()):])
 				var mR ReadInfo
 				mR.Seq = seq
 				mR.ID = m.ID

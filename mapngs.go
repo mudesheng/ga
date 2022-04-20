@@ -434,7 +434,7 @@ func MapNGSReadFindPath(RIPoolChan <-chan RIPool, rbytesPool, RIArrPool *sync.Po
 				continue
 			} else if len(dbgKArr) > 1 {
 				dbgKArr[0] = ReLocation(dbgKArr, rdbgK, ri, edgesArr, opt.Kmer)
-				if dbgKArr[0].ID == 0 {
+				if dbgKArr[0] == 0 {
 					oneMoreLocationNum++
 					//fmt.Fprintf(os.Stderr, "[paraMapNGSAndCorrect]read ID:%d ReLocation failed!!!\n", ri.ID)
 					continue
@@ -469,7 +469,7 @@ func MapNGSReadFindPath(RIPoolChan <-chan RIPool, rbytesPool, RIArrPool *sync.Po
 	if len(pa) > 0 {
 		wc <- pa
 	}
-	fmt.Printf("[MapNGSReadFindPath] not found seed read pair number is:%d allNum:%d  percent:%f\n", notFoundSeedNum, allNum, float32(notFoundSeedNum)/float32(allNum))
+	fmt.Printf("[MapNGSReadFindPath] not found seed read pair number is:%d allNum:%d  percent:%f oneMoreLocationNum:%d\n", notFoundSeedNum, allNum, float32(notFoundSeedNum)/float32(allNum), oneMoreLocationNum)
 	fmt.Printf("[MapNGSReadFindPath] high error mapping read pair number is:%d short mapping num:%d avg mapping len:%d\n", highErrorNum, shortMappingNum, totalMapLen/(allNum-notFoundSeedNum+1))
 }
 
@@ -3287,7 +3287,7 @@ func MapNGS(c cli.Command) {
 	CheckDBGSelfCycle(nodesArr, edgesArr, opt.Kmer)
 	CheckInterConnectivity(edgesArr, nodesArr)
 
-	// remap NGS to new EdgesArr
+	/*// remap NGS to new EdgesArr
 	fmt.Printf("[MapNGS]remap MapingNGSFindDBGPath\n")
 	NGSPathfn = opt.Prefix + ".NGSPath2.zst"
 	NGSPathSizefn = opt.Prefix + ".NGSPathSize2"
@@ -3302,7 +3302,7 @@ func MapNGS(c cli.Command) {
 	//PrintTmpNodesArr(nodesArr, opt.Prefix)
 	AddNGSPathToDBG(NGSPathfn, nodesArr, edgesArr, opt, ngsPathSize, false)
 	CheckNGSPathArr(edgesArr, nodesArr)
-
+	*/
 	//store DBG
 	mapDBGNodesfn := opt.Prefix + ".nodes.MapDBG.Arr"
 	fc2 := make(chan int, 1)

@@ -415,14 +415,14 @@ func GetMinSyncmerMinimizerIdx(buf []uint16, start, end int) int {
 }
 
 func GetSeqSyncmerArr(ks []byte, buf []uint16, kmerInfoArr []KI, ID uint32, SeedLen int) []KI {
+	kmerInfoArr = kmerInfoArr[:0]
 	if len(ks) < SeedLen {
-		return kmerInfoArr[:0]
+		return kmerInfoArr
 	}
 	buf = buf[:cap(buf)]
 	if len(buf) < SeedLen*2 {
 		log.Fatalf("[GetSeqSyncmerArr] len(buf):%d < SeedLen*2:%d\n", len(buf), SeedLen*2)
 	}
-	kmerInfoArr = kmerInfoArr[:0]
 	//kmerInfoArr := make([]KI, 0, len(ks)/WinSize*2)
 	//rs = GetReverseCompByteArr2(ks, rs)
 	//fmt.Printf("[GetSeqSyncmerArr]eID:%d seq:%v\n", ID, ks)
@@ -490,12 +490,12 @@ func GetSeqSyncmerArr(ks []byte, buf []uint16, kmerInfoArr []KI, ID uint32, Seed
 		} else {
 			buf[idx] = rsm
 		}
-		if bufLeastIdx+minIdx < i+1-SeedLen {
-			minIdx = GetMinSyncmerMinimizerIdx(buf, idx+SyncmerMinimizerLen-SeedLen, idx+1)
-			minsm = buf[minIdx]
-		} else if buf[idx] < minsm {
+		if buf[idx] < minsm {
 			minsm = buf[idx]
 			minIdx = idx
+		} else if bufLeastIdx+minIdx < i+1-SeedLen {
+			minIdx = GetMinSyncmerMinimizerIdx(buf, idx+SyncmerMinimizerLen-SeedLen, idx+1)
+			minsm = buf[minIdx]
 		}
 		//fmt.Printf("[GetSeqSyncmerArr]buf[%d]:%b minIdx:%d\n", idx, buf[idx], minIdx)
 		idx++

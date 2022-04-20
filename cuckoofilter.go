@@ -86,12 +86,55 @@ func init() {
 
 type Bucket [BucketSize]uint16
 
-type DBGKmer struct {
+/*type DBGKmer struct {
 	ID     uint32
 	Pos    uint32
 	FP     uint16
 	Strand bool
 	//Freq uint16
+}*/
+
+type DBGKmer uint64 // ID(27)|Pos(20):FP(16):Strand(1)
+const IDWidth = 27
+const PosWidth = 20
+const FPWidth = 16
+const IDMask = (1 << (64 - IDWidth)) - 1
+const PosMask = (((1 << IDWidth) - 1) << (64 - IDWidth)) | ((1 << (FPWidth + 1)) - 1)
+const FPMask = (((1 << (IDWidth + PosWidth)) - 1) << (FPWidth + 1)) | 0x1
+
+func (d DBGKmer) GetID() uint64 {
+	return uint64(d >> (64 - IDWidth))
+}
+func (d *DBGKmer) SetID(id uint64) {
+	*d = DBGKmer(id<<(64-IDWidth) | (uint64(*d) & IDMask))
+}
+
+func (d DBGKmer) GetPos() uint64 {
+	return uint64((d >> (FPWidth + 1)) & ((1 << PosWidth) - 1))
+}
+
+func (d *DBGKmer) SetPos(pos uint64) {
+	*d = DBGKmer(pos<<(FPWidth+1) | (uint64(*d) & PosMask))
+}
+
+func (d DBGKmer) GetFP() uint64 {
+	return uint64((d >> 1) & ((1 << FPWidth) - 1))
+}
+
+func (d *DBGKmer) SetFP(FP uint64) {
+	*d = DBGKmer((FP << 1) | (uint64(*d) & FPMask))
+}
+
+func (d DBGKmer) GetStrand() bool {
+	return (d & 0x1) > 0
+}
+
+func (d *DBGKmer) SetStrand(st bool) {
+	*d >>= 1
+	*d <<= 1
+	if st {
+		*d |= 0x1
+	}
 }
 
 type CuckooFilter struct {
@@ -343,10 +386,10 @@ func (b *Bucket) getFingerprintIndex(fp uint16) (int, uint16) {
 
 func getDBGKmer(bc [BucketSize]DBGKmer, fp uint16, da []DBGKmer) []DBGKmer {
 	for _, d := range bc {
-		if d.ID == 0 {
+		if d == 0 {
 			break
 		}
-		if d.FP == fp {
+		if uint16(d.GetFP()) == fp {
 			da = append(da, d)
 		}
 	}
@@ -440,7 +483,7 @@ func (cf *CuckooFilter) Add1(i uint64, j int, fp uint16) bool {
 
 func AddDBGKmer(b *[BucketSize]DBGKmer, d DBGKmer) (ok bool) {
 	for i := 0; i < BucketSize; i++ {
-		if b[i].ID == 0 {
+		if b[i] == 0 {
 			b[i] = d
 			ok = true
 			break
@@ -505,9 +548,9 @@ func (cf *CuckooFilterDBGKmer) reinsert(i uint64, dk DBGKmer) bool {
 		//fp = cf.Switch(i, j, fp)
 		cf.Hash[i][j], dk = dk, cf.Hash[i][j]
 		// look in the alternate location for that random element
-		i = getAltIndex(dk.FP, i)
+		i = getAltIndex(uint16(dk.GetFP()), i)
 		for x := 0; x < BucketSize; x++ {
-			if cf.Hash[i][x].ID == 0 {
+			if cf.Hash[i][x] == 0 {
 				cf.Hash[i][x] = dk
 				return true
 			}
@@ -519,8 +562,9 @@ func (cf *CuckooFilterDBGKmer) reinsert(i uint64, dk DBGKmer) bool {
 func (cf *CuckooFilterDBGKmer) Insert(kb []byte, dk DBGKmer) bool {
 	hash := xxhash.Sum64(kb)
 	i1, fp := getIndexAndFingerprintDBGKmer(hash, cf.BucketPow)
-	dk.FP = fp
-	fmt.Printf("[cf.Insert]dk:%v\n", dk)
+	dk.SetFP(uint64(fp))
+	//fmt.Printf("[cf.Insert]dk:%v\n", dk)
+	//PrintDk(dk)
 	if AddDBGKmer(&cf.Hash[i1], dk) {
 		//cf.Count++
 		return true
